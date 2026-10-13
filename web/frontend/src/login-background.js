@@ -2,7 +2,15 @@ import './login-motion.css'
 
 export const LOGIN_BACKGROUNDS = [
   { id: 'pcb' },
+  { id: 'globe' },
 ]
+
+const mounted = new WeakMap()
+
+export function disposeLoginBackground(surface) {
+  mounted.get(surface)?.dispose()
+  mounted.delete(surface)
+}
 
 const STORAGE_KEY = 'smarttest.login.background'
 
@@ -20,14 +28,50 @@ export function applyLoginBackground({ root = document, backgrounds = LOGIN_BACK
   const surface = root.querySelector('[data-login-board]')
   if (!surface) return ''
   const id = selectLoginBackground({ backgrounds, storage: storage ?? sessionStorage, random })
+  const control = root.querySelector('[data-login-background-switch]')
+  if (control) {
+    control.value = id
+    const onChange = () => {
+      const selected = backgrounds.filter(background => background.id === control.value)
+      applyLoginBackground({ root, backgrounds: selected, storage, random })
+      // Restore the complete choices for the next user selection.
+      control.onchange = onChange
+    }
+    control.onchange = onChange
+  }
+  if (mounted.get(surface)?.id === id) return id
+  disposeLoginBackground(surface)
   surface.dataset.loginBackground = id
-  if (id === 'pcb') mountLoginMotion(surface)
+  const dispose = id === 'pcb' ? mountLoginMotion(surface) : id === 'globe' ? mountLoginGlobe(surface) : () => {}
+  mounted.set(surface, { id, dispose })
   return id
 }
 
-const PCB_MARKUP = `<svg class="pcb-motion" viewBox="0 0 1672 941" aria-hidden="true">
-      <image class="pcb-light" href="/images/login-pcb-white-cutout.png" width="1672" height="941"/>
-      <image class="pcb-dark" href="/images/login-pcb-dark-cutout.png" width="1672" height="941"/>
+function mountLoginGlobe(surface) {
+  const layer = document.createElement('div')
+  layer.className = 'login-globe'
+  layer.dataset.productLine = 'Global Operator & STB'
+  layer.dataset.productSurface = 'background'
+  layer.dataset.globeFraming = 'login'
+  layer.setAttribute('aria-hidden', 'true')
+  surface.prepend(layer)
+  let disposed = false
+  let stop
+  // Keep geography data and renderer out of the PCB's initial module graph.
+  import('./product-line-motion.js').then(({ initializeProductLineMotion }) => {
+    if (!disposed) stop = initializeProductLineMotion({ root: surface })
+  }).catch(error => {
+    if (disposed) return
+    layer.removeAttribute('aria-hidden')
+    layer.setAttribute('role', 'alert')
+    layer.textContent = `Globe could not load: ${error.message}`
+  })
+  return () => { disposed = true; stop?.(); layer.remove() }
+}
+
+const PCB_MARKUP = `<svg class="pcb-motion" viewBox="0 0 1120 942" aria-hidden="true">
+      <image class="pcb-light" href="/images/login-pcb-white-cutout.png" width="1120" height="941"/>
+      <image class="pcb-dark" href="/images/login-pcb-dark-cutout.png" width="1120" height="942"/>
       <!-- Coordinates follow the shared artwork's cyan traces, ending at chip pins. -->
       <g class="trace-motion" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <path d="M 111 205 L 251 248 L 296 336 L 352 353" pathLength="100"/>
@@ -57,4 +101,10 @@ export function mountLoginMotion(surface) {
   const syncVisibility = () => surface.classList.toggle('motion-hidden', document.hidden)
   document.addEventListener('visibilitychange', syncVisibility)
   syncVisibility()
+  return () => {
+    window.removeEventListener('theme:changed', syncPaths)
+    document.removeEventListener('visibilitychange', syncVisibility)
+    surface.querySelector('.pcb-motion')?.remove()
+    surface.classList.remove('login-motion', 'motion-hidden')
+  }
 }

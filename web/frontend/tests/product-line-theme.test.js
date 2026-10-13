@@ -142,6 +142,35 @@ it('draws one clipped global globe and stops, resumes and removes it with the su
   expect(document.querySelector('canvas')).toBeNull()
 })
 
+it('mounts the login full globe through the shared lifecycle and disposes it when replaced', async () => {
+  const environment = canvasEnvironment()
+  vi.stubGlobal('ResizeObserver', environment.ResizeObserver)
+  const { applyLoginBackground, disposeLoginBackground } = await import('../src/login-background.js')
+  document.body.innerHTML = '<main data-login-board><form><input></form></main>'
+  const storage = { getItem: () => 'globe', setItem() {} }
+  expect(applyLoginBackground({ storage })).toBe('globe')
+  await vi.dynamicImportSettled()
+  const surface = document.querySelector('[data-login-board]')
+    const globe = surface.querySelector('[data-globe-framing="login"]')
+  expect(globe).not.toBeNull()
+  environment.resize([{ target: globe, contentRect: { width: 900, height: 800 } }])
+  environment.frame(1000)
+  expect(surface.querySelectorAll('canvas')).toHaveLength(1)
+  applyLoginBackground({ storage })
+  expect(surface.querySelectorAll('canvas')).toHaveLength(1)
+  environment.media.matches = true
+  environment.media.dispatchEvent(new Event('change'))
+  environment.frame(2000)
+  expect(environment.frames.size).toBe(0)
+  applyLoginBackground({ storage: { getItem: () => 'pcb' } })
+  expect(surface.querySelector('canvas')).toBeNull()
+  expect(environment.observed.size).toBe(0)
+  expect(surface.querySelector('.pcb-motion')).not.toBeNull()
+  expect(surface.querySelector('input')).not.toBeNull()
+  disposeLoginBackground(surface)
+  expect(surface.querySelector('.pcb-motion')).toBeNull()
+})
+
 it('keeps nested global controls on one static reduced-motion globe and releases detached layouts', async () => {
   const environment = canvasEnvironment(true)
   const { initializeProductLineMotion } = await import('../src/product-line-motion.js')

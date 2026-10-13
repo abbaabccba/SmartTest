@@ -4,6 +4,11 @@ import config from '../vite.config.js'
 import { JSDOM } from 'jsdom'
 
 describe('Vite development server', () => {
+  it('leaves login motion to its background owner while other pages keep shared motion', () => {
+    const plugin = config.plugins.find(item => item.name === 'smarttest-product-motion')
+    expect(plugin.transformIndexHtml.handler('', { filename: config.build.rollupOptions.input.login })).toEqual([])
+    expect(plugin.transformIndexHtml.handler('', { filename: config.build.rollupOptions.input.projects })).toHaveLength(1)
+  })
   it('restores the theme before styles for every HTML entry without waiting for a session', () => {
     const plugin = config.plugins.find(item => item.name === 'smarttest-theme-first-paint')
     const [script] = plugin.transformIndexHtml.handler()

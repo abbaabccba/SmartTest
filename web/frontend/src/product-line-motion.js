@@ -9,7 +9,7 @@ const selector = ':is([data-product-line="China Operator"], [data-product-line="
 const colors = ['#0064b4', '#0096ff', '#64c8ff', '#ff69b4', '#ffffff']
 const ease = value => (1 - Math.cos(Math.PI * value)) / 2
 
-export function initializeProductLineMotion({ ResizeObserver = globalThis.ResizeObserver } = {}) {
+export function initializeProductLineMotion({ ResizeObserver = globalThis.ResizeObserver, root = document } = {}) {
   const surfaces = new Map()
   const media = matchMedia('(prefers-reduced-motion: reduce)')
   let images
@@ -149,7 +149,7 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
     state.element.append(state.error)
   }
   function reconcile() {
-    const eligible = new Set([...document.querySelectorAll(selector)].filter(element => !element.parentElement.closest('[data-product-surface="layout"]')))
+    const eligible = new Set([...root.querySelectorAll(selector)].filter(element => !element.parentElement.closest('[data-product-surface="layout"]')))
     for (const [element, state] of surfaces) {
       if (eligible.has(element) && state.line === element.dataset.productLine) continue
       resize.unobserve(element)
@@ -178,7 +178,7 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
       canvas.className = element.dataset.productLine === 'Global Operator & STB' ? 'global-globe' : 'operator-matrix'
       canvas.setAttribute('aria-hidden', 'true')
       const state = { element, line: element.dataset.productLine, canvas, context: canvas.getContext('2d'), cells: [], visible: true, dirty: true, width: 0, height: 0 }
-      if (state.line === 'Global Operator & STB') state.globe = createGlobalGlobe(state.context)
+      if (state.line === 'Global Operator & STB') state.globe = createGlobalGlobe(state.context, { framing: element.dataset.globeFraming })
       element.classList.add(state.globe ? 'global-globe-surface' : 'operator-matrix-surface')
       element.prepend(canvas)
       surfaces.set(element, state)
@@ -197,7 +197,8 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
   document.addEventListener('visibilitychange', changed)
   window.addEventListener('resize', changed)
   media.addEventListener('change', changed)
-  Promise.all([mobile, telecom, unicom].map(async url => {
+  // A scoped login globe does not need operator logo decoding or sprite caches.
+  if (root === document || root.querySelector('[data-product-line="China Operator"]')) Promise.all([mobile, telecom, unicom].map(async url => {
     const image = new Image()
     image.src = url
     try { await image.decode() } catch { throw new Error(`China Operator artwork could not load: ${url}`) }

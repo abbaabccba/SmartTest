@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs'
 
 it('runs the PCB pulse on the login page with shared sizing, theme and hidden-page pause', async () => {
   document.body.innerHTML = readFileSync('login.html', 'utf8')
+  sessionStorage.setItem('smarttest.login.background', 'pcb')
   const style = document.createElement('style')
   style.textContent = readFileSync('src/smarttest-theme.css', 'utf8') + readFileSync('src/login-motion.css', 'utf8')
   document.head.append(style)
@@ -11,8 +12,8 @@ it('runs the PCB pulse on the login page with shared sizing, theme and hidden-pa
   const surface = document.querySelector('[data-login-board]')
   const artwork = surface.querySelector('.pcb-motion')
   expect(surface.dataset.motion).toBe('vivid')
-  expect(artwork.getAttribute('viewBox')).toBe('0 0 1672 941')
-  expect(getComputedStyle(artwork).width).toBe('min(100vw, 1672px, 177.68svh)')
+  expect(artwork.getAttribute('viewBox')).toBe('0 0 1120 942')
+  expect(getComputedStyle(artwork).width).toBe('min(100vw, 1120px, 118.89svh)')
   const light = artwork.querySelector('.pcb-light')
   const dark = artwork.querySelector('.pcb-dark')
   expect(existsSync(`public${light.getAttribute('href')}`)).toBe(true)

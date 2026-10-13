@@ -6,7 +6,7 @@ import { initializeTheme } from './src/theme.js'
 export default defineConfig({
   plugins: [{
     name: 'smarttest-product-motion',
-    transformIndexHtml: { order: 'pre', handler: () => [{
+    transformIndexHtml: { order: 'pre', handler: (_html, { filename }) => filename === resolve(import.meta.dirname, 'login.html') ? [] : [{
       tag: 'script', attrs: { type: 'module' }, children: "import { initializeProductLineMotion } from '/src/product-line-motion.js'; initializeProductLineMotion();", injectTo: 'body',
     }] },
   }, {
