@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 import pytest
 
 from core.domain.detail import DetailSection
-from core.domain.values import NamedValue, PersonRef
+from core.domain.values import FieldBag, NamedValue, PersonRef
 from core.jira.audit import (
     JiraAuditUseCase,
     audit_issue,
@@ -45,7 +45,57 @@ def _issue(key: str, creator: str, description: str = GOOD_DESCRIPTION) -> Issue
         creator=PersonRef(creator.casefold(), creator.casefold(), creator),
         components=(NamedValue("10", "Video"),),
         description=DetailSection.loaded(RichText(description)),
+        custom_fields=DetailSection.loaded(FieldBag.from_mapping({'Channel of Reporter': {'value': 'Customer-Feedback'}, 'Test Case ID': None})),
     )
+
+
+@pytest.mark.parametrize('channel,test_case,failed', [
+    ('Self-Test', None, True), ('Self-Test', '', True), ('Self-Test', '  ', True),
+    ('Self-Test', 'CASE-1', False), ('Customer-Feedback', None, False), ('', None, False),
+])
+def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, failed):
+    issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': channel}, 'Test Case ID': test_case})))
+    result = audit_issue(issue)
+    findings = [item for item in result.violations if item.rule_id == 'TEST_CASE_ID.REQUIRED']
+    assert bool(findings) is failed
+    assert result.passed is not failed
+    if failed:
+        assert findings[0].field == 'Test Case ID'
+        assert '缺少 Test Case ID' in findings[0].reason
+
+
+def test_other_channels_do_not_require_test_case_field_mapping():
+    issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Customer-Feedback'}})))
+    assert audit_issue(issue).passed
+    issue = replace(issue, custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}})))
+    result = audit_issue(issue)
+    assert not result.passed
+    assert [item.rule_id for item in result.violations] == ['TEST_CASE_ID.REQUIRED']
+    assert '缺少 Test Case ID' in result.violations[0].reason
+    assert audit_issue(replace(issue, custom_fields=DetailSection())).passed
+
+
+def test_self_test_missing_case_id_uses_existing_export_and_remediation(tmp_path):
+    from core.email.audit_report import summarize_audit, compare_jira_audits
+    from core.jira.audit.models import AuditReport, JiraAuditScope
+    issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': None})))
+    from core.jira.audit.rules import active_rules
+    report = AuditReport(JiraAuditScope('jql', '', 'key=SH-1'), datetime.now(timezone.utc), active_rules(), (audit_issue(issue),))
+    summary = summarize_audit('jira', report)
+    assert summary['failed'] == 1
+    assert summary['findings'][0]['ruleId'] == 'TEST_CASE_ID.REQUIRED'
+    path = export_audit_xlsx(report, output_path=tmp_path / 'jira.xlsx')
+    workbook = load_workbook(path)
+    assert any('TEST_CASE_ID.REQUIRED' in row and any('缺少 Test Case ID' in str(value) for value in row)
+               for row in workbook['违规明细'].values)
+    fixed = replace(issue, custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': 'CASE-1'})))
+    rerun = replace(report, issues=(audit_issue(fixed),))
+    assert compare_jira_audits(summary['findings'], rerun)[0]['state'] == 'fixed'
 
 
 def test_jira_input_resolves_issue_search_and_filter_urls_and_validates_jql() -> None:
@@ -122,7 +172,7 @@ SW info：[build 1]
     assert result.passed, {item.rule_id for item in result.violations}
 
 
-def test_jira_use_case_loads_description_only_for_eligible_creator() -> None:
+def test_jira_use_case_loads_audit_details_only_for_eligible_creator() -> None:
     eligible = replace(_issue("SH-1", "Chao Li"), description=DetailSection())
     ignored = replace(_issue("SH-2", "Outside User"), description=DetailSection())
 
@@ -139,7 +189,7 @@ def test_jira_use_case_loads_description_only_for_eligible_creator() -> None:
     )
 
     assert [item.key for item in report.issues] == ["SH-1"]
-    assert source.loaded == [("SH-1", ("description",))]
+    assert source.loaded == [("SH-1", ("description", "custom_fields"))]
 
 
 def test_jira_exporter_creates_summary_and_violation_workbook(tmp_path) -> None:
@@ -160,6 +210,9 @@ def test_jira_exporter_creates_summary_and_violation_workbook(tmp_path) -> None:
 
     assert workbook.sheetnames == ["汇总", "违规明细"]
     assert tuple(workbook["汇总"].values)[8] == ("创建人", "违规 Jira 数量", "违规 Jira 号")
+    detail = workbook['违规明细']
+    assert detail['B1'].value == '人员（Creator）'
+    assert detail['B2'].value == 'Chao Li'
 
 
 def test_jira_use_case_starts_every_detail_when_requests_are_below_capacity() -> None:

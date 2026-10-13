@@ -32,6 +32,7 @@ def creator_names() -> frozenset[str]:
 _RULE_DATA = (
     ("SUMMARY.FORMAT", "Summary", "Summary", "Summary 必须包含 4–6 个方括号分组，最后四组依次为客户、CHIP、系统版本和模块，冒号后填写非空问题描述。", "使用“[客户][CHIP][版本][模块]: 问题描述”；前面可选增加公共 Jira ID 和客户 Bug ID。"),
     ("COMPONENT.REQUIRED", "Component", "Component", "至少填写一个 Component。", "填写与问题对应的 Component。"),
+    ("TEST_CASE_ID.REQUIRED", "Test Case ID", "Test Case ID", "Channel of Reporter 为 Self-Test 时，Test Case ID 必须非空。", "填写对应的 Test Case ID。"),
     ("DESCRIPTION.STEPS_TO_REPRODUCE", "Description", "Description", "Description 必须包含非空的 Steps to reproduce。", "补充可执行的复现步骤。"),
     ("DESCRIPTION.ACTUAL_RESULTS", "Description", "Description", "Description 必须包含非空的 Actual results。", "补充实际发生的结果。"),
     ("DESCRIPTION.EXPECTED_RESULTS", "Description", "Description", "Description 必须包含非空的 Expected results。", "补充预期结果。"),
@@ -200,6 +201,10 @@ def audit_issue(issue: Issue) -> IssueAuditResult:
     _audit_summary(normalized.summary, fail)
     if not normalized.components:
         fail("COMPONENT.REQUIRED", "[]", "Component 为空。")
+    custom_fields = dict(issue.custom_fields.value.values) if issue.custom_fields.value is not None else {}
+    channel = _item_text(custom_fields.get('Channel of Reporter'), 'value')
+    if channel == 'Self-Test' and not _item_text(custom_fields.get('Test Case ID')):
+        fail('TEST_CASE_ID.REQUIRED', '', 'Channel of Reporter 为 Self-Test，缺少 Test Case ID。')
     _audit_description(normalized.description, fail)
 
     return IssueAuditResult(

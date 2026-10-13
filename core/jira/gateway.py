@@ -285,7 +285,7 @@ class JiraGateway:
         if requested_fields:
             started = monotonic()
             try:
-                payload = self._api.get_issue(issue_key, fields=requested_fields, expand=None) or {}
+                payload = self._api.get_issue(issue_key, fields=requested_fields, expand='names' if 'custom_fields' in sections else None) or {}
             except Exception as exc:
                 response = getattr(exc, "response", None)
                 smart_log(
@@ -315,6 +315,9 @@ class JiraGateway:
                     result[section] = fields.get(jira_field)
             if "custom_fields" in sections:
                 result["custom_fields"] = {key: value for key, value in fields.items() if str(key).startswith("customfield_")}
+                for field_id, name in (payload.get('names') or {}).items():
+                    if name in ('Channel of Reporter', 'Test Case ID') and field_id in fields:
+                        result['custom_fields'][name] = fields[field_id]
         return result
 
     def create_issue(self, command: CreateIssueCommand) -> dict[str, Any]:

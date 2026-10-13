@@ -8,7 +8,7 @@ import pytest
 
 from core.ai import AIChatResponse, AIConfigurationError, AIResponseError, AITransportError
 from core.domain.detail import DetailSection
-from core.domain.values import NamedValue, PersonRef
+from core.domain.values import FieldBag, NamedValue, PersonRef
 from core.jira.audit import AIReviewStatus, JiraAuditScope, JiraAuditUseCase
 from core.jira.domain import Issue, IssueIdentity, JiraProjectRef, RichText
 
@@ -22,6 +22,22 @@ Notes:
 HW info: board A
 SW info: build 1
 """
+
+
+def test_ai_review_cannot_remove_missing_self_test_case_id():
+    from dataclasses import replace
+    from core.jira.audit.rules import audit_issue
+    from core.jira.audit.ai_review import review_issue
+    value = replace(issue(components=False), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': None})))
+    result = audit_issue(value)
+    response = json.dumps({'issue_key': result.key, 'decisions': [
+        {'rule_id': item.rule_id, 'result': 'PASS', 'reason': '', 'guidance': ''} for item in result.violations]})
+    reviewed = review_issue(result, AIClient([response]))
+    assert not reviewed.passed
+    assert [item.rule_id for item in reviewed.violations] == ['TEST_CASE_ID.REQUIRED']
+    assert '缺少 Test Case ID' in reviewed.violations[0].reason
+    assert (reviewed.ai_passed_count, reviewed.ai_failed_count) == (1, 1)
 
 
 def test_prompt_preserves_natural_semantics_and_explicit_json_contract():
@@ -66,6 +82,7 @@ def issue(key='SH-1', *, description=GOOD_DESCRIPTION, summary='[ACME][T7][V1][V
         creator=PersonRef('chao.li', 'chao.li', 'Chao Li'),
         components=(NamedValue('10', 'Video'),) if components else (),
         description=DetailSection.loaded(RichText(description)),
+        custom_fields=DetailSection.loaded(FieldBag.from_mapping({'Channel of Reporter': {'value': 'Customer-Feedback'}})),
     )
 
 

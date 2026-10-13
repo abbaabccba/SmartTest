@@ -175,7 +175,7 @@ def _jira_payload(key, creator, revision="2026-08-29T00:00:00+00:00"):
     }
 
 
-def test_jira_adapter_refreshes_every_page_and_only_eligible_description(tmp_path) -> None:
+def test_jira_adapter_refreshes_every_page_and_only_eligible_audit_details(tmp_path) -> None:
     class Gateway:
         config = type("Config", (), {"base_url": "https://jira.example", "page_size": 1})()
         def __init__(self): self.search_calls = []; self.detail_calls = []
@@ -185,7 +185,8 @@ def test_jira_adapter_refreshes_every_page_and_only_eligible_description(tmp_pat
             return {"issues": rows[page:page + 1], "total": 2, "maxResults": 1}
         def get_issue(self, key): return _jira_payload(key, "Chao Li")
         def load_issue_sections(self, key, sections):
-            self.detail_calls.append((key, sections)); return {"description": DESCRIPTION}
+            self.detail_calls.append((key, sections))
+            return {"description": DESCRIPTION, 'custom_fields': {'Channel of Reporter': {'value': 'Customer-Feedback'}}}
         def fetch_filter(self, filter_id): return {"jql": f"filter={filter_id}"}
         def search_payload(self, query, **_kwargs): return {"issues": [], "total": 0}
 
@@ -197,7 +198,7 @@ def test_jira_adapter_refreshes_every_page_and_only_eligible_description(tmp_pat
     report = owner.run(owner.resolve("project=SH"), type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
 
     assert gateway.search_calls == [0, 1]
-    assert gateway.detail_calls == [("SH-1", ("description",))]
+    assert gateway.detail_calls == [("SH-1", ("description",)), ("SH-1", ("custom_fields",))]
     assert [issue.key for issue in report.issues] == ["SH-1"]
     cached = repository.get("SH-1", __import__("core.jira.domain", fromlist=["IssueDetails"]).IssueDetails())
     assert cached.creator.display_name == "Chao Li"

@@ -93,6 +93,6 @@ class JiraAuditUseCase:
 
     def _audit_one(self, issue, token):
         token.raise_if_cancelled()
-        loaded = self._source.load_details(issue, IssueDetails(description=True))
+        loaded = self._source.load_details(issue, IssueDetails(description=True, custom_fields=True))
         token.raise_if_cancelled()
         return audit_issue(loaded)

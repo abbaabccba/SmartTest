@@ -13,9 +13,10 @@ from .rules import creator_names
 
 
 _SUMMARY_WIDTHS = (28, 24, 85)
-_DETAIL_WIDTHS = (14, 38, 10, 34, 18, 55, 22, 65, 38, 38)
+_DETAIL_WIDTHS = (14, 24, 38, 10, 34, 18, 55, 22, 65, 38, 38)
 _DETAIL_HEADERS = (
     "Issue Key",
+    "人员（Creator）",
     "Issue URL",
     "检查结果",
     "规则编号",
@@ -138,6 +139,7 @@ def _detail_rows(report: AuditReport) -> tuple[list[list[object]], tuple[str, ..
             rows.append(
                 [
                     issue.key if index == 0 else "",
+                    issue.creator if index == 0 else "",
                     issue.url if index == 0 else "",
                     "不符合" if index == 0 else "",
                     violation.rule_id,
@@ -155,7 +157,7 @@ def _detail_rows(report: AuditReport) -> tuple[list[list[object]], tuple[str, ..
             last_row = first_row + len(issue.violations) - 1
             merged_ranges.extend(
                 f"{column}{first_row}:{column}{last_row}"
-                for column in ("A", "B", "C")
+                for column in ("A", "B", "C", "D")
             )
     return rows, tuple(merged_ranges)
 

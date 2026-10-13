@@ -55,6 +55,22 @@ class RecordingApi:
         return {"id": str(filter_id), "name": "Mine", "jql": "project = SH"}
 
 
+def test_custom_fields_map_audit_names_from_response_without_changing_field_ids():
+    class Api:
+        def get_issue(self, key, *, fields, expand):
+            assert fields == ['description', '*all']
+            assert expand == 'names'
+            return {'fields': {'description': 'body', 'customfield_90001': {'value': 'Self-Test'},
+                               'customfield_90002': None, 'customfield_90003': 'other'},
+                    'names': {'customfield_90001': 'Channel of Reporter',
+                              'customfield_90002': 'Test Case ID', 'customfield_90003': 'Other'}}
+    gateway = JiraGateway('https://jira.example', 'u', 'p', api=Api())
+    payload = gateway.load_issue_sections('SH-1', ('description', 'custom_fields'))
+    assert payload['custom_fields'] == {'customfield_90001': {'value': 'Self-Test'},
+        'customfield_90002': None, 'customfield_90003': 'other',
+        'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': None}
+
+
 def test_jira_gateway_search_requests_only_lightweight_core_fields() -> None:
     api = RecordingApi()
     gateway = JiraGateway("https://jira.example", "u", "p", api=api, page_size=25)

@@ -175,6 +175,10 @@ def _merge(result, decisions):
     final: list[AuditViolation] = []
     passed_count = failed_count = 0
     for violation in result.violations:
+        if violation.rule_id == 'TEST_CASE_ID.REQUIRED':
+            final.append(violation)
+            failed_count += 1
+            continue
         outcome, reason, guidance = decisions[violation.rule_id]
         if outcome == "PASS":
             passed_count += 1

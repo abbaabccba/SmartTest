@@ -285,11 +285,15 @@ def render_history_report(kind: str, records: list[dict], *, current=False, reme
         else "历史预览：以下数据来自已提供的截图汇总，本次未重新执行审查，未发送邮件。"
     )
     body_title = title if current else subject
+    attachment_notice = (
+        '<p><strong>详细审查结果及问题明细请查阅附件，请相关负责人逐项核对并及时处理。</strong></p>'
+        if current else ''
+    )
     body = (
         '<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         '<body style="font-family:Arial,Microsoft YaHei,sans-serif;color:#172b4d;background:white;padding:20px">'
         f"<h2>{escape(body_title)}</h2><p>Hi all,</p>"
-        f"<p>{introduction}</p>{table}<p>{escape(note)}</p>{details}</body></html>"
+        f"<p>{introduction}</p>{attachment_notice}{table}<p>{escape(note)}</p>{details}</body></html>"
     )
     if kind == 'jira' and remediation is not None:
         section = '<h3>上期问题整改复查</h3>'
