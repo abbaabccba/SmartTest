@@ -242,26 +242,6 @@
             ]
           },
           {
-            "display_name": "Shaojun Chen",
-            "account": "shaojun.chen",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
             "display_name": "Kai Ni",
             "account": "kai.ni",
             "reports_to": "",
@@ -712,26 +692,6 @@
             ]
           },
           {
-            "display_name": "Meng Wang",
-            "account": "meng.wang",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
             "display_name": "Binbin Gao",
             "account": "binbin.gao",
             "reports_to": "",
@@ -959,26 +919,6 @@
             ]
           },
           {
-            "display_name": "Yonghua Wu",
-            "account": "yonghua.wu",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
             "display_name": "Jian Zhong",
             "account": "jian.zhong",
             "reports_to": "",
@@ -1017,7 +957,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": [
               "user"
@@ -1445,46 +1390,6 @@
             ]
           },
           {
-            "display_name": "Shouneng Chou",
-            "account": "shouneng.chou",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
-            "display_name": "Mennan Hu",
-            "account": "mennan.hu",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
             "display_name": "Hanpeng Su",
             "account": "hanpeng.su",
             "reports_to": "",
@@ -1523,7 +1428,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": [
               "user"
@@ -1655,26 +1565,6 @@
             ]
           },
           {
-            "display_name": "Zongwu Ma",
-            "account": "zongwu.ma",
-            "reports_to": "",
-            "active": true,
-            "organization": {
-              "team": "",
-              "division": ""
-            },
-            "employment": {
-              "grade": "",
-              "job_title_override": "",
-              "employee_type": ""
-            },
-            "assignments": [],
-            "expertise_domains": [],
-            "system_roles": [
-              "user"
-            ]
-          },
-          {
             "display_name": "Zonghao Ma",
             "account": "zonghao.ma",
             "reports_to": "",
@@ -1688,7 +1578,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": [
               "user"
@@ -1783,7 +1678,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": [
               "user"
@@ -1803,7 +1703,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": [
               "user"
@@ -1909,7 +1814,7 @@
           },
           {
             "display_name": "Yimin Zhou",
-            "account": "",
+            "account": "yimin.zhou",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -1921,13 +1826,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Zeqin Lai",
-            "account": "",
+            "account": "zeqin.lai",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -1939,13 +1849,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Lianhong Wang",
-            "account": "",
+            "account": "lianhong.wang",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -1957,13 +1872,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Linqi Chen",
-            "account": "",
+            "account": "linqi.chen",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -1975,13 +1895,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Jiaxuan Ren",
-            "account": "",
+            "account": "jiaxuan.ren",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -1993,13 +1918,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Wencan Xue",
-            "account": "",
+            "account": "wencan.xue",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -2011,13 +1941,18 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "TV",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
           {
             "display_name": "Shuangshuang Feng",
-            "account": "",
+            "account": "shuangshuang.feng",
             "reports_to": "",
             "active": true,
             "organization": {
@@ -2029,7 +1964,12 @@
               "job_title_override": "",
               "employee_type": ""
             },
-            "assignments": [],
+            "assignments": [
+              {
+                "product_line_id": "Smart Device",
+                "responsibilities": []
+              }
+            ],
             "expertise_domains": [],
             "system_roles": []
           },
@@ -2978,11 +2918,6 @@
           "department": "amlogic-qa"
         },
         {
-          "display_name": "Shaojun Chen",
-          "ldap_account": "shaojun.chen",
-          "department": "amlogic-qa"
-        },
-        {
           "display_name": "Kai Ni",
           "ldap_account": "kai.ni",
           "department": "amlogic-qa"
@@ -3083,11 +3018,6 @@
           "department": "amlogic-qa"
         },
         {
-          "display_name": "Meng Wang",
-          "ldap_account": "meng.wang",
-          "department": "amlogic-qa"
-        },
-        {
           "display_name": "Binbin Gao",
           "ldap_account": "binbin.gao",
           "department": "amlogic-qa"
@@ -3135,11 +3065,6 @@
         {
           "display_name": "Yu Zhang1",
           "ldap_account": "yu.zhang1",
-          "department": "amlogic-qa"
-        },
-        {
-          "display_name": "Yonghua Wu",
-          "ldap_account": "yonghua.wu",
           "department": "amlogic-qa"
         },
         {
@@ -3208,16 +3133,6 @@
           "department": "amlogic-qa"
         },
         {
-          "display_name": "Shouneng Chou",
-          "ldap_account": "shouneng.chou",
-          "department": "amlogic-qa"
-        },
-        {
-          "display_name": "Mennan Hu",
-          "ldap_account": "mennan.hu",
-          "department": "amlogic-qa"
-        },
-        {
           "display_name": "Hanpeng Su",
           "ldap_account": "hanpeng.su",
           "department": "amlogic-qa"
@@ -3250,11 +3165,6 @@
         {
           "display_name": "Mingdong Wang",
           "ldap_account": "mingdong.wang",
-          "department": "amlogic-qa"
-        },
-        {
-          "display_name": "Zongwu Ma",
-          "ldap_account": "zongwu.ma",
           "department": "amlogic-qa"
         },
         {
