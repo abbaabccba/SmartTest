@@ -256,7 +256,7 @@ def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOw
         username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
         try:
-            sessions.saved_credentials(username)
+            _stored_username, saved_password = sessions.saved_credentials(username)
         except CredentialMissingError:
             pass
         except CredentialStoreError as error:
@@ -265,24 +265,14 @@ def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOw
                 detail={"state": "credential_store_unavailable"},
             ) from error
         else:
-            if not sessions.has_cached_avatar(username):
-                result = auth.authenticate(username, password)
-                if result.get("success"):
-                    return establish_session(
-                        request,
-                        response,
-                        username=result["username"],
-                        password=password,
-                        display_name=result.get("display_name", ""),
-                        avatar_bytes=result.get("avatar_bytes", b""),
-                    )
-            return establish_session(
-                request,
-                response,
-                username=username,
-                password=None,
-                display_name=username,
-            )
+            if not password or password == saved_password:
+                return establish_session(
+                    request,
+                    response,
+                    username=username,
+                    password=None,
+                    display_name=username,
+                )
         result = auth.authenticate(username, password)
         if not result.get("success"):
             code = result.get("code") if result.get("code") in {"invalid_credentials", "ldap_unavailable"} else "ldap_unavailable"

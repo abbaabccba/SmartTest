@@ -184,7 +184,7 @@ def test_browser_login_reuses_saved_account_credential_without_ldap(tmp_path):
 
     unavailable_ldap = FakeAuthenticator({"success": False, "code": "ldap_unavailable"})
     restarted, _ = make_client(tmp_path, authenticator=unavailable_ldap, sessions=store)
-    response = restarted.post("/api/auth/login", json={"username": "coco", "password": "secret"})
+    response = restarted.post("/api/auth/login", json={"username": "coco"})
 
     assert response.status_code == 200
     assert response.json()["avatarUrl"] == "/api/auth/avatar"
@@ -192,18 +192,53 @@ def test_browser_login_reuses_saved_account_credential_without_ldap(tmp_path):
     assert unavailable_ldap.calls == []
 
 
-def test_browser_login_refreshes_missing_cached_avatar_from_shared_ldap_owner(tmp_path):
+@pytest.mark.parametrize("cached_avatar", [False, True])
+def test_browser_login_replaces_saved_credential_with_verified_new_password(tmp_path, cached_avatar):
     store = PersistentSessionStore(tmp_path / "web.db")
-    store.create("coco", "secret")
+    store.create("coco", "old-password", avatar_bytes=b"avatar" if cached_avatar else b"")
     auth = FakeAuthenticator()
+    client, _ = make_client(tmp_path, authenticator=auth, sessions=store)
+
+    response = client.post("/api/auth/login", json={"username": "coco", "password": "new-password"})
+
+    assert response.status_code == 200
+    assert auth.calls == [("coco", "new-password")]
+    assert store.get(client.cookies.get("smarttest_session")).password == "new-password"
+    assert PersistentSessionStore(tmp_path / "web.db").saved_credentials("coco") == ("coco", "new-password")
+
+
+@pytest.mark.parametrize("cached_avatar", [False, True])
+def test_browser_login_rejects_new_password_without_reusing_saved_credential(tmp_path, cached_avatar):
+    store = PersistentSessionStore(tmp_path / "web.db")
+    store.create("coco", "old-password", avatar_bytes=b"avatar" if cached_avatar else b"")
+    auth = FakeAuthenticator({"success": False, "code": "invalid_credentials"})
+    client, _ = make_client(tmp_path, authenticator=auth, sessions=store)
+
+    response = client.post("/api/auth/login", json={"username": "coco", "password": "wrong-password"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": {"state": "invalid_credentials"}}
+    assert auth.calls == [("coco", "wrong-password")]
+    assert store.saved_credentials("coco") == ("coco", "old-password")
+    assert client.get("/api/auth/session").json() == {"authenticated": False}
+
+
+@pytest.mark.parametrize("cached_avatar", [False, True])
+def test_browser_login_reuses_same_saved_password_without_ldap(tmp_path, cached_avatar):
+    store = PersistentSessionStore(tmp_path / "web.db")
+    avatar = b"avatar" if cached_avatar else b""
+    store.create("coco", "secret", display_name="Coco", avatar_bytes=avatar)
+    auth = FakeAuthenticator({"success": False, "code": "ldap_unavailable"})
     client, _ = make_client(tmp_path, authenticator=auth, sessions=store)
 
     response = client.post("/api/auth/login", json={"username": "coco", "password": "secret"})
 
     assert response.status_code == 200
-    assert response.json()["avatarUrl"] == "/api/auth/avatar"
-    assert client.get("/api/auth/avatar").content == b"avatar"
-    assert auth.calls == [("coco", "secret")]
+    assert response.json()["displayName"] == "Coco"
+    assert response.json()["avatarUrl"] == ("/api/auth/avatar" if cached_avatar else "")
+    assert store.get(client.cookies.get("smarttest_session")).avatar_bytes == avatar
+    assert store.saved_credentials("coco") == ("coco", "secret")
+    assert auth.calls == []
 
 
 def test_explicit_downstream_basic_auth_rejection_invalidates_account_and_sessions(tmp_path):
