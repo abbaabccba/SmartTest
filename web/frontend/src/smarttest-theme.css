@@ -1,3 +1,4 @@
+@import './card-backgrounds.css';
 @import './product-line-theme.css';
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
 
@@ -179,6 +180,7 @@ input, select, textarea {
 .summary-metric-product-modes span { font-size: .8125rem; }
 .summary-metric-product-modes strong { font-size: 1rem; }
 .summary-metric-average strong { font-size: 1.25rem; }
+
 .dashboard-workspace { width: 100%; }
 .dashboard-workspace [data-edit-actions] { display: flex; flex-wrap: wrap; gap: .5625rem; }
 .dashboard-workspace [data-edit-actions][hidden] { display: none; }

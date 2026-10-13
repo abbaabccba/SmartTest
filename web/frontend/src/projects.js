@@ -200,15 +200,15 @@ export function createProjects({ root, api, waitForPreferences, account,
       return item
     }
     const card = (...rows) => {
-      const item = node('article', 'card summary-metric'); item.dataset.metric = ''; item.append(...rows)
+      const item = node('article', 'card summary-metric card-background'); item.dataset.metric = ''; item.append(...rows)
       summary.append(item)
       return item
     }
-    card(row('Support Projects', projects.length)).classList.add('summary-metric-single')
+    card(row('Support Projects', projects.length)).classList.add('summary-metric-single', 'card-background-geometry')
     card(row('Block Projects', blockProjectCount, 'BLOCK'), row('Warning Projects', warningProjectCount, 'WARNING'))
-      .classList.add('summary-metric-paired')
+      .classList.add('summary-metric-paired', 'card-background-bands')
     card(row('Major FAE QA Resources', roleAssignmentCount('Major FAE QA')),
-      row('FAE QA Resources', roleAssignmentCount('FAE QA'))).classList.add('summary-metric-resources')
+      row('FAE QA Resources', roleAssignmentCount('FAE QA'))).classList.add('summary-metric-resources', 'card-background-dots')
     const modeCounts = new Map(productSpaceDefinitions.map(({ value }) => [value, { S: 0, A: 0 }]))
     for (const project of projects) {
       const counts = modeCounts.get(project.space_key)
@@ -220,11 +220,11 @@ export function createProjects({ root, api, waitForPreferences, account,
       const item = row(label, `S ${counts.S} · A ${counts.A}`); item.dataset.productModeRow = ''
       return item
     })
-    const modeCard = card(...modeRows); modeCard.classList.add('summary-metric-product-modes')
+    const modeCard = card(...modeRows); modeCard.classList.add('summary-metric-product-modes', 'card-background-orbits')
     const modeTitle = node('div', 'summary-metric-title', 'Support Mode'); modeTitle.dataset.metricTitle = ''
     modeCard.prepend(modeTitle)
     card(row('Avg assignments / person', people.size ? (assignments / people.size).toFixed(1) : '0.0'))
-      .classList.add('summary-metric-average')
+      .classList.add('summary-metric-average', 'card-background-ripples')
   }
 
   function renderProjects(hierarchy, projects = [], blockProjectCount, warningProjectCount) {
