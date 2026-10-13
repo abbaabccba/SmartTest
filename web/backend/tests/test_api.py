@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from time import sleep
 
 from fastapi.testclient import TestClient
@@ -52,7 +53,9 @@ def test_default_app_session_database_is_isolated_by_backend_fixture(isolate_ser
 
 
 def test_importing_backend_app_does_not_create_default_app_data(tmp_path):
-    environment = dict(os.environ, LOCALAPPDATA=str(tmp_path), PYTHONPATH="web/backend;.")
+    repository_root = Path(__file__).resolve().parents[3]
+    python_path = os.pathsep.join((str(repository_root / "web" / "backend"), str(repository_root)))
+    environment = dict(os.environ, LOCALAPPDATA=str(tmp_path), PYTHONPATH=python_path)
     result = subprocess.run(
         [sys.executable, "-c", "import smarttest_web.app"], cwd=os.getcwd(), env=environment,
         capture_output=True, text=True, check=False,

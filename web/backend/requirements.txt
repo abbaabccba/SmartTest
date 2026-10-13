@@ -6,5 +6,6 @@ Markdown==3.10.2
 mysql-connector-python==9.4.0
 openpyxl==3.1.5
 starlette==1.6.0
+tzdata==2025.2
 uvicorn==0.35.0
 pywin32==311; sys_platform == "win32"
