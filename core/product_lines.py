@@ -63,3 +63,18 @@ PRODUCT_LINE_BY_JIRA_PROJECT = {
 PRODUCT_LINE_BY_CONFLUENCE_LABEL = {
     line.confluence_business_label: line for line in DASHBOARD_PRODUCT_LINES
 }
+PRODUCT_LINE_BY_CONFLUENCE_SPACE = {
+    line.confluence_space_key: line for line in DASHBOARD_PRODUCT_LINES
+}
+
+
+def product_line_name(value: str) -> str:
+    line = PRODUCT_LINE_BY_NAME.get(value) or PRODUCT_LINE_BY_CONFLUENCE_SPACE.get(value)
+    if line is None and value.endswith(' Business'):
+        line = PRODUCT_LINE_BY_NAME.get(value.removesuffix(' Business'))
+    return line.name if line else value
+
+
+def confluence_space_key(value: str) -> str:
+    line = PRODUCT_LINE_BY_NAME.get(value)
+    return line.confluence_space_key if line else value

@@ -5,6 +5,7 @@ import json
 import time
 
 from .database import WebDatabase
+from core.product_lines import product_line_name, confluence_space_key
 
 PROJECT_FILTER_KEYS = frozenset({
     "__product_space__", "date of commercial approval", "project id", "project owner",
@@ -36,7 +37,10 @@ class ConfluenceQuerySnapshotRepository:
 
     def record(self, session_hash, filters, search, project_ids, facts_version, *, expires_at):
         now = self._now()
-        values = (str(session_hash), self.scope, json.dumps(normalize_project_filters(filters), sort_keys=True), str(search or ""),
+        stored_filters = normalize_project_filters(filters)
+        if '__product_space__' in stored_filters:
+            stored_filters['__product_space__'] = [product_line_name(value) for value in stored_filters['__product_space__']]
+        values = (str(session_hash), self.scope, json.dumps(stored_filters, sort_keys=True), str(search or ""),
                   json.dumps(list(dict.fromkeys(str(value) for value in project_ids if str(value))), separators=(",", ":")),
                   str(facts_version or ""), now, now, float(expires_at))
         with self.database.transaction() as connection:
@@ -55,7 +59,10 @@ class ConfluenceQuerySnapshotRepository:
                 (str(session_hash), self.scope, now)).fetchone()
         if row is None:
             return None
-        return ConfluenceQuerySnapshot(str(session_hash), self.scope, normalize_project_filters(json.loads(row[0])), row[1],
+        filters = normalize_project_filters(json.loads(row[0]))
+        if '__product_space__' in filters:
+            filters['__product_space__'] = [confluence_space_key(value) for value in filters['__product_space__']]
+        return ConfluenceQuerySnapshot(str(session_hash), self.scope, filters, row[1],
                                        tuple(json.loads(row[2])), row[3], *map(float, row[4:]))
 
     def delete_session(self, session_hash):

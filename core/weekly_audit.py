@@ -7,6 +7,11 @@ from core.product_lines import PRODUCT_LINES
 
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
+_CHINA_OPERATOR_MANUAL_PROJECT_URLS = (
+    "https://confluence.amlogic.com/display/DOPL/3.+Yak918-Test+Information",
+    "https://confluence.amlogic.com/display/DOPL/3.+Turtle128-Test+Information",
+    "https://confluence.amlogic.com/display/DOPL/3.+Owl422-Test+Information",
+)
 _JIRA_SCOPE = "project in ({},RK) AND issuetype in (Bug, Sub-bug)".format(
     ", ".join(project for line in PRODUCT_LINES for project in line.jira_project_keys),
 )
@@ -34,7 +39,9 @@ def fixed_weekly_audit_scope(trigger_at: datetime) -> dict:
             "jql": f'{_JIRA_SCOPE} AND created >= "{jira_start}" AND created < "{jira_end}" order by updated DESC',
         },
         "confluence": {
+            "manualProjectUrls": list(_CHINA_OPERATOR_MANUAL_PROJECT_URLS),
             "filters": {
+                "product space": [line.confluence_space_key for line in PRODUCT_LINES[1:]],
                 "date of commercial approval": [str(trigger.year - 1), str(trigger.year)],
                 "support mode": ["A", "B"],
                 "project status": ["NORMAL"],

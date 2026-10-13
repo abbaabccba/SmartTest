@@ -9,6 +9,30 @@ from core.confluence.audit.rules import UPDATE_MATRIX_POINTS
 
 
 REMEDIATION_HEADERS = ('资源', '原规则', '原问题', '复查状态', '复查证据', '链接')
+_UPDATE_STATUSES = ('updated', 'not_updated', 'invalid_format', 'failed', 'unknown')
+
+
+def validate_confluence_summary(summary):
+    names = {line.name for line in PRODUCT_LINES}
+    metadata = {'counts', 'scope', 'projects', 'generatedAt'}
+    if not isinstance(summary, dict) or set(summary) - metadata != names:
+        raise ValueError('invalid_confluence_summary')
+    statuses = set(_UPDATE_STATUSES)
+    if 'counts' in summary and set(summary['counts']) != names:
+        raise ValueError('invalid_confluence_counts')
+    for name in names:
+        pair = summary[name]
+        if not isinstance(pair, list) or len(pair) != 2 or any(type(value) is not int or value < 0 for value in pair) or pair[0] > pair[1]:
+            raise ValueError('invalid_confluence_summary')
+        if 'counts' in summary:
+            counts = summary['counts'][name]
+            if set(counts) != statuses or any(type(value) is not int or value < 0 for value in counts.values()):
+                raise ValueError('invalid_confluence_counts')
+            if pair != [counts['updated'], sum(counts.values())]:
+                raise ValueError('inconsistent_confluence_counts')
+    for project in summary.get('projects', []):
+        if project['productLine'] not in names:
+            raise ValueError('invalid_confluence_product_line')
 
 
 def remediation_table(remediation):
@@ -99,13 +123,7 @@ def summarize_audit(kind, report):
     counts = {
         line.name: {
             status: 0
-            for status in (
-                "updated",
-                "not_updated",
-                "invalid_format",
-                "failed",
-                "unknown",
-            )
+            for status in _UPDATE_STATUSES
         }
         for line in PRODUCT_LINES
     }
@@ -181,23 +199,16 @@ def render_history_report(kind: str, records: list[dict], *, current=False, reme
             "Jira 年份未确认，保留截图月日标签。历史违规人员、Jira 明细及附件未提供。"
         )
     else:
-        canonical_names = tuple(line.name for line in PRODUCT_LINES)
-        historical_names = tuple(
-            key
-            for key in records[0]["summary"]
-            if key not in {"counts", "scope", "projects", "generatedAt"}
-        )
-        product_names = (
-            canonical_names
-            if any(name in records[0]["summary"] for name in canonical_names)
-            else historical_names
-        )
+        product_names = tuple(line.name for line in PRODUCT_LINES)
+        for row in records:
+            validate_confluence_summary(row['summary'])
+        if current and ('counts' not in records[0]['summary'] or 'scope' not in records[0]['summary']):
+            raise ValueError('missing_confluence_audit_details')
         rows = [
             (
                 product_name,
                 [
-                    f"{row['summary'].get(product_name, [0, 0])[0]} / "
-                    f"{sum(row['summary'].get('counts', {}).get(product_name, {}).values()) if 'counts' in row['summary'] else row['summary'].get(product_name, [0, 0])[1]}"
+                    f"{row['summary'][product_name][0]} / {row['summary'][product_name][1]}"
                     for row in records
                 ],
             )

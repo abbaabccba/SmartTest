@@ -4,12 +4,56 @@ from collections.abc import Iterable
 import json
 
 from .database import WebDatabase
+from core.product_lines import DASHBOARD_PRODUCT_LINES, product_line_name
 
 
 _DASHBOARD_JIRA_TYPE_MIGRATIONS = {
     "jira-team-bugs": ("jira-statistics-self-test", "self-test"),
     "jira-customer-statistics": ("jira-statistics-customer-feedback", "customer-feedback"),
 }
+
+
+def _migrate_confluence_product_lines(database):
+    with database.transaction() as connection:
+        if connection.execute("SELECT 1 FROM smarttest_schema WHERE component='confluence_product_line_names' AND version=2").fetchone():
+            return
+        for line in DASHBOARD_PRODUCT_LINES:
+            for old in (line.confluence_space_key, line.name + ' Business'):
+                if old == line.name:
+                    continue
+                for column in ('product_space_key', 'product_space_name'):
+                    connection.execute(f'UPDATE confluence_projects SET {column}=? WHERE {column}=?', (line.name, old))
+                connection.execute("UPDATE web_resource_access SET scope=? WHERE platform LIKE 'confluence:%' AND scope=?", (line.name, old))
+                connection.execute("UPDATE web_resource_access SET resource_id=? WHERE platform LIKE 'confluence:%' AND kind='catalog' AND resource_id=?", (line.name, old))
+        for session_hash, filters_json in connection.execute("SELECT session_hash,filters_json FROM web_query_snapshots WHERE scope='confluence-project-facts'").fetchall():
+            filters = json.loads(filters_json)
+            if '__product_space__' in filters:
+                filters['__product_space__'] = [product_line_name(value) for value in filters['__product_space__']]
+                connection.execute("UPDATE web_query_snapshots SET filters_json=? WHERE session_hash=? AND scope='confluence-project-facts'", (json.dumps(filters, ensure_ascii=False), session_hash))
+        for username, scope, value_json in connection.execute("SELECT username,scope,value_json FROM user_preferences WHERE scope IN ('projects.html','/projects.html','confluence.html','/confluence.html') AND key='field.__product_space__'").fetchall():
+            values = [product_line_name(value) for value in json.loads(value_json)]
+            connection.execute("UPDATE user_preferences SET value_json=? WHERE username=? AND scope=? AND key='field.__product_space__'", (json.dumps(values, ensure_ascii=False), username, scope))
+        from .audit.email_history import AuditEmailHistory
+        AuditEmailHistory._migrate_confluence_names(connection)
+        for snapshot_id, statistics_json in connection.execute('SELECT snapshot_id,statistics_json FROM jira_analytics_snapshots WHERE statistics_json IS NOT NULL').fetchall():
+            statistics = json.loads(statistics_json)
+            for group in (statistics, statistics.get('current', {}), statistics.get('previous', {})):
+                names = set()
+                for line in group.get('productLines', []):
+                    line['id'] = product_line_name(line['id'])
+                    line['label'] = product_line_name(line['label'])
+                    if line['id'] in names or line['id'] != line['label']:
+                        raise ValueError('conflicting_jira_product_line')
+                    names.add(line['id'])
+            connection.execute('UPDATE jira_analytics_snapshots SET statistics_json=? WHERE snapshot_id=?', (json.dumps(statistics, ensure_ascii=False), snapshot_id))
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for table in ('jira_team_bug_lines', 'jira_team_bug_rows'):
+            if table in tables:
+                columns = ('product_line', 'project_key') if table == 'jira_team_bug_lines' else ('product_line',)
+                for column in columns:
+                    for line in DASHBOARD_PRODUCT_LINES:
+                        connection.execute(f'UPDATE {table} SET {column}=? WHERE {column}=?', (line.name, line.name + ' Business'))
+        connection.execute("INSERT OR REPLACE INTO smarttest_schema VALUES('confluence_product_line_names',2)")
 
 
 def _migrate_dashboard_jira_cards(connection) -> None:
@@ -163,5 +207,6 @@ def initialize_web_schema(database: WebDatabase) -> None:
         _migrate_dashboard_jira_cards(connection)
         connection.execute("PRAGMA user_version=3")
     initialize_current_cache_schema(database)
+    _migrate_confluence_product_lines(database)
     from .confluence.project_repository import upgrade_cached_project_names
     upgrade_cached_project_names(database)

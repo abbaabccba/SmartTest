@@ -22,6 +22,7 @@ from core.confluence.project_discovery import canonical_project_name
 from core.domain.detail import DetailSection, DetailState
 from core.domain.values import FieldBag, NamedValue, PersonRef, SourceRevision
 from core.logging import smart_log
+from core.product_lines import product_line_name, confluence_space_key
 
 from ..database import WebDatabase
 
@@ -74,7 +75,7 @@ class ConfluenceProjectRepository:
             column = columns.get(key.casefold())
             if column and values:
                 clauses.append(f"{column} IN ({','.join('?' for _ in values)})")
-                parameters.extend(values)
+                parameters.extend(product_line_name(value) if column == 'product_space_key' else value for value in values)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.database.connect() as connection:
             total = int(connection.execute(
@@ -381,7 +382,7 @@ class ConfluenceProjectRepository:
                 (row[0],),
             ))
         return Project(
-            ProjectIdentity(row[0], row[1]), row[2], ProductSpaceRef(row[3], row[4], row[5]),
+            ProjectIdentity(row[0], row[1]), row[2], ProductSpaceRef(confluence_space_key(row[3]), confluence_space_key(row[4]), row[5]),
             ConfluencePageRef(row[6], row[7], row[8], int(row[9])),
             named(row[10], row[11]), named(row[12], row[13]), named(row[14], row[15]),
             row[16], owners, SourceRevision(row[17]),
@@ -432,7 +433,7 @@ class ConfluenceProjectRepository:
 def _project_values(project: Project, cached_at: str) -> tuple:
     return (
         project.identity.confluence_id, project.identity.project_id, project.name,
-        project.product_space.key, project.product_space.name, project.product_space.url,
+        product_line_name(project.product_space.key), product_line_name(project.product_space.name), project.product_space.url,
         project.catalog_page.page_id, project.catalog_page.title, project.catalog_page.url,
         project.catalog_page.version, *named_values(project.status), *named_values(project.stage),
         *named_values(project.support_mode), project.customer_summary,

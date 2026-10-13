@@ -56,6 +56,14 @@ class ConfluenceProjectCacheService:
             evidence = replace(evidence, value=tuple(item for item in evidence.value if item.source == "catalog" or item.page.page_id in pages))
         return replace(project, evidence=evidence)
 
+    def resolve_project_url(self, url, product_line):
+        self._access.require_active()
+        payload = self._gateway.get_project_catalog_by_url(url, product_line)
+        project = self._mapper.from_catalog(payload)
+        project = self._repository.get(project.identity.confluence_id, ProjectDetails(facts=True)) or project
+        self._publish_catalog((project,), ())
+        return project
+
     def get_project(self, project_id: str, details: ProjectDetails, cancellation=None) -> Project | None:
         project = self.read_project(project_id, details)
         for section in details.sections():

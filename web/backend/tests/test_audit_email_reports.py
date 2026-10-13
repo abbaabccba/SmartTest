@@ -12,6 +12,61 @@ from core.email.audit_report import render_history_report, summarize_audit
 from core.jira.audit.models import AuditReport, IssueAuditResult, JiraAuditScope
 
 
+@pytest.mark.parametrize('legacy_names', [
+    ('China Operator Business', 'Smart Device Business', 'TV Business', 'Global Operator & STB Business'),
+    ('DOPL', 'SDPL', 'TV', 'OOPL'),
+])
+def test_confluence_history_migrates_names_and_replays_saved_comparisons(tmp_path, legacy_names):
+    import json
+    from core.product_lines import PRODUCT_LINES
+    from smarttest_web.audit.email_history import AuditEmailHistory
+    from smarttest_web.database import WebDatabase
+    from smarttest_web.schema import initialize_web_schema
+
+    database = WebDatabase(tmp_path / 'history.db')
+    history = AuditEmailHistory(database)
+    old = history.create('qa', {})
+    values = ([6, 280], [18, 160], [16, 176], [7, 112])
+    summary = dict(zip(legacy_names, values))
+    summary.update(counts={name: {'updated': value[0], 'not_updated': value[1] - value[0],
+                                'invalid_format': 0, 'failed': 0, 'unknown': 0}
+                           for name, value in zip(legacy_names, values)},
+                   projects=[{'projectId': 'P1', 'productLine': legacy_names[0]}], scope='saved period')
+    old['summary']['confluence'] = summary
+    old['reports']['confluence'] = {'state': 'completed', 'html': 'old saved body',
+        'subject': 'saved subject', 'sourceIds': [old['id']], 'attachments': ['original.xlsx']}
+    old['deliveries'] = {'confluence': {'state': 'sent', 'sentAt': 'saved-send-time'}}
+    current = history.create('qa', {})
+    canonical = {line.name: value for line, value in zip(PRODUCT_LINES, values)}
+    canonical.update(counts={line.name: summary['counts'][name] for line, name in zip(PRODUCT_LINES, legacy_names)},
+                     projects=[], scope='current period')
+    current['summary']['confluence'] = canonical
+    current['reports']['confluence'] = {'state': 'completed', 'html': 'old comparison body',
+        'subject': 'saved subject', 'sourceIds': [current['id'], old['id']], 'attachments': []}
+    with database.transaction() as connection:
+        for result in (old, current):
+            connection.execute('UPDATE audit_email_runs SET payload=? WHERE id=?', (json.dumps(result), result['id']))
+        connection.execute("UPDATE smarttest_schema SET version=1 WHERE component='confluence_product_line_names'")
+    initialize_web_schema(database)
+
+    history = AuditEmailHistory(database)
+    migrated = history.get('qa', old['id'])
+    for line, value in zip(PRODUCT_LINES, values):
+        assert migrated['summary']['confluence'][line.name] == value
+    assert migrated['summary']['confluence']['projects'][0]['productLine'] == PRODUCT_LINES[0].name
+    assert migrated['deliveries'] == old['deliveries']
+    assert migrated['reports']['confluence']['attachments'] == ['original.xlsx']
+    assert migrated['reports']['confluence']['sourceIds'] == old['reports']['confluence']['sourceIds']
+    html = history.get('qa', current['id'])['reports']['confluence']['html']
+    assert html.count('6 / 280') == 2
+    assert '0 / 0' not in html
+    with database.connect() as connection:
+        payloads = connection.execute('SELECT payload FROM audit_email_runs').fetchall()
+    assert all(not any(name in payload for name in legacy_names if name != 'TV') for (payload,) in payloads)
+    AuditEmailHistory(database)
+    assert history.get('qa', old['id']) == migrated
+
+
 @pytest.mark.parametrize('space,name', [('DOPL', 'China Operator'),
     ('SDPL', 'Smart Device'), ('TV', 'TV'),
     ('OOPL', 'Global Operator & STB')])
@@ -187,6 +242,7 @@ def test_fixed_weekly_scope_is_continuous_from_last_friday_18_to_this_friday_18(
     )
     assert '+08:00' not in scope['jira']['jql']
     assert scope['confluence']['filters'] == {
+        'product space': ['SDPL', 'TV', 'OOPL'],
         'date of commercial approval': commercial_years,
         'support mode': ['A', 'B'],
         'project status': ['NORMAL'],
@@ -214,7 +270,23 @@ def test_confluence_denominator_counts_all_actual_update_point_statuses_by_produ
     assert '<th style="border:1px solid #bcc9da;padding:10px;text-align:left;background:#dbeafe">格式有误</th>' not in html
     assert '>失败</th>' in html and '>未知</th>' in html
     assert '待确认' not in html and '尚未确认' not in html
-    # Old real runs retain their frozen body; new comparisons use their saved actual counts.
     summary['TV'][1] = None
-    comparison = render_history_report('confluence', [{'id': 'old', 'label': 'old', 'summary': summary}])['html']
-    assert '2 / 8' in comparison
+    with pytest.raises(ValueError):
+        render_history_report('confluence', [{'id': 'old', 'label': 'old', 'summary': summary}])
+
+
+@pytest.mark.parametrize('damage', ['missing_line', 'missing_counts', 'inconsistent_counts'])
+def test_confluence_report_rejects_incomplete_or_inconsistent_statistics(damage):
+    from core.product_lines import PRODUCT_LINES
+    summary = {line.name: [0, 0] for line in PRODUCT_LINES}
+    if damage == 'missing_line':
+        del summary['China Operator']
+    else:
+        summary['counts'] = {line.name: dict(updated=0, not_updated=0, invalid_format=0, failed=0, unknown=0)
+                             for line in PRODUCT_LINES}
+        if damage == 'missing_counts':
+            del summary['counts']['China Operator']
+        else:
+            summary['counts']['China Operator']['updated'] = 1
+    with pytest.raises(ValueError):
+        render_history_report('confluence', [{'id': 'old', 'label': 'old', 'summary': summary}])

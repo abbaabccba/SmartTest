@@ -25,6 +25,8 @@ from core.confluence.project_catalog import (
     refresh_project_catalogs,
 )
 from core.confluence.project_rules import ROLE_LABELS, WIFI_ROLE_LABELS
+from core.confluence.project_discovery import ProjectLocation, canonical_project_name, locate_basic_information
+from core.confluence.html import table_fields
 from core.product_lines import DASHBOARD_PRODUCT_LINES, PRODUCT_LINES, WIRELESS_CONNECTION
 from core.confluence.project_mapper import ConfluenceProjectMapper
 from core.logging import smart_log
@@ -292,6 +294,33 @@ class _ProjectFactsGateway:
         if project is None:
             raise KeyError(project_id)
         return _catalog_row(project)
+
+    def get_project_catalog_by_url(self, url, product_line):
+        entry = self._client.get_page_by_url(url)
+        root = self._client.get_parent_page(entry.id)
+        if root is None:
+            raise LookupError("project_root_missing")
+        location = ProjectLocation("", "", root.title, root.url, root.url,
+                                   space_key=product_line.confluence_space_key)
+        basic, error, _context = locate_basic_information(
+            self._client, location, resolved_root_page_id=root.id,
+        )
+        if basic is None:
+            raise LookupError(error)
+        basic = self._client.get_page(basic.id)
+        fields = table_fields(basic.body or basic.view_body)
+        project_id = str(fields.get("project id") or "").strip()
+        if not project_id:
+            raise ValueError("project_id_missing")
+        return {
+            "identity": f"{product_line.confluence_space_key}:{project_id}",
+            "project_id": project_id, "name": canonical_project_name(basic.title, project_id),
+            "space_key": product_line.confluence_space_key, "space_name": product_line.name,
+            "space_url": product_line.confluence_url, "page_id": root.id, "page_url": root.url,
+            "fields": fields,
+            "catalog_source": {"page_id": root.id, "title": root.title, "url": root.url,
+                               "version": root.version},
+        }
 
     def load_project_sections(self, project_id, sections):
         if project_id not in self._details:

@@ -82,13 +82,74 @@ def test_fixed_confluence_scope_excludes_support_mode_b_only_from_sdpl(tmp_path)
     owner = WebConfluenceAuditOwner(None, Repository(), None, access=confirmed_access(
         WebDatabase(tmp_path / 'access.db'), tuple(project.identity.project_id for project in projects), (),
     ))
-    resolved = owner.resolve(fixed_weekly_audit_scope(
+    scope = fixed_weekly_audit_scope(
         datetime(2026, 9, 18, 18, tzinfo=ZoneInfo('Asia/Shanghai')),
-    )['confluence'] | {
+    )['confluence']
+    scope.pop('manualProjectUrls', None)
+    resolved = owner.resolve(scope | {
         'startDate': '2026-09-11T18:00:00+08:00',
         'endDate': '2026-09-18T18:00:00+08:00',
     })
     assert [project.identity.project_id for project in resolved.projects] == ['TV-B', 'SDPL-A']
+
+
+def test_weekly_manual_china_projects_bypass_all_filters_and_load_without_catalog(tmp_path):
+    from core.product_lines import PRODUCT_LINES
+    database = WebDatabase(tmp_path / 'manual.db')
+    repository = ConfluenceProjectRepository(database)
+    access = confirmed_access(database, (), ())
+    scope = fixed_weekly_audit_scope(datetime(2026, 10, 9, 18))
+    urls = scope['confluence'].get('manualProjectUrls', ())
+    assert len(urls) == 3
+    pages = {}
+    roots = {}
+    children = {}
+    for index, url in enumerate(urls):
+        name = ('Yak918', 'Turtle128', 'Owl422')[index]
+        root = ConfluencePage(f'root-{index}', name, f'https://confluence.amlogic.com/pages/viewpage.action?pageId=root-{index}')
+        entry = ConfluencePage(f'test-{index}', f'3. {name}-Test Information', url)
+        basic = ConfluencePage(f'basic-{index}', f'0. {name}-Basic Information', '', body=(
+            f'<table><tr><th>Project ID</th><td>REAL-{index}</td></tr>'
+            '<tr><th>Current Stage</th><td>5</td></tr>'
+            '<tr><th>Support Mode</th><td>C</td></tr>'
+            '<tr><th>Date of Commercial Approval</th><td>2020-01-01</td></tr></table>'))
+        pages[url] = entry
+        pages[root.id] = root
+        pages[basic.id] = basic
+        roots[entry.id] = root
+        children[root.id] = [basic, entry]
+    class Client:
+        def get_page_by_url(self, url): return pages[url]
+        def get_parent_page(self, page_id): return roots[page_id]
+        def get_page(self, page_id): return pages[page_id]
+        def get_page_children(self, page_id): return children.get(page_id, [])
+    client = Client()
+    cache = ConfluenceProjectCacheService(_ProjectFactsGateway(client, repository), ConfluenceProjectMapper(), repository, access=access)
+    cached = Project(
+        ProjectIdentity('DOPL:REAL-0', 'REAL-0'), 'Cached Yak918', ProductSpaceRef('DOPL'),
+        ConfluencePageRef('status-0', 'Yak918 status', 'original-status-url'),
+        status=NamedValue('BLOCK', 'BLOCK'), stage=NamedValue('5', '5'),
+        facts=DetailSection.loaded(FieldBag.from_mapping({'date of commercial approval': '2020-01-01'})),
+    )
+    eligible = replace(cached, identity=ProjectIdentity('TV:ELIGIBLE', 'ELIGIBLE'),
+                       product_space=ProductSpaceRef('TV'), status=NamedValue('NORMAL', 'NORMAL'),
+                       support_mode=NamedValue('A', 'A'), stage=NamedValue('3', '3'),
+                       facts=DetailSection.loaded(FieldBag.from_mapping({'date of commercial approval': '2026-01-01'})))
+    extra_china = replace(eligible, identity=ProjectIdentity('DOPL:EXTRA', 'EXTRA'), product_space=ProductSpaceRef('DOPL'))
+    cache._publish_catalog((cached, eligible, extra_china), ())
+    owner = WebConfluenceAuditOwner(cache, repository, client, access=access)
+    resolved = owner.resolve(scope | scope['confluence'])
+    assert [item.identity.project_id for item in resolved.projects] == ['ELIGIBLE', 'REAL-0', 'REAL-1', 'REAL-2']
+    assert all(item.product_space.key == PRODUCT_LINES[0].confluence_space_key for item in resolved.projects[1:])
+    assert resolved.projects[1] == cached
+    assert all(repository.get(item.identity.confluence_id, ProjectDetails()) is not None for item in resolved.projects)
+    assert all(access.allows('project', item.identity.confluence_id, 'catalog') for item in resolved.projects)
+    ordinary = owner.resolve({'startDate': scope['startDate'], 'endDate': scope['endDate'],
+                              'filters': {'product space': ['DOPL'], 'project status': ['NORMAL']}})
+    assert [item.identity.project_id for item in ordinary.projects] == ['EXTRA']
+    del pages[urls[2]]
+    with pytest.raises(KeyError):
+        owner.resolve(scope | scope['confluence'])
 
 
 DESCRIPTION = """Steps to reproduce: open

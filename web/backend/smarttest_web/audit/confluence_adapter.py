@@ -19,6 +19,7 @@ from core.confluence.project import (
 from core.domain.detail import DetailState
 from core.logging import smart_log
 from core.weekly_audit import weekly_audit_project_in_scope
+from core.product_lines import PRODUCT_LINES
 
 from ..task_manager import WEB_TASKS
 from ..project_facts_api import ProjectFactsWebOwner
@@ -72,6 +73,10 @@ class WebConfluenceAuditOwner:
                 project, commercial_years, payload.get("excludeCurrentStageAtOrAbove"),
                 payload.get("excludeSupportModeBProductLines") or (),
             ))
+            projects += tuple(
+                self._cache.resolve_project_url(url, PRODUCT_LINES[0])
+                for url in payload.get("manualProjectUrls") or ()
+            )
         if not projects:
             raise ValueError("invalid_input")
         return ResolvedConfluenceAudit(projects, period)

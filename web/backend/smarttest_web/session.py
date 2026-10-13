@@ -11,6 +11,7 @@ import time
 
 from core.config.jsonTool import app_data_dir
 from core.logging import smart_log
+from core.product_lines import product_line_name, confluence_space_key
 from .credentials import CredentialMissingError, CredentialStoreError, create_credential_store
 
 
@@ -286,12 +287,18 @@ class PersistentSessionStore:
                 "SELECT key,value_json,schema_version,updated_at FROM user_preferences WHERE username=? AND scope=?",
                 (username, scope),
             ).fetchall()
-        return {"scope": scope, "items": {key: json.loads(value) for key, value, _, _ in rows},
+        items = {key: json.loads(value) for key, value, _, _ in rows}
+        if scope in ('projects.html', '/projects.html', 'confluence.html', '/confluence.html') and 'field.__product_space__' in items:
+            items['field.__product_space__'] = [confluence_space_key(value) for value in items['field.__product_space__']]
+        return {"scope": scope, "items": items,
                 "schemaVersion": max((row[2] for row in rows), default=1),
                 "updatedAt": max((row[3] for row in rows), default=None)}
 
     def upsert_preferences(self, username, scope, items, schema_version=1):
         now = self._now()
+        items = dict(items)
+        if scope in ('projects.html', '/projects.html', 'confluence.html', '/confluence.html') and 'field.__product_space__' in items:
+            items['field.__product_space__'] = [product_line_name(value) for value in items['field.__product_space__']]
         with self._connect() as connection:
             connection.executemany("""
                 INSERT INTO user_preferences(username,scope,key,value_json,schema_version,updated_at)
