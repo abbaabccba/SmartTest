@@ -151,10 +151,17 @@ class JiraGateway:
         expand: list[str] | None = None,
         progress: Callable[[int, int], None] | None = None,
         page_size: int | None = None,
+        workers: int | None = None,
     ) -> list[dict[str, Any]]:
         requested_fields = fields or list(self.CORE_FIELDS)
         requested_page_size = self.FULL_SEARCH_PAGE_SIZE if page_size is None else page_size
-        pages = {0: self._full_search_executor.submit(
+        if workers is not None:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jira-activity-search") as executor:
+                return self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, executor)
+        return self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, self._full_search_executor)
+
+    def _collect_search_pages(self, query, requested_fields, expand, progress, requested_page_size, executor):
+        pages = {0: executor.submit(
             self._search_full_page, query, 0, requested_fields, expand, requested_page_size,
         ).result()}
         observed_total = int(pages[0].get("total") or 0)
@@ -168,23 +175,27 @@ class JiraGateway:
             for start in range(requested_page_size, total, requested_page_size):
                 if start not in scheduled:
                     scheduled.add(start)
-                    future = self._full_search_executor.submit(
+                    future = executor.submit(
                         self._search_full_page, query, start, requested_fields, expand, requested_page_size,
                     )
                     pending[future] = start
 
-        schedule(observed_total)
-        while pending:
-            completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
-            for future in completed:
-                start = pending.pop(future)
-                page = future.result()
-                pages[start] = page
-                completed_count += len(page.get("issues") or ())
-                observed_total = max(observed_total, int(page.get("total") or 0))
-                if progress:
-                    progress(completed_count, observed_total)
+        try:
             schedule(observed_total)
+            while pending:
+                completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for future in completed:
+                    start = pending.pop(future)
+                    page = future.result()
+                    pages[start] = page
+                    completed_count += len(page.get("issues") or ())
+                    observed_total = max(observed_total, int(page.get("total") or 0))
+                    if progress:
+                        progress(completed_count, observed_total)
+                schedule(observed_total)
+        finally:
+            for future in pending:
+                future.cancel()
 
         rows: list[dict[str, Any]] = []
         seen_keys: set[str] = set()
@@ -202,6 +213,47 @@ class JiraGateway:
             progress(len(rows), observed_total)
         return rows
 
+    def search_activity_payloads(self, query, *, progress=None):
+        rows = self.search_all_payloads(query, fields=["comment", "created"], expand=["changelog"], page_size=1000, workers=12, progress=progress)
+        for row in rows:
+            history = row.get("changelog")
+            if not isinstance(history, dict):
+                raise JiraGatewayError("jira_changelog_missing")
+            if history.get("total") != len(history.get("histories") or []) or history.get("startAt", 0) != 0:
+                if progress:
+                    progress(len(rows), len(rows))
+                try:
+                    payload = self._api.get_issue(row["key"], fields=["created"], expand="changelog")
+                except Exception as exc:
+                    raise JiraGatewayError("jira_changelog_failed") from exc
+                history = payload.get("changelog") or {}
+                if history.get("total") != len(history.get("histories") or []) or history.get("startAt", 0) != 0:
+                    raise JiraGatewayError("jira_changelog_incomplete")
+                row["changelog"] = history
+            fields = row.get("fields") or {}
+            embedded = fields.get("comment") or {}
+            if int(embedded.get("total", len(embedded.get("comments") or []))) <= len(embedded.get("comments") or []):
+                continue
+            comments = []
+            try:
+                while True:
+                    if progress:
+                        progress(len(rows), len(rows))
+                    payload = self._api.get(f"rest/api/2/issue/{row['key']}/comment",
+                                            params={"startAt": len(comments), "maxResults": 1000})
+                    items = payload.get("comments") or []
+                    comments.extend(items)
+                    if len(comments) >= int(payload.get("total", len(comments))):
+                        break
+                    if not items:
+                        raise JiraGatewayError("jira_comments_incomplete")
+                fields["comment"] = {**embedded, "comments": comments, "total": len(comments)}
+            except JiraGatewayError:
+                raise
+            except Exception as exc:
+                raise JiraGatewayError("jira_comments_failed") from exc
+        return rows
+
     def _search_full_page(
         self,
         query: str,
@@ -211,7 +263,13 @@ class JiraGateway:
         page_size: int,
     ) -> dict[str, Any]:
         api = self._thread_api()
+        started = monotonic()
         for attempt in range(len(self._RETRY_DELAYS) + 1):
+            attempt_started = monotonic()
+            smart_log("Jira gateway page request", domain="jira", source="jira_gateway",
+                emit_runtime_event=False, extra={"operation": "search_page", "outcome": "started",
+                "start_at": start, "page_size": page_size, "attempt": attempt + 1,
+                "field_count": len(fields), "expand_changelog": "changelog" in (expand or [])})
             try:
                 payload = api.jql(
                     query,
@@ -221,11 +279,26 @@ class JiraGateway:
                     expand=",".join(expand) if expand else None,
                     validate_query="strict",
                 )
+                smart_log("Jira gateway page request", domain="jira", source="jira_gateway",
+                    emit_runtime_event=False, extra={"operation": "search_page", "outcome": "completed",
+                    "start_at": start, "page_size": page_size, "attempt": attempt + 1,
+                    "duration_ms": round((monotonic() - attempt_started) * 1000, 3),
+                    "processed": len(payload.get("issues") or []) if isinstance(payload, dict) else 0})
                 return payload if isinstance(payload, dict) else {}
             except Exception as exc:
                 status = getattr(getattr(exc, "response", None), "status_code", None)
                 if status != 502 or attempt >= len(self._RETRY_DELAYS):
+                    smart_log("Jira gateway search failed", domain="jira", source="jira_gateway", level="ERROR",
+                        emit_runtime_event=False, extra={"operation": "search_page", "http_status": status,
+                        "cause_type": type(exc).__name__, "start_at": start, "page_size": page_size,
+                        "attempt": attempt + 1, "duration_ms": round((monotonic() - started) * 1000, 3),
+                        "outcome": "failed"})
                     raise JiraGatewayError("jira_search_failed") from exc
+                smart_log("Jira gateway page retry", domain="jira", source="jira_gateway", level="WARNING",
+                    emit_runtime_event=False, extra={"operation": "search_page", "outcome": "retry",
+                    "start_at": start, "page_size": page_size, "attempt": attempt + 1,
+                    "http_status": status, "cause_type": type(exc).__name__,
+                    "duration_ms": round((monotonic() - attempt_started) * 1000, 3)})
                 sleep(self._RETRY_DELAYS[attempt])
         raise JiraGatewayError("jira_search_failed")  # pragma: no cover
 

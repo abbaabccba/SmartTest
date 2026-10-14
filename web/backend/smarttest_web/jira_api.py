@@ -13,6 +13,8 @@ from core.jira.services.jql_statistics_cards import (
     build_annual_facts,
     card_definition,
     effective_card_jql_pair,
+    activity_card_jql_pair,
+    load_activity_qa_roster,
 )
 
 from .audit.registry import AuditConflictError
@@ -97,20 +99,21 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         definition = card_definition(card_key) if card_key else None
         period = "year" if definition else None
         query_pair = effective_card_jql_pair(card_key, "", period) if definition else None
-        verify_pair = effective_card_jql_pair(card_key, "", period, include_creator_qa=False) if definition else None
         current_fixed = query_pair["current"]["jql"] if query_pair else ""
         previous_fixed = query_pair["previous"]["jql"] if query_pair else ""
         groups_cache = {}
+        activity_roster = load_activity_qa_roster() if definition else None
         return JiraAnalyticsService(
             filters, gateway, JiraIssueMapper(gateway.config.base_url if hasattr(gateway, "config") else ""),
             jira_analytics, JIRA_ANALYTICS_TASKS,
             fixed_conditions=current_fixed,
             comparison_conditions=previous_fixed,
-            verification_conditions={key: item["jql"] for key, item in verify_pair.items()} if verify_pair else None,
+            activity_conditions={key: item["jql"] for key, item in activity_card_jql_pair(card_key, "").items()} if definition else None,
+            activity_roster=activity_roster,
             card_key=card_key,
-            roster_fingerprint=f"{definition.fingerprint}:annual-facts-v1" if definition else "",
-            statistics_builder=(lambda current, previous: build_annual_facts(
-                gateway, current, previous, groups_cache=groups_cache,
+            roster_fingerprint=f"{definition.fingerprint}:annual-activity-v4:{activity_roster.fingerprint}" if definition else "",
+            statistics_builder=(lambda current, previous, **kwargs: build_annual_facts(
+                gateway, current, previous, groups_cache=groups_cache, activity_roster=activity_roster, **kwargs,
             )) if definition else None,
             on_error=lambda error: invalidate_analytics_credentials(value, error),
         )
@@ -160,7 +163,7 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         conditions = jira_analytics.published_conditions(session_hash, value.username)
         applied_jql = (conditions or {}).get("userJql")
         expected = effective_card_jql_pair(card_key, applied_jql or "", "year")
-        fingerprint = f"{card_definition(card_key).fingerprint}:annual-facts-v1"
+        fingerprint = f"{card_definition(card_key).fingerprint}:annual-activity-v4:{load_activity_qa_roster().fingerprint}"
         def matches(jql, comparison_jql, user_jql, version):
             return (user_jql is not None and user_jql == applied_jql and version == fingerprint
                     and jql == expected["current"]["jql"] and comparison_jql == expected["previous"]["jql"])
@@ -190,7 +193,7 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         if state == "loading" and "productLines" not in payload:
             payload["productLines"] = [{"id": line.name, "label": line.name, "people": []}
                                        for line in DASHBOARD_PRODUCT_LINES]
-            payload["availability"] = {key: {"basic": False, "verify": False} for key in ("current", "previous")}
+            payload["availability"] = {key: {"basic": False, "activity": False} for key in ("current", "previous")}
         return payload
 
     @router.get("/api/jira/analytics/fields")

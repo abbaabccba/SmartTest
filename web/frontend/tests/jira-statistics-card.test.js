@@ -2,6 +2,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createJiraStatisticsCard, JIRA_STATISTICS_CARDS } from '../src/widgets/jira-statistics-card.js'
 
+it('enables Comments and Verify together while Basic is pending', async () => {
+  document.body.innerHTML = '<div id="root"></div>'
+  const payload = { state: 'loading', current: { productLines: [{ id: 'TV', label: 'TV', people: [
+    { identity: 'qa', displayName: 'QA', commentCount: 5, verifyCount: 3 }] }] }, previous: { productLines: [] },
+    availability: { current: { basic: false, activity: true }, previous: { basic: false, activity: false } } }
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => payload }, account: 'comments' })
+  const comments = () => document.querySelector('[data-mode-segments] button[data-value="commentCount"]')
+  await vi.waitFor(() => expect(comments()?.disabled).toBe(false))
+  expect(document.querySelector('[data-mode-segments] button[data-value="bugCount"]').disabled).toBe(true)
+  expect(document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').disabled).toBe(false)
+  comments().click()
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([5])
+  widget.destroy()
+})
+
 const productLines = [
   { id: 'China Operator', label: 'China Operator', people: [
     { identity: 'a', displayName: 'Alice', bugCount: 2, commentCount: 1, verifyCount: 0, invalidCount: 1 },
@@ -325,7 +342,7 @@ it('renders Verify authors instead of P0', async () => {
 it('renders available layers without treating pending Verify or previous period as zero', async () => {
   const line = count => [{ id: 'TV', label: 'TV', people: [{ identity: 'qa', displayName: 'QA', bugCount: 2, commentCount: 1, verifyCount: count, invalidCount: 0 }] }]
   let payload = { state: 'loading', current: { productLines: line(undefined) }, previous: { productLines: line(undefined) },
-    availability: { current: { basic: true, verify: false }, previous: { basic: false, verify: false } } }
+    availability: { current: { basic: true, activity: false }, previous: { basic: false, activity: false } } }
   const chartFactory = vi.fn(chartMock)
   const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
   document.body.innerHTML = '<div id="root"></div>'
@@ -340,7 +357,7 @@ it('renders available layers without treating pending Verify or previous period 
   await vi.waitFor(() => expect(verify().textContent).toContain('Failed'))
   expect(verify().disabled).toBe(true)
   payload = { ...payload, state: 'loading', current: { productLines: line(3) },
-    availability: { current: { basic: true, verify: true }, previous: { basic: true, verify: false } } }
+    availability: { current: { basic: true, activity: true }, previous: { basic: true, activity: false } } }
   widget.update()
   await vi.waitFor(() => expect(verify().disabled).toBe(false))
   expect(verify().textContent).toContain('Previous: Loading')
@@ -348,7 +365,7 @@ it('renders available layers without treating pending Verify or previous period 
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets).toHaveLength(1)
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3])
   payload = { ...payload, state: 'ready', previous: { productLines: line(1) },
-    availability: { current: { basic: true, verify: true }, previous: { basic: true, verify: true } } }
+    availability: { current: { basic: true, activity: true }, previous: { basic: true, activity: true } } }
   widget.update()
   await vi.waitFor(() => expect(chartFactory.mock.calls.at(-1)[1].data.datasets).toHaveLength(2))
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets[1].data).toEqual([1])
@@ -357,7 +374,7 @@ it('renders available layers without treating pending Verify or previous period 
 it('keeps the initial loading skeleton and fills its existing nodes in place', async () => {
   let payload = { state: 'loading', task: { progress: { processed: 2, total: 10 } },
     productLines: productLines.map(line => ({ ...line, people: [] })),
-    availability: { current: { basic: false, verify: false }, previous: { basic: false, verify: false } } }
+    availability: { current: { basic: false, activity: false }, previous: { basic: false, activity: false } } }
   document.body.innerHTML = '<div id="root"></div>'
   const chartFactory = vi.fn(chartMock)
   const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })

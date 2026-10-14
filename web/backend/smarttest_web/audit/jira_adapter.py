@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.jira.jql import jira_filter_jql
+
 import os
 from pathlib import Path
 
@@ -132,24 +134,3 @@ class WebJiraAuditOwner:
     @staticmethod
     def export(report, output_path: Path):
         return export_audit_xlsx(report, output_path=output_path)
-
-
-def jira_filter_jql(filters, jql=""):
-    def quoted(value):
-        return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-    def clause(field, values):
-        terms = [f"{field} = {quoted(value)}" for value in values]
-        return terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
-
-    clauses = []
-    for key, field in (("project", "project"), ("type", "issuetype"), ("status", "status")):
-        if filters.get(key): clauses.append(clause(field, filters[key]))
-    if filters.get("currentUser"): clauses.append("assignee = currentUser()")
-    resolutions = filters.get("resolution", ())
-    if resolutions:
-        terms = ["resolution IS EMPTY" if value == "Unresolved" else f"resolution = {quoted(value)}"
-                 for value in resolutions]
-        clauses.append(terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")")
-    if str(jql).strip(): clauses.append(f"({str(jql).strip()})")
-    return " AND ".join(clauses)

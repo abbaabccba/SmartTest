@@ -7,6 +7,35 @@ from core.product_lines import DASHBOARD_PRODUCT_LINES, PRODUCT_LINES, WIRELESS_
 import core.jira.services.jql_statistics_cards as service
 
 
+def test_annual_activities_use_last_qa_author_personnel_lines_and_ignore_issue_creator_and_project():
+    from datetime import date
+    class Gateway:
+        def user_groups(self, account):
+            assert account == 'fan.xu'
+            return ('fae-iptv-qa',)
+    basic = {'id':'basic','fields':{'created':'2026-01-01', 'project':{'key':'IPTV'},
+        'creator':{'name':'fan.xu'}, 'comment':{'comments':[{'author':{'name':'external'}}]}}}
+    comments = {'id':'nonqa','fields':{'created':'2026-01-01','project':{'key':'SH'},'creator':{'name':'outside'},
+        'comment':{'comments':[{'author':{'name':'MENG.WANG1'}},{'author':{'name':'yimin.zhou'}},
+                              {'author':{'name':'ping.xiong'}},{'author':{'name':'outside'}}]}},
+        'changelog':{'histories':[
+            {'created':'2026-09-01T00:00:00Z','author':{'name':'YIMIN.ZHOU'},'items':[{'field':'status','fromString':'Resolved','toString':'Verified'}]},
+            {'created':'2026-08-01T00:00:00Z','author':{'name':'meng.wang1'},'items':[{'field':'status','fromString':'Resolved','toString':'Verified'}]}]}}
+    facts = service.build_annual_facts(Gateway(), [basic], [], current_activities=[comments], previous_activities=[])
+    raw = facts.pop('_facts')
+    facts['availability']={year:{'basic':True,'activity':True} for year in ('current','previous')}
+    result=service.aggregate_annual_facts(raw,facts,'year',date(2026,10,14))
+    lines={line['id']:line for line in result['productLines']}
+    assert result['teamTotal']==1
+    assert result['unassignedCount']==0
+    assert result['unassignedCommentCount']==1
+    assert sum(p['commentCount'] for p in lines[WIRELESS_CONNECTION.name]['people'])==1
+    assert sum(p['commentCount'] for p in lines['TV']['people'])==1
+    assert sum(p['verifyCount'] for p in lines['TV']['people'])==1
+    assert sum(p['verifyCount'] for p in lines[WIRELESS_CONNECTION.name]['people'])==0
+    assert sum(p['commentCount'] for line in result['previous']['productLines'] for p in line['people'])==0
+
+
 def test_product_line_names_use_the_shared_business_free_labels():
     assert [line.name for line in DASHBOARD_PRODUCT_LINES] == [
         "China Operator", "Smart Device", "TV", "Global Operator & STB", "Wireless Connection",
@@ -25,6 +54,20 @@ def test_registry_defines_all_cards_and_task_uses_the_five_creator_groups():
 def test_every_jira_card_restricts_creators_to_the_fae_qa_groups():
     for definition in service.JIRA_STATISTICS_CARDS.values():
         assert definition.fixed_jql("month").count("creator IN membersOf(") == 5
+
+
+@pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
+def test_activity_scope_keeps_card_business_predicate_without_creator_boundary(card_key):
+    from datetime import date
+    definition = card_definition(card_key)
+    pair = service.activity_card_jql_pair(card_key, "status = Open OR status = Closed ORDER BY key", date(2026, 10, 14))
+    assert pair["current"]["jql"].startswith('(status = Open OR status = Closed) AND (')
+    for value in pair.values():
+        assert definition.custom_jql in value["jql"]
+        assert 'creator IN' not in value["jql"]
+        assert value["jql"].endswith('ORDER BY key')
+    assert 'created >= "2026-01-01"' in pair["current"]["jql"]
+    assert 'created >= "2025-01-01"' in pair["previous"]["jql"]
 
 
 @pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
@@ -268,32 +311,6 @@ def test_comments_count_qa_authors_in_issue_project_not_author_product_line():
         assert "outside" not in people
         assert summary["productLines"][4]["people"] == []
         assert all("resolvedCount" not in person for person in people.values())
-
-
-def test_verify_uses_last_transition_and_qa_author_under_issue_project():
-    def history(author, created, before="Resolved", after="Verified"):
-        return {"author": {"name": author, "displayName": author}, "created": created,
-                "items": [{"field": "status", "fromString": before, "toString": after}]}
-    accepted = issue(creator={"name": "creator"})
-    accepted["changelog"] = {"histories": [
-        history("wifi", "2026-09-20T08:00:00+0800"),
-        history("early", "2026-09-01T08:00:00+0800"),
-        history("outside", "2026-09-21T08:00:00+0800", "Open"),
-    ]}
-    rejected = issue(creator={"name": "creator"})
-    rejected["changelog"] = {"histories": [
-        history("early", "2026-09-01T08:00:00+0800"),
-        history("outside", "2026-09-20T08:00:00+0800"),
-    ]}
-    class Gateway:
-        def user_groups(self, account):
-            return {"creator": ("fae-tv-qa",), "wifi": ("fae-wifi-qa",), "early": ("fae-tv-qa",), "outside": ()}[account]
-    result = service.build_comparison_statistics(Gateway(), [accepted, rejected], [accepted], {})
-    for period in ["current", "previous"]:
-        people = result[period]["productLines"][2]["people"]
-        assert {person["identity"]: person["verifyCount"] for person in people} == {"creator": 0, "wifi": 1}
-        assert all("p0Count" not in person for person in people)
-        assert result[period]["productLines"][4]["people"] == []
 
 
 def test_annual_facts_match_period_aggregation_across_new_year_without_sensitive_content():

@@ -103,7 +103,9 @@ def test_card_scopes_do_not_replace_each_others_sqlite_results_or_published_cond
     assert repo.issue_keys("s", "alice", card_key="first") == ["A-1"]
     assert repo.issue_keys("s", "alice", card_key="second") == ["B-1"]
     assert repo.issue_keys("s", "bob", card_key="first") == []
-    assert repo.published_conditions("s", "alice") == conditions
+    published = repo.published_conditions("s", "alice")
+    assert {key: value for key, value in published.items() if key != "queryRevision"} == conditions
+    assert published["queryRevision"]
     old = repo.begin("s", "alice", "old A", {}, "", expires_at=100, card_key="first")
     new = repo.begin("s", "alice", "new A", {}, "", expires_at=100, card_key="first")
     assert repo.activate(old) is False
@@ -111,7 +113,7 @@ def test_card_scopes_do_not_replace_each_others_sqlite_results_or_published_cond
     assert repo.issue_keys("s", "alice", card_key="second") == ["B-1"]
     repo.delete_session("s")
     assert repo.state("relogin", "alice", card_key="first")["activeSnapshotId"] == first
-    assert repo.published_conditions("relogin", "alice") == conditions
+    assert repo.published_conditions("relogin", "alice") == published
 
 
 def test_account_card_replay_survives_session_expiry_but_does_not_expose_other_session_task(tmp_path):

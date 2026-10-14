@@ -76,7 +76,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     if (payload.period) period = payload.period
     const current = payload.current ?? payload
     const availability = payload.availability
-    const metricReady = (period, metric) => !availability || Boolean(availability[period]?.[metric === 'verifyCount' ? 'verify' : 'basic'])
+    const metricReady = (period, metric) => !availability || Boolean(availability[period]?.[metric === 'verifyCount' || metric === 'commentCount' ? 'activity' : 'basic'])
     const previous = payload.previous
     const comparison = Boolean(previous || payload.comparison)
     const previousByLine = new Map((previous?.productLines ?? []).map(line => [line.id, line]))
@@ -198,7 +198,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
         || cached.productLines.every(line => Array.isArray(line.components) && Number.isFinite(line.issueCount) && Number.isFinite(line.invalidCount)))) draw(cached)
       else {
         draw({ state: 'loading', productLines: [],
-          availability: { current: { basic: false, verify: false }, previous: { basic: false, verify: false } } })
+          availability: { current: { basic: false, activity: false }, previous: { basic: false, activity: false } } })
         message('Loading Jira issues…')
       }
       if (!config.api) { message('Jira statistics card API is unavailable.', 'inline-status-error'); return }

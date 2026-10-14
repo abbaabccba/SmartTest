@@ -17,7 +17,7 @@ def test_period_switches_read_one_annual_snapshot_without_jira_or_tasks(tmp_path
     assert calls == []
     started = api.post('/api/jira/cards/self-test/query', json={'intent': 'refresh'}).json()
     assert wait_terminal(api, started['taskId']) == 'completed'
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert jira_period_condition('year') in calls[0]
     def reject(*_args, **_kwargs):
         raise AssertionError('local replay accessed Jira')
@@ -60,13 +60,13 @@ def test_card_period_defaults_to_month_and_restores_independently_without_get_fe
     api.post('/api/auth/logout')
     api.post('/api/auth/login', json={'username': 'coco', 'password': 'secret'})
     assert api.get('/api/jira/cards/self-test/statistics').json()['period'] == 'year'
-    assert len(calls) == 16
+    assert len(calls) == 8
     assert api.post('/api/jira/cards/self-test/query', json={'period': 'invalid'}).status_code == 422
-    assert len(calls) == 16
+    assert len(calls) == 8
     api.post('/api/auth/logout')
     api.post('/api/auth/login', json={'username': 'bob', 'password': 'secret'})
     assert api.get('/api/jira/cards/self-test/statistics').json()['period'] == 'month'
-    assert len(calls) == 16
+    assert len(calls) == 8
 
 
 def test_stale_statistics_version_is_rejected_before_decoding_annual_facts(tmp_path, monkeypatch):
@@ -97,7 +97,7 @@ def test_same_account_relogin_restores_conditions_and_card_without_remote_fetch(
     restored = api.get('/api/jira/cards/self-test/statistics').json()
     assert restored == original
     assert api.get('/api/jira/analytics/state').json()['conditions']['jql'] == draft['jql']
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert api.get('/api/dashboard/jira-team-bugs').status_code == 404
     assert restored['state'] == 'ready'
     assert restored['teamTotal'] == 0
@@ -116,7 +116,7 @@ def test_wrong_year_snapshot_is_not_replayed_or_queried_by_get(tmp_path, monkeyp
     payload = api.get('/api/jira/cards/self-test/statistics').json()
     assert payload['state'] == 'no_snapshot'
     assert 'productLines' not in payload
-    assert len(calls) == 4
+    assert len(calls) == 2
 
 
 def test_another_session_can_read_same_account_result_but_not_task_or_cancel(tmp_path, monkeypatch):
@@ -168,6 +168,7 @@ def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(tm
         previous = f'created >= "{date.today().year - 1}-01-01"' in query
         return [row for row in rows if (row['fields']['created'][:4] != str(date.today().year)) == previous]
     monkeypatch.setattr(Gateway, 'search_all_payloads', search)
+    monkeypatch.setattr(Gateway, 'search_activity_payloads', lambda self, query, **kwargs: search(self,query))
     api = client(tmp_path)
     started = query_card(api, {'mode': 'basic', 'basic': {}}).json()
     assert wait_terminal(api, started['taskId']) == 'completed'
@@ -180,11 +181,12 @@ def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(tm
             fact = json.loads(row[1])
             for line in fact['statistics']['productLines']:
                 for field in ('components', 'issueCount', 'invalidCount'):
-                    line.pop(field)
+                    line.pop(field, None)
             connection.execute('UPDATE jira_analytics_facts SET fact_json=? WHERE rowid=?',
                                (json.dumps(fact), row[0]))
     def reject(*_args, **_kwargs): raise AssertionError('restart/period switch called Jira')
     monkeypatch.setattr(Gateway, 'search_all_payloads', reject)
+    monkeypatch.setattr(Gateway, 'search_activity_payloads', reject)
     monkeypatch.setattr(Gateway, 'user_groups', reject)
     restarted = client(tmp_path)
     for period in ['week', 'month', 'quarter', 'year']:

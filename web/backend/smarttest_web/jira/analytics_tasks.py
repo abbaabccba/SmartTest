@@ -1,4 +1,5 @@
 from __future__ import annotations
+from threading import RLock
 
 from ..task_manager import WEB_TASKS, ScopedTaskIndex, snapshot_payload
 
@@ -7,6 +8,22 @@ class JiraAnalyticsTasks:
     def __init__(self, manager=WEB_TASKS):
         self.manager = manager
         self._index = ScopedTaskIndex(manager)
+        self._annual_lock = RLock()
+        self._annual = {}
+
+    def submit_annual(self, scope, runner):
+        with self._annual_lock:
+            future = self._annual.get(scope)
+            if future is not None and not future.done():
+                return future
+            future = self.manager.submit_coordinator("jira-annual-activity", runner)
+            self._annual[scope] = future
+            def discard(_future):
+                with self._annual_lock:
+                    if self._annual.get(scope) is _future:
+                        self._annual.pop(scope, None)
+            future.add_done_callback(discard)
+            return future
 
     def submit(self, session_hash, runner, *, card_key=""):
         key = (str(session_hash), str(card_key))

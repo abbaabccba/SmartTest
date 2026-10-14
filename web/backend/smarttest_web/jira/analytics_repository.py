@@ -4,6 +4,8 @@ import json
 import time
 from uuid import uuid4
 
+from core.logging import smart_log
+
 from .issue_repository import JiraIssueRepository
 
 
@@ -17,6 +19,7 @@ class JiraAnalyticsRepository:
         return f"account:{str(account).casefold()}:card:{card_key}" if card_key else str(session_hash)
 
     def publish_conditions(self, session_hash, account, conditions, *, expires_at):
+        conditions = {**conditions, "queryRevision": uuid4().hex}
         session_hash = self._scope(session_hash, "conditions", account)
         with self.database.transaction() as connection:
             connection.execute("""INSERT INTO jira_analytics_queries
@@ -34,7 +37,7 @@ class JiraAnalyticsRepository:
                 (str(session_hash), str(account).casefold())).fetchone()
         return json.loads(row[0]) if row and row[0] is not None else None
 
-    def begin(self, session_hash, account, jql, basic, source_filter_id, *, expires_at, user_jql=None, card_key="", roster_fingerprint="", comparison_jql=""):
+    def begin(self, session_hash, account, jql, basic, source_filter_id, *, expires_at, user_jql=None, card_key="", roster_fingerprint="", comparison_jql="", query_revision="", published_revision=""):
         snapshot_id = uuid4().hex
         now = self._now()
         task_session_hash = str(session_hash)
@@ -48,10 +51,11 @@ class JiraAnalyticsRepository:
                 task_session_hash=excluded.task_session_hash,last_snapshot_id=excluded.last_snapshot_id""",
                 (str(session_hash), str(account).casefold(), snapshot_id, float(expires_at), str(card_key), task_session_hash, snapshot_id))
             connection.execute("""INSERT INTO jira_analytics_snapshots
-                (snapshot_id,session_hash,account,jql,basic_json,source_filter_id,state,created_at,user_jql,card_key,roster_fingerprint,comparison_jql)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (snapshot_id, str(session_hash), str(account).casefold(),
+                (snapshot_id,session_hash,account,jql,basic_json,source_filter_id,state,created_at,user_jql,card_key,roster_fingerprint,comparison_jql,statistics_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (snapshot_id, str(session_hash), str(account).casefold(),
                 str(jql), json.dumps(basic or {}, ensure_ascii=False, sort_keys=True),
-                str(source_filter_id or ""), "pending", now, user_jql, str(card_key), str(roster_fingerprint), str(comparison_jql)))
+                str(source_filter_id or ""), "pending", now, user_jql, str(card_key), str(roster_fingerprint), str(comparison_jql),
+                json.dumps({"queryRevision": query_revision, "publishedRevision": published_revision}) if query_revision else None))
         return snapshot_id
 
     def set_task(self, snapshot_id, task_id, *, session_hash=None):
@@ -84,25 +88,70 @@ class JiraAnalyticsRepository:
             return bool(cursor.rowcount)
 
     def local_statistics(self, snapshot_id, period):
-        from core.jira.services.jql_statistics_cards import aggregate_annual_facts
+        started = time.monotonic()
+        outcome = "failed"
+        stage = "sqlite_read"
+        smart_log("Jira local statistics", platform="web", domain="jira", extra={
+            "snapshot_id": snapshot_id, "period": period, "stage": stage, "outcome": "started"})
+        try:
+            from core.jira.services.jql_statistics_cards import aggregate_annual_facts, merge_annual_activity_facts
+            with self.database.connect() as connection:
+                if not connection.in_transaction:
+                    connection.execute("BEGIN")
+                row = connection.execute("SELECT statistics_json,account FROM jira_analytics_snapshots WHERE snapshot_id=?",
+                                         (snapshot_id,)).fetchone()
+                metadata = json.loads(row[0]) if row and row[0] else {}
+                if not metadata.get("annual"):
+                    outcome = "not_annual"
+                    return None
+                facts = [json.loads(item[0]) for item in connection.execute(
+                    "SELECT fact_json FROM jira_analytics_facts WHERE snapshot_id=? ORDER BY rowid", (snapshot_id,))]
+                for source_period, source in metadata.get("activitySources", {}).items():
+                    if source.get("snapshotId"):
+                        source_row = connection.execute("SELECT snapshot_id,statistics_json FROM jira_analytics_snapshots WHERE snapshot_id=? AND account=?",
+                                                        (source["snapshotId"], row[1])).fetchone()
+                    else:
+                        source_row = connection.execute("""SELECT s.snapshot_id,s.statistics_json FROM jira_analytics_queries q
+                            JOIN jira_analytics_snapshots s ON s.snapshot_id=q.active_snapshot_id
+                            WHERE q.session_hash=?""", (self._scope("", source["scope"], row[1]),)).fetchone()
+                    if source_row and json.loads(source_row[1]).get("queryRevision") == source["revision"]:
+                        merge_annual_activity_facts(facts, [json.loads(item[0]) for item in connection.execute(
+                            "SELECT fact_json FROM jira_analytics_facts WHERE snapshot_id=? ORDER BY rowid", (source_row[0],))])
+                        metadata["availability"][source_period]["activity"] = True
+            smart_log("Jira local statistics", platform="web", domain="jira", extra={
+                "snapshot_id": snapshot_id, "period": period, "stage": stage, "outcome": "completed",
+                "processed": len(facts), "duration_ms": round((time.monotonic() - started) * 1000, 3)})
+            stage = "aggregate"
+            started = time.monotonic()
+            result = aggregate_annual_facts(facts, metadata, period)
+            outcome = "completed"
+            return result
+        except Exception as error:
+            smart_log("Jira local statistics failed", platform="web", domain="jira", level="ERROR",
+                extra={"snapshot_id": snapshot_id, "period": period, "stage": stage,
+                       "cause_type": type(error).__name__})
+            raise
+        finally:
+            smart_log("Jira local statistics", platform="web", domain="jira", extra={
+                "snapshot_id": snapshot_id, "period": period, "stage": stage, "outcome": outcome,
+                "duration_ms": round((time.monotonic() - started) * 1000, 3)})
+
+    def annual_source(self, account, source_key, revision):
+        state = self.state("", account, card_key=source_key)
+        snapshot_id = state["activeSnapshotId"]
+        if not snapshot_id:
+            return ""
         with self.database.connect() as connection:
-            if not connection.in_transaction:
-                connection.execute("BEGIN")
-            row = connection.execute("SELECT statistics_json FROM jira_analytics_snapshots WHERE snapshot_id=?",
-                                     (snapshot_id,)).fetchone()
-            metadata = json.loads(row[0]) if row and row[0] else {}
-            if not metadata.get("annual"):
-                return None
-            facts = [json.loads(item[0]) for item in connection.execute(
-                "SELECT fact_json FROM jira_analytics_facts WHERE snapshot_id=? ORDER BY rowid", (snapshot_id,))]
-        return aggregate_annual_facts(facts, metadata, period)
+            row = connection.execute("SELECT statistics_json FROM jira_analytics_snapshots WHERE snapshot_id=?", (snapshot_id,)).fetchone()
+        metadata = json.loads(row[0]) if row and row[0] else {}
+        return snapshot_id if metadata.get("queryRevision") == revision else ""
 
     def statistics_preview(self, session_hash, account, *, card_key):
         with self.database.connect() as connection:
             row = connection.execute("""SELECT s.jql,s.comparison_jql,s.user_jql,s.roster_fingerprint,s.statistics_json,s.snapshot_id
                 FROM jira_analytics_queries q JOIN jira_analytics_snapshots s
                 ON s.snapshot_id=COALESCE(NULLIF(q.pending_snapshot_id,''),q.last_snapshot_id)
-                WHERE q.session_hash=? AND q.account=? AND s.state IN ('pending','failed','cancelled')
+                WHERE q.session_hash=? AND q.account=? AND s.state IN ('pending','failed','cancelled','active')
                 """,
                 (self._scope(session_hash, card_key, account), str(account).casefold())).fetchone()
         return {"jql": row[0], "comparisonJql": row[1], "userJql": row[2],
