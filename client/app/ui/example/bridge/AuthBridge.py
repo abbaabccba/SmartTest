@@ -18,11 +18,8 @@ from core.logging import smart_log
 from .QtTaskAdapter import QtTaskAdapter
 from .desktop_tasks import DESKTOP_TASKS
 from core.authentication import LdapAuthenticator, ldap_identity_from_attributes
-from core.credentials.windows import (
-    CredentialNotFoundError,
-    WindowsCredentialError,
-    WindowsCredentialStore,
-)
+from core.credentials import CredentialError, desktop_credential_store
+from core.credentials.windows import CredentialNotFoundError
 from .ToolBridge import amlogic_employees
 from .auth_accounts import AuthAccountStore, account_id_for_username
 from client.app.data_sources.common import AuthenticatedCredentials
@@ -147,7 +144,7 @@ class AuthBridge(QObject):
         self._profile: dict[str, Any] = {}
         self._avatar_url = ""
         self._account_store = AuthAccountStore(self._state_root)
-        self._credential_store = credential_store or WindowsCredentialStore(target_prefix=LDAP_CREDENTIAL_PREFIX)
+        self._credential_store = credential_store or desktop_credential_store(target_prefix=LDAP_CREDENTIAL_PREFIX)
         self._migrate_legacy_state()
         self._selected_account_id = self._account_store.last_account_id
         self._auth_state = "credential_required" if self._selected_account_id else "signed_out"
@@ -456,7 +453,7 @@ class AuthBridge(QObject):
             return True
         except (CredentialNotFoundError, KeyError):
             return True
-        except WindowsCredentialError:
+        except CredentialError:
             return False
 
     def _clear_session(self, *, keep_selection: bool = True) -> None:
@@ -576,7 +573,7 @@ class AuthBridge(QObject):
         if saved:
             try:
                 self._credential_store.write(account_id, validated_username, password)
-            except WindowsCredentialError:
+            except CredentialError:
                 saved = False
         else:
             self._credential_delete(account_id)
@@ -651,7 +648,7 @@ class AuthBridge(QObject):
             return {"success": False, "code": "credential_required", "message": self.tr("Please enter the password again."), "requiresPassword": True}
         try:
             username, password = self._credential_store.read(self._selected_account_id)
-        except (CredentialNotFoundError, KeyError, WindowsCredentialError):
+        except (CredentialNotFoundError, KeyError, CredentialError):
             self._account_store.set_remember_password(self._selected_account_id, False)
             self._remember_password = False
             self.preferencesChanged.emit()
@@ -686,7 +683,7 @@ class AuthBridge(QObject):
             return {"success": False, "code": "credential_required", "message": "", "requiresPassword": True}
         try:
             credential_username, password = self._credential_store.read(account_id)
-        except (CredentialNotFoundError, KeyError, WindowsCredentialError):
+        except (CredentialNotFoundError, KeyError, CredentialError):
             self._account_store.set_remember_password(account_id, False)
             if not switching_authenticated_session:
                 self._remember_password = False
@@ -750,7 +747,7 @@ class AuthBridge(QObject):
             return
         try:
             credential_username, password = self._credential_store.read(selected["account_id"])
-        except (CredentialNotFoundError, KeyError, WindowsCredentialError):
+        except (CredentialNotFoundError, KeyError, CredentialError):
             self._account_store.set_remember_password(selected["account_id"], False)
             self._remember_password = False
             self.preferencesChanged.emit()

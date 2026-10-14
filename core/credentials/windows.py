@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 
+from . import CredentialError
+
 
 TARGET_PREFIX = "SmartTest/ProjectWeeklyAudit/"
 
 
-class WindowsCredentialError(RuntimeError):
+class WindowsCredentialError(CredentialError):
     pass
 
 

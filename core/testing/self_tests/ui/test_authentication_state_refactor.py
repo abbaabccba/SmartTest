@@ -331,3 +331,40 @@ def test_auth_lifecycle_logs_do_not_expose_password(tmp_path, monkeypatch):
 
     assert records
     assert "unique-secret-value" not in repr(records)
+
+
+def test_default_platform_store_restores_macos_saved_account_without_ldap(tmp_path, monkeypatch):
+    import pytest
+    pytest.importorskip("keyring")
+    from core.credentials.keyring_store import KeyringCredentialStore
+    import core.credentials as credentials
+    import keyring.backends.macOS as macos
+
+    class Keychain:
+        priority = 5
+
+        def __init__(self):
+            self.values = {}
+
+        def set_password(self, service, account, value):
+            self.values[service, account] = value
+
+        def get_password(self, service, account):
+            return self.values.get((service, account))
+
+    backend = Keychain()
+    monkeypatch.setattr(credentials.sys, "platform", "darwin")
+    monkeypatch.setattr(macos, "Keyring", lambda: backend)
+    store = AuthAccountStore(tmp_path)
+    account_id = store.record_login("alice", "Alice", True)
+    store.set_active_account(account_id)
+    module = importlib.import_module("client.app.ui.example.bridge.AuthBridge")
+    KeyringCredentialStore(backend, target_prefix=module.LDAP_CREDENTIAL_PREFIX).write(
+        account_id, "alice", "synthetic-secret",
+    )
+    jobs = []
+    bridge = AuthBridge(project_root=ROOT, state_root=tmp_path, authentication_runner=jobs.append)
+    bridge.restoreStartupSession()
+    assert bridge.authenticated is True
+    assert bridge.runtime_credentials() == AuthenticatedCredentials("alice", "synthetic-secret")
+    assert jobs == []

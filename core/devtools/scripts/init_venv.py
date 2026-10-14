@@ -5,7 +5,8 @@ from pathlib import Path
 
 
 PACKAGES = (
-    "PySide6==6.7.2", "pywin32==311", "nuitka==2.3.2", "PyInstaller==6.8.0",
+    "PySide6==6.7.2", "pywin32==311; sys_platform == 'win32'", "keyring==25.7.0; sys_platform != 'win32'",
+    "SecretStorage==3.3.3; sys_platform == 'linux'", "nuitka==2.3.2", "PyInstaller==6.8.0",
     "qasync==0.27.1", "aiohttp==3.11.8", "qrcode==7.4.2", "pillow==10.4.0",
     "numpy==2.1.3", "matplotlib==3.10.5", "opencv-python==4.10.0.84",
     "keyboard==0.13.5", "PyOpenGL==3.1.7", "py7zr==0.22.0", "pyserial==3.5",
