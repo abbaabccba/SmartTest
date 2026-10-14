@@ -59,6 +59,7 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
       return
     }
     for (const [index, cell] of cells.entries()) {
+      if (index % columns % 3 !== 1 || Math.floor(index / columns) % 3 !== 1) continue
       const x = index % columns * 40 - 12
       const y = Math.floor(index / columns) * 40 - 12
       const cached = sprites[cell.logo]
@@ -106,13 +107,26 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
   }
   function layoutDevice(state) {
     const tv = state.line === 'TV'
-    const count = tv ? (state.width >= 600 && state.height >= 160 ? 3 : state.width >= 300 && state.height >= 100 ? 2 : 1) : state.width >= 600 && state.height >= 160 ? smartDeviceArtwork.length : state.width >= 300 && state.height >= 100 ? 5 : 1
-    while (state.deviceLayer.children.length > count) state.deviceLayer.lastElementChild.remove()
-    while (state.deviceLayer.children.length < count) {
-      const index = state.deviceLayer.children.length
-      state.deviceLayer.append(tv ? createTvProduct(index) : createSmartDeviceProduct(smartDeviceArtwork[index], index))
+    const width = Math.min(state.width, 800)
+    const height = Math.min(state.viewportHeight, 300)
+    const count = tv ? (width >= 600 && height >= 160 ? 3 : width >= 300 && height >= 100 ? 2 : 1) : width >= 600 && height >= 160 ? smartDeviceArtwork.length : width >= 300 && height >= 100 ? 5 : 1
+    const columns = Math.ceil(state.width / width)
+    const rows = Math.ceil(state.height / height)
+    while (state.deviceLayer.children.length > columns * rows) state.deviceLayer.lastElementChild.remove()
+    for (let index = 0; index < columns * rows; index++) {
+      let tile = state.deviceLayer.children[index]
+      if (!tile) { tile = document.createElement('div'); tile.style.position = 'absolute'; state.deviceLayer.append(tile) }
+      tile.style.left = `${index % columns * width}px`
+      tile.style.top = `${Math.floor(index / columns) * height}px`
+      tile.style.width = `${width}px`
+      tile.style.height = `${height}px`
+      while (tile.children.length > count) tile.lastElementChild.remove()
+      while (tile.children.length < count) {
+        const product = tile.children.length
+        tile.append(tv ? createTvProduct(product) : createSmartDeviceProduct(smartDeviceArtwork[product], product))
+      }
     }
-    state.deviceLayer.style.setProperty(tv ? '--tv-scale' : '--device-scale', count === 1 ? Math.min(1, state.height / 70) : Math.min(1, state.height / 300, state.width / 800))
+    state.deviceLayer.style.setProperty(tv ? '--tv-scale' : '--device-scale', count === 1 ? Math.min(1, height / 70) : Math.min(1, height / 300, width / 800))
     state.deviceLayer.classList.toggle(tv ? 'tv-compact' : 'smart-device-compact', count === 1)
     updateDeviceMotion(state)
   }
@@ -126,20 +140,29 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
   })
   const resize = new ResizeObserver(entries => {
     for (const { target, contentRect } of entries) {
-      const state = surfaces.get(target)
+      const state = surfaces.get(target) || surfaces.get(target.closest(selector)) || surfaces.get(target.parentElement)
       if (!state) continue
-      state.width = target.clientWidth || contentRect.width
-      state.height = target.clientHeight || contentRect.height
-      if (state.deviceLayer) { layoutDevice(state); continue }
-      if (state.globe) { state.dirty = true; continue }
+      const surface = state.element
+      state.width = surface.clientWidth || contentRect.width
+      state.viewportHeight = surface.clientHeight || contentRect.height
+      layoutSurface(state)
+    }
+    schedule()
+  })
+  function layoutSurface(state) {
+    const background = state.deviceLayer || state.canvas
+    background.style.height = '0px'
+    state.height = Math.max(state.element.clientHeight || state.viewportHeight, state.element.scrollHeight)
+    background.style.height = `${state.height}px`
+    if (state.deviceLayer) layoutDevice(state)
+    else if (!state.globe) {
       state.columns = Math.ceil(state.width / 40)
       const count = state.columns * Math.ceil(state.height / 40)
       state.cells.length = Math.min(state.cells.length, count)
       while (state.cells.length < count) state.cells.push({ logo: Math.floor(Math.random() * 3), duration: 2800 + Math.random() * 3100, phase: Math.random() })
-      state.dirty = true
     }
-    schedule()
-  })
+    state.dirty = true
+  }
   function showError(state) {
     if (state.error) return
     state.error = document.createElement('p')
@@ -153,6 +176,7 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
     for (const [element, state] of surfaces) {
       if (eligible.has(element) && state.line === element.dataset.productLine) continue
       resize.unobserve(element)
+      for (const content of state.content || []) resize.unobserve(content)
       intersection.unobserve(element)
       ;(state.deviceLayer || state.canvas).remove()
       state.error?.remove()
@@ -160,7 +184,11 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
       surfaces.delete(element)
     }
     for (const element of eligible) {
-      if (surfaces.has(element)) continue
+      if (surfaces.has(element)) {
+        const state = surfaces.get(element)
+        observeContent(state)
+        continue
+      }
       if (['Smart Device', 'TV'].includes(element.dataset.productLine)) {
         const deviceLayer = document.createElement('div')
         deviceLayer.className = element.dataset.productLine === 'TV' ? 'tv-art' : 'smart-device-art'
@@ -170,6 +198,7 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
         element.prepend(deviceLayer)
         surfaces.set(element, state)
         resize.observe(element)
+        observeContent(state)
         intersection.observe(element)
         updateDeviceMotion(state)
         continue
@@ -183,13 +212,22 @@ export function initializeProductLineMotion({ ResizeObserver = globalThis.Resize
       element.prepend(canvas)
       surfaces.set(element, state)
       resize.observe(element)
+      observeContent(state)
       intersection.observe(element)
       if (loadError && !state.globe) showError(state)
     }
     changed()
   }
+  function observeContent(state) {
+    const content = new Set([...state.element.children].filter(child => child !== (state.deviceLayer || state.canvas)))
+    for (const child of [...content]) for (const canvas of child.querySelectorAll('canvas')) content.add(canvas)
+    for (const child of state.content || []) if (!content.has(child)) resize.unobserve(child)
+    for (const child of content) if (!state.content?.has(child)) resize.observe(child)
+    state.content = content
+    if (state.width > 0) layoutSurface(state)
+  }
   const mutations = new MutationObserver(records => {
-    if (records.some(record => record.type === 'attributes' && record.attributeName !== 'class' || [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) reconcile()
+    if (records.some(record => record.type === 'attributes' && record.attributeName !== 'class' || record.type === 'childList' && surfaces.has(record.target) || [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) reconcile()
     if (records.some(record => record.type === 'attributes' && [document.documentElement, document.body].includes(record.target))) changed()
   })
   reconcile()

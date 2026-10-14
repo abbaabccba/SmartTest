@@ -249,7 +249,7 @@
 }
 .operator-matrix-surface { position: relative; isolation: isolate; }
 .operator-matrix {
-  position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%;
+  position: absolute; inset: 0; z-index: -1; width: 100%;
   pointer-events: none; border-radius: inherit;
 }
 /* Bounded, independent product artwork; functional parts animate via CSS only. */
@@ -339,7 +339,7 @@
 }
 [data-product-line="Global Operator & STB"][data-product-surface] { --product-motion-pattern: none; --product-motion: none; }
 .global-globe-surface { position: relative; isolation: isolate; }
-.global-globe { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; border-radius: inherit; pointer-events: none; opacity: .65; }
+.global-globe { position: absolute; inset: 0; z-index: -1; width: 100%; border-radius: inherit; pointer-events: none; opacity: .65; }
 .dark-theme .global-globe { opacity: .8; }
 [data-product-line="Wireless Connection"][data-product-surface] {
   --product-ofdm-period: 480px;

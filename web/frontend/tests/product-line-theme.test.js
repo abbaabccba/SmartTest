@@ -38,9 +38,9 @@ it('bounds TV artwork and shares its pause, resize, replacement and cleanup life
   environment.resize([{ target: layout, contentRect: { width: 1300, height: 430 } }])
   const layer = layout.querySelector('.tv-art')
   expect(layer).not.toBeNull()
-  expect(layer.children).toHaveLength(3)
+  expect(layer.querySelectorAll('.tv-product')).toHaveLength(12)
   expect(document.querySelectorAll('.tv-art')).toHaveLength(1)
-  expect(new Set([...layer.children].map(tv => tv.style.getPropertyValue('--tv-period'))).size).toBe(3)
+  expect(new Set([...layer.querySelectorAll('.tv-product')].map(tv => tv.style.getPropertyValue('--tv-period'))).size).toBe(3)
   expect(layer.getAttribute('aria-hidden')).toBe('true')
   environment.intersection([{ target: layout, isIntersecting: false }])
   expect(layer.classList.contains('smart-motion-paused')).toBe(true)
@@ -140,6 +140,54 @@ it('draws one clipped global globe and stops, resumes and removes it with the su
   expect(environment.frames.size).toBe(1)
   stop()
   expect(document.querySelector('canvas')).toBeNull()
+})
+
+it.each(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])('covers the entire scrollable %s layout and follows content growth and shrinkage', async line => {
+  const environment = canvasEnvironment(true)
+  const { initializeProductLineMotion } = await import('../src/product-line-motion.js')
+  document.body.innerHTML = `<section data-product-line="${line}" data-product-surface="layout"><div><canvas style="height:852px"></canvas>Ranking</div></section>`
+  const layout = document.querySelector('section')
+  const content = layout.firstElementChild
+  const chart = content.querySelector('canvas')
+  let contentHeight = 852
+  Object.defineProperties(layout, {
+    clientWidth: { value: 1319 }, clientHeight: { value: 510 },
+    scrollHeight: { get: () => {
+      const background = layout.firstElementChild
+      const overflow = parseFloat(background?.style.height) || 0
+      return Math.max(510, contentHeight, parseFloat(chart.style.height), overflow)
+    } },
+  })
+  const stop = initializeProductLineMotion(environment)
+  onTestFinished(stop)
+  await vi.dynamicImportSettled()
+  environment.resize([{ target: layout, contentRect: { width: 1319, height: 510 } }])
+  if (environment.frames.size) environment.frame(1000)
+  const background = layout.firstElementChild
+  expect(background.style.height).toBe('852px')
+  if (background.tagName === 'CANVAS') expect(background.height).toBe(852)
+  else {
+    for (const y of [0, 426, 851]) {
+      expect([...background.children].some(tile => parseFloat(tile.style.top) <= y && parseFloat(tile.style.top) + parseFloat(tile.style.height) > y)).toBe(true)
+    }
+  }
+  layout.scrollTop = 342
+  expect(parseFloat(background.style.height) - layout.scrollTop).toBeGreaterThanOrEqual(layout.clientHeight)
+  contentHeight = 1200
+  chart.style.height = '1200px'
+  environment.resize([{ target: content, contentRect: { width: 1319, height: 1200 } }])
+  if (environment.frames.size) environment.frame(2000)
+  expect(background.style.height).toBe('1200px')
+  contentHeight = 300
+  environment.resize([{ target: content, contentRect: { width: 1319, height: 300 } }])
+  if (environment.frames.size) environment.frame(3000)
+  // Chart.js resizes its canvas later without changing its parent layout box again.
+  chart.style.height = '300px'
+  environment.resize([{ target: chart, contentRect: { width: 1319, height: 300 } }])
+  if (environment.frames.size) environment.frame(4000)
+  expect(background.style.height).toBe('510px')
+  stop()
+  expect(environment.observed.size).toBe(0)
 })
 
 it('mounts the login full globe through the shared lifecycle and disposes it when replaced', async () => {
@@ -250,7 +298,7 @@ it('draws independent cached operator sprites in one canvas and releases detache
   vi.spyOn(Math, 'random').mockImplementation(() => (sample++ % 90 + 1) / 100)
   const stop = initializeProductLineMotion(environment)
   const layout = document.querySelector('section')
-  environment.resize([{ target: layout, contentRect: { width: 200, height: 80 } }])
+  environment.resize([{ target: layout, contentRect: { width: 600, height: 240 } }])
   const canvas = layout.querySelector('canvas')
   expect(canvas).not.toBeNull()
   await Promise.resolve()
@@ -278,12 +326,12 @@ it('renders reduced-motion operator backgrounds once instead of continuously sch
   const { initializeProductLineMotion } = await import('../src/product-line-motion.js')
   document.body.innerHTML = '<article data-product-line="China Operator" data-product-surface="card"></article>'
   const stop = initializeProductLineMotion(environment)
-  environment.resize([{ target: document.querySelector('article'), contentRect: { width: 80, height: 40 } }])
+  environment.resize([{ target: document.querySelector('article'), contentRect: { width: 240, height: 120 } }])
   await Promise.resolve()
   await Promise.resolve()
   await Promise.resolve()
   environment.frame(1500)
-  expect(environment.contexts.get(document.querySelector('canvas')).draws).toHaveLength(2)
+  expect(environment.contexts.get(document.querySelector('canvas')).draws.map(draw => draw.args.slice(1))).toEqual([[28, 28, 64, 64], [148, 28, 64, 64]])
   expect(environment.frames.size).toBe(0)
   environment.media.matches = false
   environment.media.dispatchEvent(new Event('change'))
@@ -310,7 +358,7 @@ it('resumes the operator canvas after a disabled button is re-enabled', async ()
   document.body.innerHTML = '<button disabled data-product-line="China Operator" data-product-surface="button">China Operator</button>'
   const button = document.querySelector('button')
   const stop = initializeProductLineMotion(environment)
-  environment.resize([{ target: button, contentRect: { width: 80, height: 40 } }])
+  environment.resize([{ target: button, contentRect: { width: 240, height: 120 } }])
   await new Promise(resolve => setTimeout(resolve, 0))
   environment.frame(1500)
   expect(environment.frames.size).toBe(0)
@@ -332,7 +380,7 @@ it('mounts bounded independent Smart Device products and pauses their lifecycle 
   const layer = layout.querySelector('.smart-device-art')
   expect(layer).not.toBeNull()
   expect(new Set([...layer.querySelectorAll('[data-smart-device]')].map(svg => svg.dataset.smartDevice)).size).toBe(13)
-  expect(new Set([...layer.children].map(product => product.style.getPropertyValue('--device-period'))).size).toBeGreaterThan(1)
+  expect(new Set([...layer.querySelectorAll('.smart-device-product')].map(product => product.style.getPropertyValue('--device-period'))).size).toBeGreaterThan(1)
   expect(document.querySelectorAll('.smart-device-art')).toHaveLength(1)
   expect(document.querySelector('canvas')).toBeNull()
   expect(layer.getAttribute('aria-hidden')).toBe('true')

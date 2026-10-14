@@ -62,6 +62,18 @@ it('keeps login labels within the visible sphere and capital markers present', (
   }
 })
 
+it('starts the partial globe at the top even when its content layout is tall', () => {
+  const arcs = []
+  const context = { save() {}, restore() {}, beginPath() {}, clip() {}, fill() {}, stroke() {}, moveTo() {}, lineTo() {}, closePath() {},
+    arc: (...args) => arcs.push(args), createRadialGradient: () => ({ addColorStop() {} }),
+    measureText: text => ({ width: text.length * 5 }), fillText() {} }
+  const draw = createGlobalGlobe(context)
+  draw(1319, 2256, 0, false)
+  const [x, y, radius] = arcs[0]
+  expect(y - radius).toBeLessThanOrEqual(0)
+  expect(x + radius).toBeGreaterThan(1319)
+})
+
 it('crops the login sphere and changes latitude as it turns, without changing its framing', () => {
   const arcs = []
   const context = { save() {}, restore() {}, beginPath() {}, clip() {}, fill() {}, stroke() {}, moveTo() {}, lineTo() {}, closePath() {},
