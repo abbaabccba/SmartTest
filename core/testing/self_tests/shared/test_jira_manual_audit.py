@@ -51,7 +51,7 @@ def _issue(key: str, creator: str, description: str = GOOD_DESCRIPTION) -> Issue
 
 @pytest.mark.parametrize('channel,test_case,failed', [
     ('Self-Test', None, True), ('Self-Test', '', True), ('Self-Test', '  ', True),
-    ('Self-Test', 'CASE-1', False), ('Customer-Feedback', None, False), ('', None, False),
+    ('Self-Test', 'TV-CATEGORY-CASE', False), ('Customer-Feedback', None, False), ('', None, False),
 ])
 def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, failed):
     issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
@@ -63,6 +63,22 @@ def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, 
     if failed:
         assert findings[0].field == 'Test Case ID'
         assert '缺少 Test Case ID' in findings[0].reason
+
+
+@pytest.mark.parametrize('value,passed', [
+    ('TV-VIDEO-PLAY', True), ('IPTV_VIDEO_PLAY', True), ('OTT-video-play', True),
+    ('NONE', True), ('CASE-1', False), ('TV-VIDEO_PLAY', False),
+    ('TV--PLAY', False), ('TV-VIDEO-PLAY-EXTRA', False), ('TV-VIDEO-123', False),
+    ('none', False),
+])
+def test_self_test_case_id_accepts_three_letter_segments_or_none(value, passed):
+    issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': value})))
+    result = audit_issue(issue)
+    assert result.passed is passed
+    if not passed:
+        assert result.violations[0].rule_id == 'TEST_CASE_ID.REQUIRED'
+        assert result.violations[0].observed == value
 
 
 def test_other_channels_do_not_require_test_case_field_mapping():
@@ -93,7 +109,7 @@ def test_self_test_missing_case_id_uses_existing_export_and_remediation(tmp_path
     assert any('TEST_CASE_ID.REQUIRED' in row and any('缺少 Test Case ID' in str(value) for value in row)
                for row in workbook['违规明细'].values)
     fixed = replace(issue, custom_fields=DetailSection.loaded(FieldBag.from_mapping(
-        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': 'CASE-1'})))
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': 'TV-CATEGORY-CASE'})))
     rerun = replace(report, issues=(audit_issue(fixed),))
     assert compare_jira_audits(summary['findings'], rerun)[0]['state'] == 'fixed'
 
