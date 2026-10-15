@@ -26,17 +26,15 @@ describe('AppShell', () => {
     expect(shell.contentRoot.matches('main.main-content')).toBe(true)
   })
 
-  it('keeps bubble-animated navigation routes and labels accessible without decorative content', () => {
+  it('keeps text-only navigation routes and labels accessible', () => {
     createAppShell({ pageKey: 'jira' })
     for (const item of navigation) {
       const link = document.querySelector(`.nav-menu a[data-page-key="${item.pageKey}"]`)
       expect(link.getAttribute('href')).toBe(item.url)
       expect(link.textContent.trim()).toBe(item.title)
-      expect(link.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
-      expect(link.querySelector('.nav-link-text').textContent.trim()).toBe(item.title)
-      expect(link.querySelectorAll('.nav-link-drow')).toHaveLength(0)
+      expect(link.querySelector('svg')).toBeNull()
     }
-    expect(document.querySelectorAll('.mobile-menu-nav .nav-link-drow')).toHaveLength(0)
+    expect(document.querySelectorAll('.mobile-menu-nav svg')).toHaveLength(0)
   })
 
   it.each([
