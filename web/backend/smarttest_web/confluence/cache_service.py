@@ -92,7 +92,7 @@ class ConfluenceProjectCacheService:
         failures.extend(str(item) for item in payload.get("failed_product_spaces") or ())
         return {"projects": tuple(projects), "failed": tuple(failures)}
 
-    def refresh_project(self, project_id: str, details: ProjectDetails, cancellation=None) -> Project:
+    def refresh_project(self, project_id: str, details: ProjectDetails, cancellation=None, *, require_complete=False) -> Project:
         started = time.monotonic()
         _raise_if_cancelled(cancellation)
         project = self._repository.get(project_id, ProjectDetails())
@@ -110,6 +110,8 @@ class ConfluenceProjectCacheService:
         for section in details.sections():
             _raise_if_cancelled(cancellation)
             loaded = self._refresh_section(requested_id, section)
+            if require_complete and loaded.state is not DetailState.LOADED:
+                raise RuntimeError('confluence_detail_failed')
             project = replace(self.read_project(requested_id, details), **{section: loaded})
             _raise_if_cancelled(cancellation)
         smart_log("Confluence detail refresh timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,

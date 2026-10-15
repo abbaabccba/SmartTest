@@ -101,12 +101,15 @@ class ProjectFactsWebOwner:
         base_url = os.getenv("SMARTTEST_CONFLUENCE_BASE_URL", "https://confluence.amlogic.com")
         return ConfluenceGateway(ConfluenceGatewayConfig(base_url), username, password)
 
-    def refresh(self, access, password):
+    def refresh(self, access, password, *, product_spaces=PAGE_CATALOG_PRODUCT_SPACES, scheduled=False):
+        from .daily_refresh import manual_source_allowed
+        if not scheduled and not manual_source_allowed('confluence'):
+            raise PermissionError('manual_refresh_disabled')
         with self._refresh_lock:
             started = perf_counter()
             service = self._service(access, password)
             result = service.refresh_projects(
-                ProjectSyncScope(product_space_keys=PAGE_CATALOG_PRODUCT_SPACES),
+                ProjectSyncScope(product_space_keys=product_spaces),
             )
             smart_log("Confluence filter preparation timing", platform="web", domain="framework", source="project_facts_owner", emit_runtime_event=False,
                       extra={"stage": "filter.catalog_refresh", "duration_ms": round((perf_counter() - started) * 1000, 3),
@@ -118,25 +121,28 @@ class ProjectFactsWebOwner:
 
     def sync_details(
         self, access, password, *, filters=None, search="", cancelled=None, progress=None,
-        parent_task_id="",
+        parent_task_id="", force=False,
     ):
         del search
-        project_ids = self._acquisition_scope(access, filters)
+        project_ids = self._acquisition_scope(access, filters, force=force)
         progress = progress or (lambda *_: None)
         progress(0, len(project_ids))
         if not project_ids:
             return
         service = self._service(access, password)
         coordinator = self._sync_coordinator_factory(service)
-        coordinator.sync(
+        results = coordinator.sync(
             project_ids,
             ProjectDetails(roles=True, facts=True, evidence=True),
             cancelled=cancelled or (lambda: False),
             progress=progress,
             parent_id=parent_task_id,
+            **({'require_complete': True} if force else {}),
         )
+        if force and any(result != 'updated' for result in results):
+            raise RuntimeError('confluence_details_failed')
 
-    def _acquisition_scope(self, access, filters):
+    def _acquisition_scope(self, access, filters, *, force=False):
         visible_ids = access.ids("project", "catalog")
         catalog = self._repository.list(ProjectQuery(), 0, 100000, visible_ids=visible_ids)
         projects = catalog.projects
@@ -152,7 +158,7 @@ class ProjectFactsWebOwner:
         return tuple(
             project.identity.confluence_id
             for project in loaded
-            if _detail_state((project,)) != "ready"
+            if force or _detail_state((project,)) != "ready"
         )
 
     def refresh_and_sync_details(

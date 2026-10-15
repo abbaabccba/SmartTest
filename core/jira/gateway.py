@@ -215,21 +215,33 @@ class JiraGateway:
 
     def search_activity_payloads(self, query, *, progress=None):
         rows = self.search_all_payloads(query, fields=["comment", "created"], expand=["changelog"], page_size=1000, workers=12, progress=progress)
+        return self._complete_activity_payloads(rows, progress=progress)
+
+    def search_metric_page(self, query, start, metric):
+        fields = ["comment", "created"] if metric == "comment" else ["created"]
+        page = self._search_full_page(query, start, fields, ["changelog"] if metric == "verify" else None, 100)
+        self._complete_activity_payloads(page.get("issues") or [], comment=metric == "comment", verify=metric == "verify")
+        return page
+
+    def _complete_activity_payloads(self, rows, *, progress=None, comment=True, verify=True):
         for row in rows:
-            history = row.get("changelog")
-            if not isinstance(history, dict):
-                raise JiraGatewayError("jira_changelog_missing")
-            if history.get("total") != len(history.get("histories") or []) or history.get("startAt", 0) != 0:
-                if progress:
-                    progress(len(rows), len(rows))
-                try:
-                    payload = self._api.get_issue(row["key"], fields=["created"], expand="changelog")
-                except Exception as exc:
-                    raise JiraGatewayError("jira_changelog_failed") from exc
-                history = payload.get("changelog") or {}
+            if verify:
+                history = row.get("changelog")
+                if not isinstance(history, dict):
+                    raise JiraGatewayError("jira_changelog_missing")
                 if history.get("total") != len(history.get("histories") or []) or history.get("startAt", 0) != 0:
-                    raise JiraGatewayError("jira_changelog_incomplete")
-                row["changelog"] = history
+                    if progress:
+                        progress(len(rows), len(rows))
+                    try:
+                        payload = self._api.get_issue(row["key"], fields=["created"], expand="changelog")
+                    except Exception as exc:
+                        raise JiraGatewayError("jira_changelog_failed") from exc
+                    history = payload.get("changelog") or {}
+                    if history.get("total") != len(history.get("histories") or []) or history.get("startAt", 0) != 0:
+                        raise JiraGatewayError("jira_changelog_incomplete")
+                    row["changelog"] = history
+            if not comment:
+                continue
             fields = row.get("fields") or {}
             embedded = fields.get("comment") or {}
             if int(embedded.get("total", len(embedded.get("comments") or []))) <= len(embedded.get("comments") or []):

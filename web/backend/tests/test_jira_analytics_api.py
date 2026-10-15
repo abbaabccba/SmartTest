@@ -32,6 +32,13 @@ class FilterOwner:
 
 
 class Gateway:
+    def search_metric_page(self, query, start, metric):
+        rows = self.search_activity_payloads(query)
+        if metric == 'comment':
+            rows = [{key: value for key, value in row.items() if key != 'changelog'} for row in rows]
+        else:
+            rows = [{**row, 'fields': {key: value for key, value in row.get('fields', {}).items() if key != 'comment'}} for row in rows]
+        return {'total': len(rows), 'issues': rows[start:start + 100]}
     def search_all_payloads(self, _jql, *, fields=None, expand=None, page_size=None, progress=None): return []
     def search_activity_payloads(self, query, *, progress=None):
         return []
@@ -63,7 +70,7 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
         from core.jira.services.jql_statistics_cards import JIRA_STATISTICS_CARDS
         for key, definition in tuple(JIRA_STATISTICS_CARDS.items()):
             monkeypatch.setitem(JIRA_STATISTICS_CARDS, key, replace(definition, custom_jql="issuetype = Task"))
-    initial_queries = 2 if same_scope else 6
+    initial_queries = 5  # cancelled Self-Test does not schedule its previous year
     release, entered = Event(), Event()
     queries = []
     copies = [1]
@@ -96,10 +103,10 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
     assert all(query.startswith('(status = Open OR project = SH) AND ((created >=') for query in queries)
     assert all(query.endswith('ORDER BY key') for query in queries)
     assert all('creator' not in query for query in queries)
-    assert len(set(queries)) == initial_queries
+    assert len(set(queries)) == (2 if same_scope else initial_queries)
     for card in ('self-test', 'task', 'customer-feedback'):
-        assert sum(card_definition(card).custom_jql in query for query in queries) == 2
-    assert queries[0] != queries[1]
+        assert sum(card_definition(card).custom_jql in query for query in queries) == (5 if same_scope else 1 if card == 'self-test' else 2)
+    assert any(query != queries[0] for query in queries)
     api.post('/api/jira/cards/task/query',json={'period':'month','intent':'reuse'})
     assert api.get('/api/jira/cards/customer-feedback/statistics').json()['period'] == 'year'
     assert len(queries) == initial_queries
@@ -169,8 +176,8 @@ def test_failed_comment_source_can_retry_and_new_user_query_does_not_reuse_old_s
     api = client(tmp_path)
     first = query_card(api, {'mode':'advanced','jql':'status = Open'}).json()
     assert wait_terminal(api, first['taskId']) == 'failed'
-    failure = next(kwargs['extra'] for message, kwargs in records if message == 'Jira card activity failed')
-    assert failure['stage'] == 'search' and failure['layer'] == 'activity'
+    failure = next(kwargs['extra'] for message, kwargs in records if message == 'Jira card failed')
+    assert failure['stage'] == 'search' and failure['layer'] == 'comment'
     assert failure['cause_type'] == 'RuntimeError' and failure['http_status'] is None
     assert failure['duration_ms'] >= 0 and 'private' not in str(records)
     retry = api.post('/api/jira/cards/self-test/query',json={'period':'year'}).json()
@@ -209,16 +216,17 @@ def test_completed_current_activity_year_is_visible_while_previous_year_and_basi
     started = query_card(api, {'mode':'basic','basic':{}}).json()
     try:
         assert basic_entered.wait(2)
+        basic_release.set()
         for _ in range(100):
             payload = api.get('/api/jira/cards/self-test/statistics').json()
-            if payload.get('availability',{}).get('current',{}).get('activity'): break
+            if payload.get('availability',{}).get('current',{}).get('comment'): break
             time.sleep(.01)
-        assert payload['availability']['current']['activity'] is True
+        assert payload['availability']['current']['comment'] is True
         assert payload['availability']['current']['basic'] is True
-        assert payload['availability']['previous']['activity'] is False
+        assert payload['availability']['previous']['comment'] is False
         assert sum(p['commentCount'] for line in payload['current']['productLines'] for p in line['people']) == 1
-        assert sum(p['verifyCount'] for line in payload['current']['productLines'] for p in line['people']) == 1
-        assert len(activity_queries) == 2
+        assert payload['availability']['current']['verify'] is False
+        assert 1 <= len(activity_queries) <= 2
     finally:
         basic_release.set()
         previous_release.set()
@@ -418,7 +426,7 @@ def test_lost_task_is_interrupted_without_requery_and_previous_progress_does_not
         from core.product_lines import DASHBOARD_PRODUCT_LINES
         assert [line["id"] for line in loading["productLines"]] == [line.name for line in DASHBOARD_PRODUCT_LINES]
         assert all(not line["people"] for line in loading["productLines"])
-        assert loading["availability"]["current"] == {"basic": False, "activity": False}
+        assert loading["availability"]["current"] == {"basic": False, "comment": False, "verify": False}
     finally:
         release.set()
     assert wait_terminal(api, current["taskId"]) == "completed"
@@ -515,7 +523,7 @@ def test_statistics_replays_only_the_applied_jql_collection_without_extra_scope(
     assert payload["state"] == "ready"
     assert payload["teamTotal"] == 1
     assert payload["productLines"][0]["people"] == [{"identity": "fan.xu", "displayName": "Fan Xu",
-        "bugCount": 1, "commentCount": 0, "verifyCount": 0, "invalidCount": 0}]
+        "bugCount": 1, "commentCount": 0, "invalidCount": 0}]
     monkeypatch.setattr(Gateway, "user_groups", lambda _self, _account: (_ for _ in ()).throw(AssertionError("reuse queried Jira")))
     reused = api.post("/api/jira/cards/self-test/query", json={"intent": "reuse"}).json()
     assert reused["state"] == "ready"
@@ -633,6 +641,8 @@ def test_card_bulk_query_requests_comments_and_replays_comment_authors(tmp_path,
         time.sleep(.01)
     assert task["state"] == "completed"
     assert requested == [(list(JiraGateway.CORE_FIELDS), None, 100)] * 2
+    from test_jira_history_schedule import refresh_test_history
+    refresh_test_history(api)
     replay = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     for period in ["current", "previous"]:
         people = replay[period]["productLines"][4]["people"]
@@ -666,9 +676,9 @@ def test_interrupted_layers_restore_complete_active_or_keep_first_basic_preview(
     assert payload["state"] == terminal
     assert payload["teamTotal"] == 1
     assert payload["availability"]["current"]["basic"] is True
-    assert "verify" not in payload["availability"]["current"]
+    assert payload["availability"]["current"]["verify"] is False
     assert payload["availability"]["previous"]["basic"] == has_active
-    assert "verify" not in payload["availability"]["previous"]
+    assert payload["availability"]["previous"]["verify"] is False
     people = [person for line in payload["productLines"] for person in line["people"]]
     assert all("bugCount" in person for person in people)
     assert bool(payload["query"]["activeSnapshotId"]) == has_active
@@ -731,6 +741,8 @@ def test_comments_and_verify_share_user_annual_scope_and_personnel_lines(tmp_pat
     assert basic_queries == [item['jql'] for item in effective_card_jql_pair(card_key,user,'year').values()]
     assert len(activity_queries)==2 and activity_queries[0]!=activity_queries[1]
     assert activity_queries == [item['jql'] for item in activity_card_jql_pair(card_key,user).values()]
+    from test_jira_history_schedule import refresh_test_history
+    refresh_test_history(api)
     replay=api.get(f'/api/jira/cards/{card_key}/statistics').json()
     for period in ('current','previous'):
         people=[person for line in replay[period]['productLines'] for person in line['people']]
@@ -744,4 +756,4 @@ def test_comments_and_verify_share_user_annual_scope_and_personnel_lines(tmp_pat
     for period in ('week','month','quarter'):
         local=api.post(f'/api/jira/cards/{card_key}/query',json={'intent':'reuse','period':period}).json()
         assert local['state']=='ready' and 'taskId' not in local
-    assert len(basic_queries)==len(activity_queries)==2
+    assert len(basic_queries)==2 and len(activity_queries)==4

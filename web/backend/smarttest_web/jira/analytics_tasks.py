@@ -10,6 +10,25 @@ class JiraAnalyticsTasks:
         self._index = ScopedTaskIndex(manager)
         self._annual_lock = RLock()
         self._annual = {}
+        self._pages = None
+
+    @property
+    def pages(self):
+        from .analytics_pages import JiraMetricPages
+        with self._annual_lock:
+            if self._pages is None:
+                self._pages = JiraMetricPages()
+            return self._pages
+
+    def close_pages(self):
+        with self._annual_lock:
+            pages = self._pages
+        if pages is not None:
+            pages.close()
+
+    def open_pages(self):
+        with self._annual_lock:
+            self._pages = None
 
     def submit_annual(self, scope, runner):
         with self._annual_lock:

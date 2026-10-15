@@ -32,6 +32,7 @@ from .downloads import DownloadArtifactService
 from .downloads_api import create_router as create_downloads_router
 from .jira.analytics_repository import JiraAnalyticsRepository
 from .jira.analytics_tasks import JIRA_ANALYTICS_TASKS
+from .daily_refresh import DailyFactsRefresh
 from .jira.cache_service import JiraIssueCacheService
 from .jira.issue_repository import JiraIssueRepository
 from .jira_api import create_router as create_jira_router
@@ -106,6 +107,7 @@ def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOw
     jira_filters = JiraFilterSnapshotRepository(cache_database)
     jira_analytics = JiraAnalyticsRepository(cache_database)
     jira_analytics.interrupt_pending()
+    daily_refresh = DailyFactsRefresh(cache_database, sessions, jira_analytics, jira_filter_owner, JIRA_ANALYTICS_TASKS, facts)
     releases = release_query_owner(cache_database)
     test_suites = TestSuiteRepository(cache_database)
     audits = audit_registry()
@@ -116,17 +118,32 @@ def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOw
 
     @asynccontextmanager
     async def lifespan(_app):
+        import asyncio
         from .task_manager import close_web_tasks, open_web_tasks
         open_web_tasks()
+        JIRA_ANALYTICS_TASKS.open_pages()
+        daily_refresh.clock.recover()
+        async def scan_daily():
+            while True:
+                daily_refresh.scan()
+                await asyncio.sleep(60)
+        daily_timer = asyncio.create_task(scan_daily())
         try:
             yield
         finally:
+            daily_timer.cancel()
+            try:
+                await daily_timer
+            except asyncio.CancelledError:
+                pass
+            JIRA_ANALYTICS_TASKS.close_pages()
             email_job.close()
             audits.close()
             downloads.close()
             close_web_tasks()
     app = FastAPI(title="SmartTest Wi-Fi Database", docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
+    app.state.daily_refresh = daily_refresh
 
     def set_session_cookie(request: Request, response: Response, token: str) -> None:
         secure = request.url.scheme.lower() == "https"

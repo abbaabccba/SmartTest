@@ -22,6 +22,7 @@ class ConfluenceProjectSyncCoordinator:
         cancelled=lambda: False,
         progress=lambda *_: None,
         parent_id="",
+        require_complete=False,
     ) -> list[str]:
         identifiers = tuple(str(project_id) for project_id in project_ids)
 
@@ -29,7 +30,12 @@ class ConfluenceProjectSyncCoordinator:
             if cancelled():
                 return "cancelled"
             try:
-                self._cache_service.refresh_project(project_id, details)
+                project = self._cache_service.refresh_project(project_id, details,
+                    **({'require_complete': True} if require_complete else {}))
+                if require_complete:
+                    from core.domain.detail import DetailState
+                    if any(getattr(project, section).state is not DetailState.LOADED for section in details.sections()):
+                        return 'failed'
             except Exception:
                 return "failed"
             return "updated"

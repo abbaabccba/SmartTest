@@ -346,7 +346,7 @@ def build_annual_facts(gateway, current_rows, previous_rows, *, groups_cache=Non
             **({"activityRoster": activity_roster.fingerprint} if current_activities is not None or activity_facts is not None else {})}
 
 
-def merge_annual_activity_facts(facts, activity_facts):
+def merge_annual_activity_facts(facts, activity_facts, *, metrics=("commentCount", "verifyCount")):
     by_id = {fact["issueId"]: fact for fact in facts}
     for contribution in activity_facts:
         target = by_id.get(contribution["issueId"])
@@ -355,8 +355,9 @@ def merge_annual_activity_facts(facts, activity_facts):
             by_id[contribution["issueId"]] = contribution
             continue
         statistics = target["statistics"]
-        statistics["unassignedCommentCount"] = contribution["statistics"].get("unassignedCommentCount", 0)
-        statistics["unassignedVerifyCount"] = contribution["statistics"].get("unassignedVerifyCount", 0)
+        for metric in metrics:
+            unassigned = "unassigned" + metric[0].upper() + metric[1:]
+            statistics[unassigned] = contribution["statistics"].get(unassigned, 0)
         lines = {line["id"]: line for line in statistics["productLines"]}
         for line in contribution["statistics"]["productLines"]:
             if line["id"] not in lines:
@@ -366,8 +367,8 @@ def merge_annual_activity_facts(facts, activity_facts):
             existing = {person["identity"]: person for person in people}
             for person in line["people"]:
                 if person["identity"] in existing:
-                    existing[person["identity"]]["commentCount"] = person["commentCount"]
-                    existing[person["identity"]]["verifyCount"] = person["verifyCount"]
+                    for metric in metrics:
+                        existing[person["identity"]][metric] = person[metric]
                 else:
                     people.append(person)
 
@@ -382,8 +383,10 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
         years = (["previous"] if start < f"{today.year}-01-01" else [])
         if end is None or end > f"{today.year}-01-01":
             years.append("current")
+        availability_metrics = ("basic", "comment", "verify") if "metricSources" in metadata else (
+            ("basic", "activity") if "activityRoster" in metadata else ("basic", "verify"))
         availability[key] = {metric: all(metadata["availability"][year][metric] for year in years)
-                             for metric in (("basic", "activity") if "activityRoster" in metadata else ("basic", "verify"))}
+                             for metric in availability_metrics}
         summary = aggregate_jira_statistics([], QARoster("", ())).to_payload()
         if "activityRoster" in metadata:
             summary["unassignedCommentCount"] = 0
@@ -418,7 +421,7 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
                                   for name, count in sorted(components[line["id"]].items())]
             line["people"] = sorted(by_line[line["id"]].values(),
                                     key=lambda person: (-person["bugCount"], person["displayName"].casefold(), person["identity"]))
-            if not availability[key]["activity" if "activityRoster" in metadata else "verify"]:
+            if not availability[key]["activity" if "activityRoster" in metadata and "metricSources" not in metadata else "verify"]:
                 for person in line["people"]:
                     person.pop("verifyCount")
         output[key] = summary

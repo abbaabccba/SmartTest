@@ -2,6 +2,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createJiraStatisticsCard, JIRA_STATISTICS_CARDS } from '../src/widgets/jira-statistics-card.js'
 
+it('shows Comments while Verify waits for the fixed background refresh', async () => {
+  document.body.innerHTML = '<div id="root"></div>'
+  const payload = { state: 'ready', productLines: [],
+    availability: { current: { basic: true, comment: true, verify: false },
+      previous: { basic: true, comment: true, verify: false } } }
+  const widget = createJiraStatisticsCard({ chartFactory: vi.fn(chartMock) })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => payload }, account: 'scheduled' })
+  await vi.waitFor(() => expect(document.querySelector('button[data-value="commentCount"]')?.disabled).toBe(false))
+  const verify = document.querySelector('button[data-value="verifyCount"]')
+  expect(verify.disabled).toBe(true)
+  expect(verify.textContent).toContain('Waiting for scheduled refresh')
+  expect(document.querySelector('[data-jira-statistics-state]')).toBeNull()
+  widget.destroy()
+})
+
 it('enables Comments and Verify together while Basic is pending', async () => {
   document.body.innerHTML = '<div id="root"></div>'
   const payload = { state: 'loading', current: { productLines: [{ id: 'TV', label: 'TV', people: [

@@ -10,11 +10,8 @@ from core.jira.domain import IssueDetails
 from core.jira.mapper import JiraIssueMapper
 from core.jira.services.jql_statistics_cards import (
     JIRA_STATISTICS_CARDS,
-    build_annual_facts,
     card_definition,
     effective_card_jql_pair,
-    activity_card_jql_pair,
-    load_activity_qa_roster,
 )
 
 from .audit.registry import AuditConflictError
@@ -27,7 +24,6 @@ from .audit_http import (
     request_session_id,
 )
 from .downloads import DownloadNotFoundError
-from .jira.analytics_service import JiraAnalyticsService
 from .jira.analytics_tasks import JIRA_ANALYTICS_TASKS
 from .jira_filter_snapshot_repository import JIRA_FILTER_FIELDS
 from .jira_http import issue_payload as _issue_payload
@@ -96,27 +92,9 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
             filters, gateway = jira_filter_owner(value.username, value.password)
         except Exception as error:
             raise HTTPException(status_code=503, detail={"state": "analytics_unavailable"}) from error
-        definition = card_definition(card_key) if card_key else None
-        period = "year" if definition else None
-        query_pair = effective_card_jql_pair(card_key, "", period) if definition else None
-        current_fixed = query_pair["current"]["jql"] if query_pair else ""
-        previous_fixed = query_pair["previous"]["jql"] if query_pair else ""
-        groups_cache = {}
-        activity_roster = load_activity_qa_roster() if definition else None
-        return JiraAnalyticsService(
-            filters, gateway, JiraIssueMapper(gateway.config.base_url if hasattr(gateway, "config") else ""),
-            jira_analytics, JIRA_ANALYTICS_TASKS,
-            fixed_conditions=current_fixed,
-            comparison_conditions=previous_fixed,
-            activity_conditions={key: item["jql"] for key, item in activity_card_jql_pair(card_key, "").items()} if definition else None,
-            activity_roster=activity_roster,
-            card_key=card_key,
-            roster_fingerprint=f"{definition.fingerprint}:annual-activity-v4:{activity_roster.fingerprint}" if definition else "",
-            statistics_builder=(lambda current, previous, **kwargs: build_annual_facts(
-                gateway, current, previous, groups_cache=groups_cache, activity_roster=activity_roster, **kwargs,
-            )) if definition else None,
-            on_error=lambda error: invalidate_analytics_credentials(value, error),
-        )
+        from .jira.analytics_service import card_analytics_service
+        return card_analytics_service(filters, gateway, jira_analytics, JIRA_ANALYTICS_TASKS,
+            card_key, on_error=lambda error: invalidate_analytics_credentials(value, error))
 
     def invalidate_analytics_credentials(value, error):
         if remote_credentials_rejected(error):
@@ -163,7 +141,7 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         conditions = jira_analytics.published_conditions(session_hash, value.username)
         applied_jql = (conditions or {}).get("userJql")
         expected = effective_card_jql_pair(card_key, applied_jql or "", "year")
-        fingerprint = f"{card_definition(card_key).fingerprint}:annual-activity-v4:{load_activity_qa_roster().fingerprint}"
+        fingerprint = f"{card_definition(card_key).fingerprint}:annual-metrics-v5"
         def matches(jql, comparison_jql, user_jql, version):
             return (user_jql is not None and user_jql == applied_jql and version == fingerprint
                     and jql == expected["current"]["jql"] and comparison_jql == expected["previous"]["jql"])
@@ -193,7 +171,7 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         if state == "loading" and "productLines" not in payload:
             payload["productLines"] = [{"id": line.name, "label": line.name, "people": []}
                                        for line in DASHBOARD_PRODUCT_LINES]
-            payload["availability"] = {key: {"basic": False, "activity": False} for key in ("current", "previous")}
+            payload["availability"] = {key: {"basic": False, "comment": False, "verify": False} for key in ("current", "previous")}
         return payload
 
     @router.get("/api/jira/analytics/fields")

@@ -5,6 +5,9 @@ from ..schema import ensure_component_schema
 
 
 JIRA_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS jira_history_scopes (
+        account TEXT NOT NULL, card_key TEXT NOT NULL, user_jql TEXT NOT NULL,
+        PRIMARY KEY(account,card_key))""",
     """CREATE TABLE IF NOT EXISTS jira_analytics_queries (
         session_hash TEXT PRIMARY KEY, account TEXT NOT NULL,
         active_snapshot_id TEXT NOT NULL DEFAULT '', pending_snapshot_id TEXT NOT NULL DEFAULT '',
@@ -116,8 +119,9 @@ def initialize_jira_schema(database: WebDatabase) -> None:
     ensure_component_schema(
         database,
         component="jira_cache",
-        version=5,
+        version=7,
         statements=JIRA_STATEMENTS,
+        upgrade_statements=("DROP TABLE IF EXISTS jira_history_schedule",),
     )
     with database.transaction() as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(jira_issue_release_facts)")}

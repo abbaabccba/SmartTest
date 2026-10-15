@@ -172,6 +172,8 @@ def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(tm
     api = client(tmp_path)
     started = query_card(api, {'mode': 'basic', 'basic': {}}).json()
     assert wait_terminal(api, started['taskId']) == 'completed'
+    from test_jira_history_schedule import refresh_test_history
+    refresh_test_history(api)
     with WebDatabase(tmp_path / 'web.db').connect() as connection:
         facts = str(connection.execute('SELECT fact_json FROM jira_analytics_facts').fetchall())
         assert 'never-store' not in facts and 'histories' not in facts

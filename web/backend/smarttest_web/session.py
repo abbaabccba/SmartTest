@@ -68,6 +68,11 @@ class PersistentSessionStore:
         normalized = str(username or "").strip().casefold()
         return "account-" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
+    def saved_accounts(self):
+        with self._connect() as connection:
+            return tuple(row[0] for row in connection.execute(
+                'SELECT username FROM web_account_identities ORDER BY username'))
+
     def saved_credentials(self, username):
         normalized = str(username or "").strip().casefold()
         if not normalized:

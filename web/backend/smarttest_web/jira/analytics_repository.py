@@ -14,6 +14,18 @@ class JiraAnalyticsRepository:
         self.database, self._now = database, now
         self.issues = JiraIssueRepository(database)
 
+    def register_history_scope(self, account, card_key, user_jql):
+        account = str(account).casefold()
+        with self.database.transaction() as connection:
+            connection.execute("""INSERT INTO jira_history_scopes VALUES(?,?,?)
+                ON CONFLICT(account,card_key) DO UPDATE SET user_jql=excluded.user_jql""",
+                               (account, card_key, user_jql))
+
+    def history_scopes(self, account):
+        with self.database.connect() as connection:
+            return dict(connection.execute("SELECT card_key,user_jql FROM jira_history_scopes WHERE account=? ORDER BY card_key",
+                                           (str(account).casefold(),)))
+
     @staticmethod
     def _scope(session_hash, card_key, account):
         return f"account:{str(account).casefold()}:card:{card_key}" if card_key else str(session_hash)
@@ -37,12 +49,27 @@ class JiraAnalyticsRepository:
                 (str(session_hash), str(account).casefold())).fetchone()
         return json.loads(row[0]) if row and row[0] is not None else None
 
-    def begin(self, session_hash, account, jql, basic, source_filter_id, *, expires_at, user_jql=None, card_key="", roster_fingerprint="", comparison_jql="", query_revision="", published_revision=""):
+    def begin(self, session_hash, account, jql, basic, source_filter_id, *, expires_at, user_jql=None, card_key="", roster_fingerprint="", comparison_jql="", query_revision="", published_revision="", expected_user_jql=None):
         snapshot_id = uuid4().hex
         now = self._now()
         task_session_hash = str(session_hash)
         session_hash = self._scope(session_hash, card_key, account)
         with self.database.transaction() as connection:
+            if expected_user_jql is not None:
+                submitted = connection.execute('SELECT user_jql FROM jira_history_scopes WHERE account=? AND card_key=?',
+                                               (str(account).casefold(), card_key)).fetchone()
+                if not submitted or submitted[0] != expected_user_jql:
+                    from core.async_tasks import TaskCancelled
+                    raise TaskCancelled('scope_changed')
+                existing = connection.execute('''SELECT q.pending_snapshot_id,s.basic_json,s.source_filter_id
+                    FROM jira_analytics_queries q LEFT JOIN jira_analytics_snapshots s
+                    ON s.snapshot_id=q.active_snapshot_id WHERE q.session_hash=?''', (session_hash,)).fetchone()
+                if existing:
+                    if existing[0]:
+                        from core.async_tasks import TaskCancelled
+                        raise TaskCancelled('query_in_progress')
+                    basic = json.loads(existing[1] or '{}')
+                    source_filter_id = existing[2] or ''
             connection.execute("DELETE FROM jira_analytics_queries WHERE expires_at<=? AND card_key='' AND user_conditions_json IS NULL", (now,))
             connection.execute("""INSERT INTO jira_analytics_queries
                 (session_hash,account,pending_snapshot_id,expires_at,card_key,task_session_hash,last_snapshot_id) VALUES(?,?,?,?,?,?,?)
@@ -106,6 +133,22 @@ class JiraAnalyticsRepository:
                     return None
                 facts = [json.loads(item[0]) for item in connection.execute(
                     "SELECT fact_json FROM jira_analytics_facts WHERE snapshot_id=? ORDER BY rowid", (snapshot_id,))]
+                from .analytics_refresh import metric_source_key
+                from core.jira.services.jql_statistics_cards import load_activity_qa_roster
+                roster_fingerprint = load_activity_qa_roster().fingerprint if metadata.get('metricSources') else ''
+                for source_period, sources in metadata.get('metricSources', {}).items():
+                    for metric, source in sources.items():
+                        source_key = metric_source_key(source['card'], source['query'],
+                            roster_fingerprint, metric)
+                        source_row = connection.execute("""SELECT s.snapshot_id FROM jira_analytics_queries q
+                            JOIN jira_analytics_snapshots s ON s.snapshot_id=q.active_snapshot_id
+                            WHERE q.session_hash=? AND s.account=? AND s.card_key=? AND s.state='active'""",
+                            (self._scope('', source_key, row[1]), row[1], source_key)).fetchone()
+                        metadata['availability'][source_period][metric] = bool(source_row)
+                        if source_row:
+                            merge_annual_activity_facts(facts, [json.loads(item[0]) for item in connection.execute(
+                                'SELECT fact_json FROM jira_analytics_facts WHERE snapshot_id=? ORDER BY rowid', (source_row[0],))],
+                                metrics=(metric + 'Count',))
                 for source_period, source in metadata.get("activitySources", {}).items():
                     if source.get("snapshotId"):
                         source_row = connection.execute("SELECT snapshot_id,statistics_json FROM jira_analytics_snapshots WHERE snapshot_id=? AND account=?",

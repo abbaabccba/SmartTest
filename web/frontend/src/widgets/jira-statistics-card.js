@@ -76,7 +76,10 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     if (payload.period) period = payload.period
     const current = payload.current ?? payload
     const availability = payload.availability
-    const metricReady = (period, metric) => !availability || Boolean(availability[period]?.[metric === 'verifyCount' || metric === 'commentCount' ? 'activity' : 'basic'])
+    const metricReady = (period, metric) => {
+      const layer = metric === 'verifyCount' ? 'verify' : metric === 'commentCount' ? 'comment' : 'basic'
+      return !availability || Boolean(availability[period]?.[layer] ?? (layer !== 'basic' && availability[period]?.activity))
+    }
     const previous = payload.previous
     const comparison = Boolean(previous || payload.comparison)
     const previousByLine = new Map((previous?.productLines ?? []).map(line => [line.id, line]))
@@ -113,7 +116,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     const signature = JSON.stringify(display)
     if (displayed && signature === displaySignature) return
     const byLine = new Map(combinedLines.map(line => [line.id, line]))
-    const pendingLabel = ({ failed: 'Failed', cancelled: 'Cancelled' })[payload.state] ?? 'Loading…'
+    const pendingLabel = ({ failed: 'Failed', cancelled: 'Cancelled' })[payload.state] ?? (payload.state === 'ready' ? 'Waiting for scheduled refresh' : 'Loading…')
     const presentation = {
       palette: 'jira',
       productLines: combinedLines.map(line => ({ value: line.id, label: line.label, productLine: line.label })),
