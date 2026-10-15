@@ -108,8 +108,8 @@ it('sorts comparison rows and labels each period with its own share of the displ
   ])
   expect(chart.data.datasets.every(dataset => dataset.grouped)).toBe(true)
   const percentage = chart.options.plugins.datalabels.labels.percentage.formatter
-  expect(percentage(2, { datasetIndex: 0 })).toBe('2 · 33%')
-  expect(percentage(4, { datasetIndex: 1 })).toBe('4 · 44%')
+  expect(percentage(2, { datasetIndex: 0 })).toBe('33%（2/6）')
+  expect(percentage(4, { datasetIndex: 1 })).toBe('44%（4/9）')
   card.destroy()
 })
 
@@ -201,7 +201,7 @@ it.each([true, false])('handles a zero-total period without inventing labels on 
   })
   const labels = chart.options.plugins.datalabels.labels
   expect(labels.percentage.formatter(0, { datasetIndex: currentEmpty ? 0 : 1 })).toBeNull()
-  expect(labels.percentage.formatter(5, { datasetIndex: currentEmpty ? 1 : 0 })).toBe('5 · 100%')
+  expect(labels.percentage.formatter(5, { datasetIndex: currentEmpty ? 1 : 0 })).toBe('100%（5/5）')
   expect(labels.value.formatter(currentEmpty ? 0 : 5, { datasetIndex: 0, dataIndex: 0 })).toBe(currentEmpty ? '↓ 5' : '↑ 5')
   expect(chart.options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 0 }])).not.toMatch(/NaN|Infinity|%/)
   card.destroy()
@@ -223,7 +223,7 @@ it('keeps short-bar labels complete to the right and places the difference after
     options: { font: { size: 12, family: 'Arial' } },
     scales: { x: { getPixelForValue: value => value * 16 } },
   } }
-  expect(labels.percentage.formatter(1, context)).toBe('1 · 1%')
+  expect(labels.percentage.formatter(1, context)).toBe('1%（1/71）')
   expect(labels.percentage.align(context)).toBe('right')
   expect(labels.value.offset(context)).toBeGreaterThan(42 + 8)
   context.dataIndex = 0
@@ -310,7 +310,7 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
       productLines: [{ value: 'a', label: 'A' }], modes: [{ value: 'x', label: 'X' }],
     })
     expect(chart.getDatasetMeta(0).data[0].options.backgroundColor).toBe('#9DD5FA')
-    expect(textDraws).toContainEqual({ text: '3 · 100%', color: '#1E293B' })
+    expect(textDraws).toContainEqual({ text: '100%（3/3）', color: '#1E293B' })
     const bar = chart.getDatasetMeta(0).data[0]
     const geometry = { x: bar.x, y: bar.y, width: bar.width, height: bar.height }
     root.style.setProperty('--jira-current-bar', '#789AAF')
@@ -321,7 +321,7 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
     await Promise.resolve()
     expect(chart.getDatasetMeta(0).data[0].options.backgroundColor).toBe('#789AAF')
     expect(chart.getDatasetMeta(1).data[0].options.backgroundColor).toBe('#B99B85')
-    expect(textDraws).toContainEqual({ text: '3 · 100%', color: '#F5F5F5' })
+    expect(textDraws).toContainEqual({ text: '100%（3/3）', color: '#F5F5F5' })
     expect(chart.getDatasetMeta(0).data[0]).toBe(bar)
     expect({ x: bar.x, y: bar.y, width: bar.width, height: bar.height }).toEqual(geometry)
   } finally {

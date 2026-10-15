@@ -125,7 +125,7 @@ export function createRankingCard({ chartFactory } = {}) {
       if (summary) return rows[context.dataIndex].valueLabel
       if (!value) return null
       const periodTotal = context?.datasetIndex === 1 ? previousTotal : total
-      return `${value} · ${periodTotal ? Math.round(value / periodTotal * 100) : 0}%`
+      return `${periodTotal ? Math.round(value / periodTotal * 100) : 0}%（${value}/${periodTotal}）`
     }
     const overflowLabelWidth = context => {
       const value = context.dataset.data[context.dataIndex]

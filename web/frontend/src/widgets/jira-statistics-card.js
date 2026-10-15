@@ -134,7 +134,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
         const total = line?.issueCount ?? 0
         const invalid = line?.invalidCount ?? 0
         return [{ name: 'Total', count: total, valueLabel: String(total) },
-          { name: 'Invalid', count: invalid, valueLabel: `${invalid} · ${total ? Number((invalid / total * 100).toFixed(2)) : 0}%` }]
+          { name: 'Invalid', count: invalid, valueLabel: `${total ? Number((invalid / total * 100).toFixed(2)) : 0}%（${invalid}/${total}）` }]
       },
       rowsFor: (productLine, metric) => {
         if (!metricReady('current', metric)) return []
