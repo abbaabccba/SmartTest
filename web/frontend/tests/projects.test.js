@@ -1001,14 +1001,14 @@ describe('Projects', () => {
   })
 })
 
-it('binds each Projects product layout as the single product background owner', async () => {
+it('keeps Projects titles themed without binding data groups to product backgrounds', async () => {
   const root = document.createElement('div')
   const page = createProjects({ root, api: { getProjectFacts: vi.fn().mockResolvedValue(payload) } })
   try {
     await page.start()
     const groups = [...root.querySelectorAll('[data-product-space-group]')]
-    expect(groups.map(group => group.dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
-    expect(groups.every(group => group.dataset.productSurface === 'layout')).toBe(true)
+    expect(groups.every(group => !group.hasAttribute('data-product-line') && !group.hasAttribute('data-product-surface'))).toBe(true)
+    expect(groups.map(group => group.querySelector('[data-product-space-toggle]').dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
     const toggle = groups[0].querySelector('[data-product-space-toggle]')
     expect(toggle.dataset.productLine).toBe('China Operator')
     expect(toggle.dataset.productSurface).toBe('button')
@@ -1020,7 +1020,7 @@ it('binds each Projects product layout as the single product background owner', 
   } finally { page.destroy() }
 })
 
-it('binds each project disclosure to its catalog name without changing hover details or stage semantics', async () => {
+it('keeps project rows plain without changing hover details or stage semantics', async () => {
   const root = document.createElement('div')
   const page = createProjects({ root, api: { getProjectFacts: vi.fn().mockResolvedValue({ ...payload,
     projects: [
@@ -1032,9 +1032,7 @@ it('binds each project disclosure to its catalog name without changing hover det
     await page.start()
     const speaker = root.querySelector('[data-project-id="SD-1"]')
     const tv = root.querySelector('[data-project-id="TV-1"]')
-    expect(speaker.dataset.productLine).toBe('Smart Device')
-    expect(tv.dataset.productLine).toBe('TV')
-    expect([speaker, tv].map(row => row.dataset.productSurface)).toEqual(['disclosure', 'disclosure'])
+    expect([speaker, tv].every(row => !row.hasAttribute('data-product-line') && !row.hasAttribute('data-product-surface'))).toBe(true)
     expect(speaker.tagName).toBe('ARTICLE')
     expect(speaker.querySelector('.project-card-details').textContent).toContain('Alice')
     expect(speaker.querySelector('a').href).toBe('https://example.com/speaker')

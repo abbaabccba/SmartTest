@@ -425,6 +425,7 @@ it('binds the five Jira visual identities using full names', async () => {
     const buttons = [...document.querySelectorAll('[data-product-line-segments] button')]
     expect(buttons.map(button => button.dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB', 'Wireless Connection'])
     buttons[4].click()
-    expect(document.querySelector('.workload-chart-scroll').dataset.productLine).toBe('Wireless Connection')
+    expect(document.querySelector('.workload-chart-scroll').hasAttribute('data-product-line')).toBe(false)
+    expect(buttons[4].getAttribute('aria-pressed')).toBe('true')
   } finally { widget.destroy() }
 })

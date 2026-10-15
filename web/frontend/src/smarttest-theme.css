@@ -1,4 +1,3 @@
-@import './card-backgrounds.css';
 @import './product-line-theme.css';
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
 
@@ -2343,3 +2342,11 @@ html.dark-theme .login-page[data-login-background="pcb"] { --login-art: url('/im
 [data-project-status-text="NORMAL"] { color: var(--project-status-normal-bg); }
 [data-project-status-text="WARNING"] { color: var(--project-status-warning-bg); }
 [data-project-status-text="BLOCK"] { color: var(--project-status-block-bg); }
+
+.summary-metric-single { --summary-color: #edf4fc; --summary-dark: #203044; }
+.summary-metric-paired { --summary-color: #fff3e8; --summary-dark: #3b2e24; }
+.summary-metric-resources { --summary-color: #eaf7f3; --summary-dark: #203832; }
+.summary-metric-product-modes { --summary-color: #f2eef9; --summary-dark: #302b40; }
+.summary-metric-average { --summary-color: #f0f3f6; --summary-dark: #2c333c; }
+.card.summary-metric { background: var(--summary-color); }
+:is(html, body).dark-theme .card.summary-metric { background: var(--summary-dark); }

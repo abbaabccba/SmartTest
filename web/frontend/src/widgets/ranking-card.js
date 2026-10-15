@@ -80,8 +80,6 @@ export function createRankingCard({ chartFactory } = {}) {
   }
 
   function renderChart() {
-    bindProductLine(root.querySelector('.workload-chart-scroll'),
-      config.productLines?.find(item => item.value === activeProductLine)?.productLine, 'card')
     const summary = config.summaryRowsFor?.(activeProductLine, activeMode)
     const rows = summary ?? (config.rowsFor?.(activeProductLine, activeMode) ?? [])
       .filter(row => row.count || row.previousCount)

@@ -200,15 +200,15 @@ export function createProjects({ root, api, waitForPreferences, account,
       return item
     }
     const card = (...rows) => {
-      const item = node('article', 'card summary-metric card-background'); item.dataset.metric = ''; item.append(...rows)
+      const item = node('article', 'card summary-metric'); item.dataset.metric = ''; item.append(...rows)
       summary.append(item)
       return item
     }
-    card(row('Support Projects', projects.length)).classList.add('summary-metric-single', 'card-background-geometry')
+    card(row('Support Projects', projects.length)).classList.add('summary-metric-single')
     card(row('Block Projects', blockProjectCount, 'BLOCK'), row('Warning Projects', warningProjectCount, 'WARNING'))
-      .classList.add('summary-metric-paired', 'card-background-bands')
+      .classList.add('summary-metric-paired')
     card(row('Major FAE QA Resources', roleAssignmentCount('Major FAE QA')),
-      row('FAE QA Resources', roleAssignmentCount('FAE QA'))).classList.add('summary-metric-resources', 'card-background-dots')
+      row('FAE QA Resources', roleAssignmentCount('FAE QA'))).classList.add('summary-metric-resources')
     const modeCounts = new Map(productSpaceDefinitions.map(({ value }) => [value, { S: 0, A: 0 }]))
     for (const project of projects) {
       const counts = modeCounts.get(project.space_key)
@@ -220,11 +220,11 @@ export function createProjects({ root, api, waitForPreferences, account,
       const item = row(label, `S ${counts.S} · A ${counts.A}`); item.dataset.productModeRow = ''
       return item
     })
-    const modeCard = card(...modeRows); modeCard.classList.add('summary-metric-product-modes', 'card-background-orbits')
+    const modeCard = card(...modeRows); modeCard.classList.add('summary-metric-product-modes')
     const modeTitle = node('div', 'summary-metric-title', 'Support Mode'); modeTitle.dataset.metricTitle = ''
     modeCard.prepend(modeTitle)
     card(row('Avg assignments / person', people.size ? (assignments / people.size).toFixed(1) : '0.0'))
-      .classList.add('summary-metric-average', 'card-background-ripples')
+      .classList.add('summary-metric-average')
   }
 
   function renderProjects(hierarchy, projects = [], blockProjectCount, warningProjectCount) {
@@ -265,9 +265,8 @@ export function createProjects({ root, api, waitForPreferences, account,
       rootNode.append(row)
       return row
     }
-    const createProjectCard = (project, productLine) => {
+    const createProjectCard = project => {
       const card = node('article', 'kanban-card project-card project-list-row')
-      bindProductLine(card, productLine, 'disclosure')
       card.dataset.projectId = projectKey(project)
       const summary = node('div', 'project-card-summary')
       const primary = node('div', 'project-list-primary')
@@ -320,7 +319,7 @@ export function createProjects({ root, api, waitForPreferences, account,
       return [...groups.values()].sort((left, right) => right.projects.length - left.projects.length)
     }
 
-    const appendStageGroups = (container, projects, productLine) => {
+    const appendStageGroups = (container, projects) => {
       for (const stage of groupByStage(projects)) {
         const stageGroup = node('details', 'stage-group'); stageGroup.dataset.stageGroup = ''
         const stageSummary = node('summary', 'stage-summary')
@@ -330,7 +329,7 @@ export function createProjects({ root, api, waitForPreferences, account,
         const cards = node('div', 'project-list')
         stage.projects.sort((left, right) => comparePresentAsc(left.support_mode, right.support_mode)
           || comparePresentDesc(left.status, right.status))
-          .forEach(project => cards.append(createProjectCard(project, productLine)))
+          .forEach(project => cards.append(createProjectCard(project)))
         stageGroup.append(stageSummary, cards); container.append(stageGroup)
       }
     }
@@ -375,7 +374,6 @@ export function createProjects({ root, api, waitForPreferences, account,
       const spaceProjects = uniqueProjects.filter(project => project.space_key === productSpaceKey)
       const group = node('section', 'product-space-group'); group.dataset.productSpaceGroup = ''
       const summary = node('button', 'product-space-summary'); summary.type = 'button'; summary.dataset.productSpaceToggle = ''
-      bindProductLine(group, productSpaceLabel, 'layout')
       bindProductLine(summary, productSpaceLabel, 'button')
       summary.setAttribute('aria-expanded', 'true')
       const count = node('span', 'kanban-count', spaceProjects.length); count.dataset.productCount = ''
@@ -389,11 +387,11 @@ export function createProjects({ root, api, waitForPreferences, account,
             const launchCount = node('span', 'kanban-count', launchOs.projects.length); launchCount.dataset.launchOsProjectCount = ''
             launchSummary.append(node('strong', '', launchOs.name), launchCount)
             const launchStages = node('div', 'launch-os-stage-groups')
-            appendStageGroups(launchStages, launchOs.projects, productSpaceLabel)
+            appendStageGroups(launchStages, launchOs.projects)
             launchGroup.append(launchSummary, launchStages); stageGroups.append(launchGroup)
           }
         } else {
-          appendStageGroups(stageGroups, spaceProjects, productSpaceLabel)
+          appendStageGroups(stageGroups, spaceProjects)
         }
       } else stageGroups.append(node('div', 'product-space-empty', 'No projects.'))
       summary.addEventListener('click', () => {

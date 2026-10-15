@@ -369,7 +369,7 @@ it('keeps Top3 medals aligned with real chart rows and clears them for summaries
   expect(root.childElementCount).toBe(0)
 })
 
-it('binds product visuals independently from business values and clears stale identities', () => {
+it('keeps product controls themed while data regions remain plain across selection changes', () => {
   const firstRoot = document.createElement('div'), secondRoot = document.createElement('div')
   const first = createRankingCard(), second = createRankingCard()
   const rowsFor = vi.fn(() => [])
@@ -384,14 +384,14 @@ it('binds product visuals independently from business values and clears stale id
     const content = firstRoot.querySelector('.workload-chart-scroll')
     expect(buttons.map(button => button.dataset.productLine)).toEqual(['China Operator', 'Global Operator & STB'])
     expect(buttons.map(button => button.textContent)).toEqual(['China Operator', 'Global Operator & STB'])
-    expect(content.dataset.productLine).toBe('China Operator')
-    expect(content.dataset.productSurface).toBe('card')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
+    expect(content.hasAttribute('data-product-surface')).toBe(false)
     buttons[1].click()
     expect(rowsFor).toHaveBeenLastCalledWith('OOPL', '')
-    expect(content.dataset.productLine).toBe('Global Operator & STB')
-    expect(secondRoot.querySelector('.workload-chart-scroll').dataset.productLine).toBe('China Operator')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
+    expect(secondRoot.querySelector('.workload-chart-scroll').hasAttribute('data-product-line')).toBe(false)
     first.update({ ...config, productLines: [products[0]] })
-    expect(content.dataset.productLine).toBe('China Operator')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
     first.update({ ...config, productLines: [{ value: 'DOPL', label: 'China Operator' }] })
     expect(content.hasAttribute('data-product-line')).toBe(false)
     expect(firstRoot.querySelector('[data-product-line-segments] button').hasAttribute('data-product-line')).toBe(false)
