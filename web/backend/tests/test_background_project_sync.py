@@ -5,6 +5,29 @@ from smarttest_web.background_refresh import BackgroundFactsRefresh
 import smarttest_web.background_refresh as background_refresh
 
 
+def test_failed_refresh_logs_account_and_http_status_without_exception_secrets(tmp_path, monkeypatch):
+    from requests import HTTPError
+    from types import SimpleNamespace
+    access = confirmed_access(WebDatabase(tmp_path / 'access.db'))
+    records = []
+    monkeypatch.setattr(background_refresh, 'smart_log', lambda message, **kwargs: records.append(kwargs), raising=False)
+    submitted = []
+    refresh = BackgroundFactsRefresh(submit=submitted.append)
+
+    class Owner:
+        def refresh_and_sync_details(self, *_args, **_kwargs):
+            raise HTTPError('password=secret cookie=private', response=SimpleNamespace(status_code=503))
+
+    refresh.start_details(Owner(), access, 'secret')
+    submitted.pop()()
+    assert refresh.state_for(access.session_hash) == 'failed'
+    assert len(records) == 1
+    assert records[0]['extra']['account'] == access.account
+    assert records[0]['extra']['http_status'] == 503
+    assert records[0]['extra']['exception_type'] == 'HTTPError'
+    assert 'secret' not in repr(records) and 'private' not in repr(records)
+
+
 def test_scoped_detail_job_is_single_flight_reports_progress_and_can_cancel(tmp_path):
     access = confirmed_access(WebDatabase(tmp_path / 'access.db'))
     submitted = []

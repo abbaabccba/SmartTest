@@ -12,7 +12,7 @@ from time import perf_counter
 from core.logging import smart_log
 from core.product_lines import PRODUCT_LINES
 from .project_discovery import ProjectLocation, _commercial_year, canonical_project_name, discover_project_pages, locate_basic_information
-from .html import html_tables, links, table_field_html, table_fields, text
+from .html import html_tables, links, table_attributes, table_field_html, table_fields, text
 from .role_parser import extract_project_roles, extract_role_people, resolve_role_display_names
 from .project_rules import CANONICAL_PROJECT_FIELDS, ROLE_LABELS, WIFI_ROLE_LABELS, normalize_project_field
 
@@ -46,6 +46,13 @@ PROJECT_SPACE_FACET_DEFINITIONS = (
 PROJECT_SPACE_FILTER_FIELDS = tuple(key for key, _label in PROJECT_SPACE_FACET_DEFINITIONS)
 
 
+class CatalogParseError(RuntimeError):
+    def __init__(self, reason, *, row=0):
+        super().__init__('remote_unavailable')
+        self.reason = reason
+        self.row = row
+
+
 def refresh_project_catalogs(client, store, product_lines=PRODUCT_LINES, *, now=None, manager=None):
     """Fetch only independent Product Space catalogs and publish them atomically."""
     now = now or datetime.now(timezone.utc)
@@ -56,20 +63,27 @@ def refresh_project_catalogs(client, store, product_lines=PRODUCT_LINES, *, now=
     def fetch(index_line):
         index, line = index_line
         request_started = perf_counter()
+        phase = 'request'
         try:
             source = client.get_page_by_url(line.confluence_url)
             request_ms = round((perf_counter() - request_started) * 1000, 3)
             parse_started = perf_counter()
+            phase = 'parse'
             rows = _catalog_rows(source, line.confluence_space_key)
             smart_log("Confluence catalog stage timing", domain="framework", source="confluence_catalog", emit_runtime_event=False,
                       extra={"stage": "catalog.line", "space_key": line.confluence_space_key, "duration_ms": request_ms,
                              "parse_duration_ms": round((perf_counter() - parse_started) * 1000, 3), "project_count": len(rows), "outcome": "success"})
             return index, line, source, rows, None
         except Exception as exc:
-            smart_log("Confluence catalog stage timing", domain="framework", source="confluence_catalog", emit_runtime_event=False,
+            response = getattr(exc, 'response', None)
+            smart_log("Confluence catalog stage timing", level="error", domain="framework", source="confluence_catalog", emit_runtime_event=False,
                       extra={"stage": "catalog.line", "space_key": line.confluence_space_key,
                              "duration_ms": round((perf_counter() - request_started) * 1000, 3),
-                             "project_count": 0, "outcome": "failure", "exception_type": type(exc).__name__})
+                             "project_count": 0, "outcome": "failure", "exception_type": type(exc).__name__,
+                             "phase": phase, "attempt": 1,
+                             "http_status": getattr(exc, 'status_code', None) or getattr(response, 'status_code', None),
+                             "reason": exc.reason if isinstance(exc, CatalogParseError) else '',
+                             "row": exc.row if isinstance(exc, CatalogParseError) else 0})
             return index, line, None, [], exc
 
     fetched = {}
@@ -352,16 +366,16 @@ def _catalog_rows(source, space_key):
         found_catalog = True
         raw_headers = [text(cell).strip() for cell in table[header_index]]
         normalized_headers = [_header(cell) for cell in table[header_index]]
-        for cells in table[header_index + 1:]:
+        for row_index, cells in enumerate(table[header_index + 1:], start=header_index + 2):
             if not any(text(cell).strip() for cell in cells):
                 continue
             if len(cells) < len(raw_headers):
-                raise RuntimeError("remote_unavailable")
+                raise CatalogParseError('catalog_row_missing_cells', row=row_index)
             values = dict(zip(normalized_headers, cells))
             page_links = links(values.get("page", ""))
             project_id = text(values.get("project id", "")).strip()
             if not page_links or not project_id:
-                raise RuntimeError("remote_unavailable")
+                raise CatalogParseError('catalog_row_missing_link_or_project_id', row=row_index)
             href, label = page_links[0]
             identity = f"{space_key}:{project_id}"
             row = merged.setdefault(identity, {
@@ -391,7 +405,12 @@ def _catalog_rows(source, space_key):
                        space_key=space_key, page_url=page_url,
                        page_id=(parse_qs(urlsplit(page_url).query).get("pageId") or [""])[0])
     if not found_catalog:
-        raise RuntimeError("remote_unavailable")
+        reports = [attrs for attrs in table_attributes(source.view_body or source.body)
+                   if 'metadata-summary-macro' in (attrs.get('class') or '').split()
+                   and attrs.get('data-details-space-key') == space_key
+                   and 'project id' in {_header(value) for value in (attrs.get('data-headings') or '').split(',')}]
+        if not reports or any(attrs.get('data-total-pages') != '0' for attrs in reports):
+            raise CatalogParseError('catalog_table_missing')
     result = []
     for row in merged.values():
         row["raw_headers"] = list(dict.fromkeys(row["raw_headers"]))

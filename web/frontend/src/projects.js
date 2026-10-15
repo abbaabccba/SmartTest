@@ -123,8 +123,7 @@ export function createProjects({ root, api, waitForPreferences, account,
   })
 
   function setBusinessControlsEnabled(enabled, { applyEnabled = enabled } = {}) {
-    cacheReady = cacheReady || applyEnabled
-    if (auditButton) auditButton.disabled = !applyEnabled
+    if (auditButton) auditButton.disabled = !enabled || !applyEnabled
     form.querySelector('[type="submit"]').disabled = !applyEnabled
     form.querySelector('[data-reset]').disabled = !enabled
     form.elements.search.disabled = !enabled
@@ -416,8 +415,12 @@ export function createProjects({ root, api, waitForPreferences, account,
     if (hasDetailJob) updateFeedback(payload.sync)
     if (payload.productSpaces) productSpaceDefinitions = payload.productSpaces
     cacheReady = hasCache
-    if (!facets.length) renderFacets(payload.facets, { loading: payload.state === 'loading' || !hasCache })
+    if (!facets.length) renderFacets(payload.facets, { loading: payload.state === 'loading' })
     else if (updateFacets && hasCache) updateFacetOptions(payload.facets)
+    for (const select of form.querySelectorAll('select[name^="field."]')) {
+      select._multiSelect?.setEmptyLabel(payload.state === 'loading' ? 'Loading…' :
+        hasCache ? select.dataset.readyLabel : 'Unavailable')
+    }
     if (updateHierarchy) {
       renderProjects(payload.ownerHierarchy ?? [], payload.projects ?? [], payload.blockProjectCount, payload.warningProjectCount)
     }
@@ -431,6 +434,19 @@ export function createProjects({ root, api, waitForPreferences, account,
     if (auditButton) auditButton.disabled = !hasCache || syncing
     saveDisplay(payload)
     if (hasCache) onSnapshot(payload)
+  }
+
+  function showLoadFailure(message) {
+    activeSync = null
+    status.className = 'report-state report-state-failed'
+    status.hidden = false
+    status.textContent = message
+    if (!cacheReady) {
+      for (const select of form.querySelectorAll('select[name^="field."]')) {
+        select._multiSelect?.setEmptyLabel('Unavailable')
+      }
+    }
+    setBusinessControlsEnabled(cacheReady, { applyEnabled: true })
   }
 
   async function poll(generation) {
@@ -448,12 +464,11 @@ export function createProjects({ root, api, waitForPreferences, account,
       if (!activeSync || contextUnchanged) present(payload)
       updateFeedback(sync)
       activeSync = null
-      setBusinessControlsEnabled(cacheReady, { applyEnabled: cacheReady })
+      setBusinessControlsEnabled(cacheReady, { applyEnabled: sync.state !== 'loading' })
     } catch {
       if (destroyed || generation !== pollGeneration) return
       if (activeSync) feedback.update({ state: 'failed', message: 'Project detail sync failed.' })
-      status.className = 'report-state report-state-schema_error'; status.textContent = 'Local project facts API is unavailable.'
-      setBusinessControlsEnabled(false)
+      showLoadFailure('Local project facts API is unavailable. Use Apply Filters to retry.')
     }
   }
 
@@ -478,9 +493,8 @@ export function createProjects({ root, api, waitForPreferences, account,
     } catch {
       if (destroyed || generation !== pollGeneration) return
       if (feedback.state === 'running') feedback.update({ state: 'failed', message: 'Project detail sync failed.' })
-      status.className = 'report-state report-state-schema_error'; status.textContent = 'Local project facts API is unavailable.'
       if (!cacheReady) renderProjects([])
-      setBusinessControlsEnabled(false)
+      showLoadFailure('Local project facts API is unavailable. Use Apply Filters to retry.')
     }
   }
   form.addEventListener('submit', event => {
@@ -494,7 +508,7 @@ export function createProjects({ root, api, waitForPreferences, account,
         activeSync = { token: contextToken(currentFilters()), filters: currentFilters() }
         poll(generation)
       }
-    }).catch(() => { if (!destroyed) status.textContent = 'Project filter apply failed.' })
+    }).catch(() => { if (!destroyed) showLoadFailure('Project filter apply failed. Use Apply Filters to retry.') })
   })
   root.querySelector('[data-reset]').addEventListener('click', () => {
     form.elements.search.value = ''

@@ -69,12 +69,19 @@ def test_catalog_403_revokes_existing_account_scope_without_deleting_shared_proj
     assert restored._repository.get('TV', ProjectDetails()) is not None
 
 
-def test_valid_empty_catalog_is_ready_after_owner_restart(tmp_path):
+@pytest.mark.parametrize('rendered_empty', [False, True])
+def test_valid_empty_catalog_is_ready_after_owner_restart(tmp_path, rendered_empty):
     database, sessions, first, second = contexts(tmp_path)
     alice = sessions.resource_access(first, 'confluence:test', database)
     bob = sessions.resource_access(second, 'confluence:test', database)
     class Empty(CatalogClient):
         def get_page_by_url(self, url):
+            space = url.split('/display/')[1].split('/')[0]
+            if rendered_empty:
+                return ConfluencePage('catalog', 'Project Space', url, view_body=
+                    f'<table class="aui metadata-summary-macro" data-details-space-key="{space}" '
+                    'data-headings="Project ID,Project Status" data-total-pages="0">'
+                    '<tr><th>页面</th></tr><tr><td>No content found.</td></tr></table>')
             return ConfluencePage('catalog', 'Project Space', url, view_body=
                 '<table><tr><th>Page</th><th>Project ID</th></tr></table>')
     owner = ProjectFactsWebOwner(repository=ConfluenceProjectRepository(database), client_factory=lambda *_: Empty('alice'))
@@ -83,6 +90,54 @@ def test_valid_empty_catalog_is_ready_after_owner_restart(tmp_path):
     assert restored.query(alice)['state'] == 'ready'
     assert restored.query(alice)['projects'] == []
     assert restored.query(bob)['state'] == 'no_snapshot'
+
+
+@pytest.mark.parametrize('attributes', [
+    'data-details-space-key="DOPL" data-headings="Project ID" data-total-pages="1"',
+    'data-details-space-key="OTHER" data-headings="Project ID" data-total-pages="0"',
+    'data-details-space-key="DOPL" data-headings="Last Update" data-total-pages="0"',
+    'data-details-space-key="DOPL" data-headings="Project ID"',
+])
+def test_incomplete_or_unrelated_empty_report_is_not_a_valid_catalog(attributes):
+    from core.confluence.project_catalog import _catalog_rows
+    source = ConfluencePage('catalog', 'Project Space', '', view_body=
+        f'<table class="metadata-summary-macro" {attributes}>'
+        '<tr><th>Page</th></tr><tr><td>No content found.</td></tr></table>')
+    with pytest.raises(RuntimeError, match='remote_unavailable'):
+        _catalog_rows(source, 'DOPL')
+
+
+def test_empty_report_cannot_hide_a_nonempty_unparsed_report():
+    from core.confluence.project_catalog import _catalog_rows
+    report = ('<table class="metadata-summary-macro" data-details-space-key="DOPL" '
+              'data-headings="Project ID" data-total-pages="{}">'
+              '<tr><td>No content found.</td></tr></table>')
+    source = ConfluencePage('catalog', 'Project Space', '', view_body=report.format(0) + report.format(1))
+    with pytest.raises(RuntimeError, match='remote_unavailable'):
+        _catalog_rows(source, 'DOPL')
+
+
+def test_catalog_parse_failure_logs_safe_reason_and_phase(monkeypatch):
+    from core.confluence import project_catalog
+    from core.product_lines import PRODUCT_LINES
+    records = []
+    monkeypatch.setattr(project_catalog, 'smart_log', lambda message, **kwargs: records.append(kwargs))
+
+    class Client:
+        def get_page_by_url(self, url):
+            return ConfluencePage('catalog', 'secret title', url, view_body='<p>private body</p>')
+
+    class Store:
+        def load(self): return None
+        def save(self, _snapshot): pytest.fail('A malformed catalog must not publish')
+
+    with pytest.raises(RuntimeError, match='remote_unavailable'):
+        project_catalog.refresh_project_catalogs(Client(), Store(), PRODUCT_LINES[:1])
+    assert records[0]['extra']['reason'] == 'catalog_table_missing'
+    assert records[0]['extra']['phase'] == 'parse'
+    assert records[0]['extra']['space_key'] == PRODUCT_LINES[0].confluence_space_key
+    assert records[0]['extra']['attempt'] == 1
+    assert 'private' not in repr(records) and 'secret' not in repr(records)
 
 
 @pytest.mark.parametrize('status', [401, 403])

@@ -663,7 +663,7 @@ describe('Projects', () => {
     expect(document.querySelector('[name="search"]').disabled).toBe(true)
     expect([...document.querySelectorAll('[data-main-facets] select')].every(item => item.disabled)).toBe(true)
     expect([...document.querySelectorAll('[data-main-facets] .multi-select__control')].every(item => item.disabled)).toBe(true)
-    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => item.textContent === 'Loading…')).toBe(true)
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
   })
 
   it('renders all four supported filters from the immediate loading payload then polls to ready', async () => {
@@ -736,10 +736,41 @@ describe('Projects', () => {
     const component = createProjects({ root: document.querySelector('#app'), api, pollDelay: () => Promise.resolve() })
     await component.start()
     await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('failed'))
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
     expect(api.getProjectFacts).toHaveBeenCalledTimes(2)
     component.destroy()
     await Promise.resolve()
     expect(api.getProjectFacts).toHaveBeenCalledTimes(2)
+  })
+
+  it('ends catalog loading after a poll network failure and leaves Apply available to retry', async () => {
+    const api = {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, state: 'loading', facets: fixedFacets }),
+      getProjectFactsStatus: vi.fn().mockRejectedValue(new Error('offline')),
+      applyConfluenceFilterSnapshot: vi.fn().mockResolvedValue(payload),
+    }
+    const component = createProjects({ root: document.querySelector('#app'), api, pollDelay: () => Promise.resolve() })
+    await component.start()
+    await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('unavailable'))
+    expect(document.querySelector('[role="status"]').hidden).toBe(false)
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
+    document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(api.applyConfluenceFilterSnapshot).toHaveBeenCalledOnce())
+    component.destroy()
+  })
+
+  it('shows Apply transport errors and enables an explicit retry', async () => {
+    const api = {
+      getProjectFacts: vi.fn().mockResolvedValue(payload),
+      applyConfluenceFilterSnapshot: vi.fn().mockRejectedValue(new Error('offline')),
+    }
+    await createProjects({ root: document.querySelector('#app'), api }).start()
+    document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('apply failed'))
+    expect(document.querySelector('[role="status"]').hidden).toBe(false)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
   })
 
   it('polls catalog status without restarting catalog or requesting details', async () => {

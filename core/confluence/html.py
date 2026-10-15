@@ -1,5 +1,22 @@
 import html as html_module
+from html.parser import HTMLParser
 import re
+
+
+def table_attributes(html: str) -> list[dict[str, str | None]]:
+    class Tables(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.tables = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'table':
+                self.tables.append(dict(attrs))
+
+    parser = Tables()
+    parser.feed(html or '')
+    return parser.tables
+
 
 def text(html: str) -> str:
     value = re.sub(r"<[^>]+>", " ", html or "")
