@@ -12,19 +12,15 @@ function memoryStorage(initial = {}) {
 }
 
 describe('login background selection', () => {
-  it('switches the preview selection repeatedly and remembers it without changing the form', () => {
-    document.body.innerHTML = '<select data-login-background-switch><option value="pcb">PCB</option><option value="lab">Lab</option></select><main data-login-board><input value="kept"></main>'
-    const storage = memoryStorage({ 'smarttest.login.background': 'pcb' })
-    applyLoginBackground({ backgrounds: [{ id: 'pcb' }, { id: 'lab' }], storage })
-    const control = document.querySelector('select')
-    for (const id of ['lab', 'pcb', 'lab']) {
-      control.value = id
-      control.dispatchEvent(new Event('change'))
-      expect(document.querySelector('[data-login-board]').dataset.loginBackground).toBe(id)
-      expect(storage.getItem('smarttest.login.background')).toBe(id)
-      expect(document.querySelector('input').value).toBe('kept')
-    }
+  it('reuses the session selection on repeated application without changing the form', () => {
+    document.body.innerHTML = '<main data-login-board><input value="kept"></main>'
+    const storage = memoryStorage()
+    expect(applyLoginBackground({ storage, random: () => 0 })).toBe('pcb')
+    expect(applyLoginBackground({ storage, random: () => 0.99 })).toBe('pcb')
+    expect(document.querySelector('input').value).toBe('kept')
+    expect(document.querySelectorAll('.pcb-motion')).toHaveLength(1)
   })
+
   const backgrounds = [{ id: 'pcb' }, { id: 'lab' }, { id: 'silicon' }]
 
   it('keeps the selected background for the browser session', () => {

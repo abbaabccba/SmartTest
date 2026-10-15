@@ -28,17 +28,6 @@ export function applyLoginBackground({ root = document, backgrounds = LOGIN_BACK
   const surface = root.querySelector('[data-login-board]')
   if (!surface) return ''
   const id = selectLoginBackground({ backgrounds, storage: storage ?? sessionStorage, random })
-  const control = root.querySelector('[data-login-background-switch]')
-  if (control) {
-    control.value = id
-    const onChange = () => {
-      const selected = backgrounds.filter(background => background.id === control.value)
-      applyLoginBackground({ root, backgrounds: selected, storage, random })
-      // Restore the complete choices for the next user selection.
-      control.onchange = onChange
-    }
-    control.onchange = onChange
-  }
   if (mounted.get(surface)?.id === id) return id
   disposeLoginBackground(surface)
   surface.dataset.loginBackground = id

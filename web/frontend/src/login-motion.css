@@ -1,7 +1,5 @@
 .login-motion { background-image: none; }
 .login-theme-toggle { display: flex; align-items: center; gap: 12px; }
-.login-background-control { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
-.login-background-control select { color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; }
 .login-page[data-login-background="globe"] { background: var(--bg-secondary); }
 .login-globe { position: absolute; left: 0; top: 0; width: min(56vw, 1120px); height: 100%; pointer-events: none; }
 @media (max-width: 760px) { .login-globe { width: 100%; opacity: .28; } }
