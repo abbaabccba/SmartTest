@@ -92,6 +92,7 @@ Reports and development-history messages are concise and outcome-first: changed 
 
 - SmartTest design documents, implementation plans, development documents, and delivery reports must be written in Chinese by default.
 - Keep code identifiers, file paths, commands, protocol/API names, and quoted external source text in their original form when translation would reduce precision.
+- 在方案讨论、实现进度和交付说明中，主动说明影响业务范围、调度、并发、刷新权限等行为的关键变量、配置项及主要封装入口的实际名称、作用、当前值和定义位置，帮助 Coco 理解框架并继续调整优化。只说明与当前改动相关的关键控制点，不罗列全部局部变量；尚未落地的名称必须标明为拟议名称，不得把凭据、令牌等敏感值暴露在交互中。
 
 ## Dependency And Reuse Discipline
 
