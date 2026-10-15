@@ -27,20 +27,6 @@ FluWindow {
         }
     }
 
-    FluIconButton {
-        objectName: "loginCloseButton"
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.topMargin: 10
-        anchors.rightMargin: 10
-        width: 32
-        height: 32
-        z: 100
-        iconSource: FluentIcons.ChromeClose
-        iconSize: 12
-        onClicked: window.close()
-    }
-
     Connections {
         target: AuthBridge
         function onAuthChanged() {
