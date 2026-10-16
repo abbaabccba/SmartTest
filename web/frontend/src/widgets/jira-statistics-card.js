@@ -61,7 +61,12 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       message('Apply a Jira query to display statistics.')
       return false
     }
-    if (payload.productLines || payload.current?.productLines) draw(payload)
+    const hasLocalResult = Boolean(payload.productLines || payload.current?.productLines)
+    if (hasLocalResult) draw(payload)
+    if (payload.state === 'cancelled' && hasLocalResult) {
+      message('Previous query cancelled. Showing available local data.')
+      return false
+    }
     if (['failed', 'cancelled'].includes(payload.state)) { message(payload.error || 'Jira query did not complete.', 'inline-status-error'); return false }
     if (payload.state !== 'ready') {
       const progress = payload.task?.progress
@@ -116,7 +121,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     const signature = JSON.stringify(display)
     if (displayed && signature === displaySignature) return
     const byLine = new Map(combinedLines.map(line => [line.id, line]))
-    const pendingLabel = ({ failed: 'Failed', cancelled: 'Cancelled' })[payload.state] ?? (payload.state === 'ready' ? 'Waiting for scheduled refresh' : 'Loading…')
+    const pendingLabel = ({ failed: 'Failed', cancelled: 'Unavailable' })[payload.state] ?? (payload.state === 'ready' ? 'Waiting for scheduled refresh' : 'Loading…')
     const presentation = {
       palette: 'jira',
       productLines: combinedLines.map(line => ({ value: line.id, label: line.label, productLine: line.label })),

@@ -429,3 +429,37 @@ it('binds the five Jira visual identities using full names', async () => {
     expect(buttons[4].getAttribute('aria-pressed')).toBe('true')
   } finally { widget.destroy() }
 })
+
+
+it('rereads available local data after a cancelled task without refreshing Jira', async () => {
+  const payload = { state: 'cancelled', error: 'query_cancelled', current: { productLines }, previous: { productLines: [] },
+    availability: { current: { basic: true, comment: true, verify: false },
+      previous: { basic: true, comment: false, verify: false } } }
+  const api = { getStatistics: vi.fn().mockResolvedValue(payload), queryStatistics: vi.fn() }
+  const { widget, chartFactory } = mount(api)
+  await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent)
+    .toBe('Previous query cancelled. Showing available local data.'))
+  const comments = document.querySelector('button[data-value="commentCount"]')
+  expect(comments.disabled).toBe(false)
+  expect(comments.textContent).toBe('Comments (Previous: Unavailable)')
+  const verify = document.querySelector('button[data-value="verifyCount"]')
+  expect(verify.disabled).toBe(true)
+  expect(verify.textContent).toBe('Verify (Unavailable)')
+  comments.click()
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([1])
+  widget.update()
+  await vi.waitFor(() => expect(api.getStatistics).toHaveBeenCalledTimes(2))
+  expect(api.queryStatistics).not.toHaveBeenCalled()
+  expect(document.body.textContent).not.toContain('query_cancelled')
+  widget.destroy()
+})
+
+it('retains the cancellation error when there is no local result body', async () => {
+  const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'cancelled', error: 'query_cancelled' }),
+    queryStatistics: vi.fn() }
+  const { widget } = mount(api)
+  await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent).toBe('query_cancelled'))
+  expect(document.body.textContent).not.toContain('Showing available local data')
+  expect(api.queryStatistics).not.toHaveBeenCalled()
+  widget.destroy()
+})
