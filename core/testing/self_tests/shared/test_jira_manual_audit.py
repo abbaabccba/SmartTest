@@ -231,7 +231,7 @@ def test_jira_exporter_creates_summary_and_violation_workbook(tmp_path) -> None:
     workbook = load_workbook(path)
 
     assert workbook.sheetnames == ["汇总", "违规明细"]
-    assert tuple(workbook["汇总"].values)[8] == ("创建人", "违规 Jira 数量", "违规 Jira 号")
+    assert tuple(workbook["汇总"].values)[8] == ("创建人", "违规数/创建数", "违规 Jira 号")
     detail = workbook['违规明细']
     assert detail['B1'].value == '人员（Creator）'
     assert detail['B2'].value == 'Chao Li'

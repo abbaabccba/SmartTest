@@ -2340,3 +2340,35 @@ html.dark-theme .login-page[data-login-background="pcb"] { --login-art: url('/im
 .summary-metric-average { --summary-color: #f0f3f6; --summary-dark: #2c333c; }
 .card.summary-metric { background: var(--summary-color); }
 :is(html, body).dark-theme .card.summary-metric { background: var(--summary-dark); }
+
+/* Saved audit history is intentionally static, including hover. */
+.card.audit-history,
+.card.audit-history:hover {
+    transform: none;
+    transition: none;
+    box-shadow: none;
+    border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent));
+}
+.audit-history-filters { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin: 1rem 0; }
+.audit-history-filters label { display: grid; gap: .35rem; color: var(--text-secondary); }
+.audit-history-note { color: var(--text-secondary); font-size: .8125rem; }
+.audit-history .filter-actions { margin-top: 1rem; }
+.audit-history .button,
+.audit-history .button-secondary:hover:not(:disabled) {
+    background: var(--bg-surface);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    transition: none;
+    transform: none;
+    box-shadow: none;
+}
+.audit-history .report-table tbody tr,
+.audit-history .report-table tbody tr:hover,
+.audit-history .report-table tbody tr:hover td { background: transparent; transition: none; }
+.audit-history-view { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-align: left; cursor: pointer; }
+.audit-history-detail { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-color); }
+.audit-history-detail td { white-space: pre-line; }
+
+[data-audit-history="confluence"] > .report-table-wrap > .report-table th,
+[data-audit-history="confluence"] > .report-table-wrap > .report-table td { padding: .5rem .4rem; white-space: nowrap; }
+[data-audit-history="confluence"] th[colspan] { text-align: center; }

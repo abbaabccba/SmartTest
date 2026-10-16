@@ -228,6 +228,10 @@ export function createAuditEmailApi({ fetchImpl = globalThis.fetch, baseUrl = '/
     return response.json()
   }
     return { list: (offset = 0) => request(`/runs?offset=${offset}`), get: id => request(`/runs/${encodeURIComponent(id)}`), trigger: () => request('/runs', 'POST'),
+    history: (kind, options = {}) => {
+      const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== ''))
+      return request(`/history/${encodeURIComponent(kind)}?${query}`)
+    },
     attachmentUrl: (id, kind, name) => `${baseUrl}/runs/${encodeURIComponent(id)}/attachments/${encodeURIComponent(kind)}/${encodeURIComponent(name)}` }
 }
 

@@ -290,3 +290,41 @@ def test_confluence_report_rejects_incomplete_or_inconsistent_statistics(damage)
             summary['counts']['China Operator']['updated'] = 1
     with pytest.raises(ValueError):
         render_history_report('confluence', [{'id': 'old', 'label': 'old', 'summary': summary}])
+
+
+def test_weekly_creator_counts_are_deduplicated_identity_scoped_and_saved_with_period(tmp_path):
+    from core.jira.audit.models import AuditViolation
+    from smarttest_web.audit.email_history import AuditEmailHistory
+    from smarttest_web.database import WebDatabase
+    violation = AuditViolation('rule', 'section', 'field', '', 'bad', 'fix')
+    issues = tuple(IssueAuditResult(f'SH-{index}', f'https://jira/SH-{index}', '', 'Same Name', index >= 2,
+        (violation, violation) if index < 2 else (), creator_identity='stable-1', creator_account='account.one') for index in range(10))
+    other = IssueAuditResult('SH-other', 'https://jira/SH-other', '', 'Same Name', False, (violation,), creator_identity='stable-2', creator_account='account.two')
+    clean = IssueAuditResult('SH-clean', '', '', 'Zero Violations', True, (), creator_identity='stable-3', creator_account='account.three')
+    report = AuditReport(JiraAuditScope('jql', '', 'saved created week'), datetime.now(), (), (*issues, issues[0], other, clean))
+    period = {'startDate': '2026-10-02T18:00:00+08:00', 'endDate': '2026-10-09T18:00:00+08:00'}
+    summary = summarize_audit('jira', report, period=period)
+    assert summary['period'] == period
+    assert summary['people'] == [
+        {'identity': 'stable-1', 'account': 'account.one', 'displayName': 'Same Name', 'createdCount': 10, 'violatedCount': 2},
+        {'identity': 'stable-2', 'account': 'account.two', 'displayName': 'Same Name', 'createdCount': 1, 'violatedCount': 1},
+        {'identity': 'stable-3', 'account': 'account.three', 'displayName': 'Zero Violations', 'createdCount': 1, 'violatedCount': 0},
+    ]
+    assert summary['issues'][0]['creatorIdentity'] == 'stable-1'
+    assert summary['issues'][0]['creatorAccount'] == 'account.one'
+    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+    run = history.create('qa', period)
+    history.complete_report('qa', run, 'jira', summary, [])
+    saved = history.get('viewer', run['id'])
+    assert saved['summary']['jira'] == summary
+    html = saved['reports']['jira']['html']
+    assert '违规数/创建数' in html and '>2/10<' in html and '>1/1<' in html
+    assert 'Zero Violations' not in html
+
+    from core.jira.audit.exporter import export_audit_xlsx
+    from openpyxl import load_workbook
+    sheet = load_workbook(export_audit_xlsx(report, output_path=tmp_path / 'review.xlsx'))['汇总']
+    assert tuple(sheet.cell(9, column).value for column in range(1, 4)) == ('创建人', '违规数/创建数', '违规 Jira 号')
+    assert sheet.cell(10, 2).value == '2/10'
+    assert sheet.cell(10, 3).value == 'SH-0、SH-1'
+    assert sheet.cell(11, 2).value == '1/1'

@@ -184,7 +184,8 @@ class AuditEmailJob:
                 token.raise_if_cancelled()
                 access.require_active()
                 stage = 'summarizing'
-                summary = summarize_audit(kind, report)
+                summary = (summarize_audit(kind, report, period={key: scope[key] for key in ('startDate', 'endDate')})
+                           if kind == 'jira' else summarize_audit(kind, report))
                 remediation = None
                 if kind == 'jira':
                     stage = 'rechecking'
@@ -212,7 +213,8 @@ class AuditEmailJob:
                             record(kind, 'previous_audit_completed', current_resource_count=len(previous_report.issues),
                                    current_rule_count=len(previous_report.rules))
                             findings = compare_jira_audits(original.get('findings', []), previous_report)
-                            reviewed_summary = summarize_audit('jira', previous_report)
+                            reviewed_summary = summarize_audit('jira', previous_report,
+                                period={key: baseline['scope'][key] for key in ('startDate', 'endDate')})
                             reviewed_at = previous_report.generated_at.isoformat()
                             stage = 'exporting_remediation'
                             reviewed_path = owner.export(previous_report, directory / 'Previous_Audit_Current.xlsx')

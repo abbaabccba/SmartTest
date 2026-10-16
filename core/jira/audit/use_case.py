@@ -95,4 +95,6 @@ class JiraAuditUseCase:
         token.raise_if_cancelled()
         loaded = self._source.load_details(issue, IssueDetails(description=True, custom_fields=True))
         token.raise_if_cancelled()
-        return audit_issue(loaded)
+        return replace(audit_issue(loaded),
+                       creator_identity=loaded.creator.identity if loaded.creator else "",
+                       creator_account=loaded.creator.account if loaded.creator else "")

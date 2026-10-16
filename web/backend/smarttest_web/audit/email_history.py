@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from core.logging import smart_log
 from core.email.audit_report import render_history_report, validate_confluence_summary
 from core.product_lines import PRODUCT_LINES, product_line_name, confluence_space_key
 
@@ -13,29 +14,6 @@ from core.product_lines import PRODUCT_LINES, product_line_name, confluence_spac
 class AuditEmailHistory:
     def __init__(self, database):
         self.database = database
-        with database.transaction() as connection:
-            summaries = []
-            for label, total, passed, rate, confluence in (
-                ('0807', 261, 58, '22.22%', None),
-                ('0814', 151, 53, '35.10%', None),
-                ('0824', 191, 79, '41.36%', dict(zip((line.name for line in PRODUCT_LINES), ([0, 16], [5, 152], [7, 176], [29, 152])))),
-                ('0828', 118, 58, '49.15%', dict(zip((line.name for line in PRODUCT_LINES), ([0, 8], [11, 128], [12, 168], [6, 128])))),
-            ):
-                run_id = f'screenshot-{label}'
-                summaries.insert(0, {'id': run_id, 'label': label,
-                                     'jira': {'total': total, 'passed': passed, 'failed': total - passed, 'rate': rate},
-                                     'confluence': confluence})
-                reports = self._render(summaries)
-                if confluence is None:
-                    reports['confluence'] = render_history_report('confluence', [])
-                payload = {'id': run_id, 'label': label, 'state': 'historical_seed',
-                           'source': 'screenshot', 'createdAt': None,
-                           'reports': reports, 'summary': summaries[0],
-                           'evidence': '截图历史；无执行时间、审查明细、附件或发送记录。Jira 年份未确认；Confluence 截图年份为 2026。'}
-                connection.execute(
-                    'INSERT OR IGNORE INTO audit_email_runs(id,account,label,state,payload) VALUES(?,?,?,?,?)',
-                    (run_id, '', label, 'historical_seed', json.dumps(payload, ensure_ascii=False)),
-                )
 
     @staticmethod
     def _migrate_confluence_names(connection):
@@ -81,31 +59,79 @@ class AuditEmailHistory:
                 (account, occurrence, datetime.now(timezone.utc).isoformat()),
             ).rowcount)
 
-    @staticmethod
-    def _render(summaries):
-        return {kind: render_history_report(kind, [
-            {'id': row['id'], 'label': row['label'], 'summary': row[kind]}
-            for row in summaries if row[kind] is not None
-        ]) for kind in ('jira', 'confluence')}
-
     def list_runs(self, account, offset=0):
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT id,label,state,payload FROM audit_email_runs WHERE account IN ('',?) ORDER BY sequence DESC LIMIT 4 OFFSET ?",
-                (account, offset),
+                "SELECT id,label,state,payload FROM audit_email_runs ORDER BY sequence DESC LIMIT 4 OFFSET ?",
+                (offset,),
             ).fetchall()
             total = connection.execute(
-                "SELECT COUNT(*) FROM audit_email_runs WHERE account IN ('',?)", (account,),
+                "SELECT COUNT(*) FROM audit_email_runs",
             ).fetchone()[0]
         return {'runs': [dict(id=row[0], label=row[1], state=row[2],
                              source=json.loads(row[3])['source']) for row in rows], 'total': total}
+
+    def browse(self, account, kind, offset=0, start_date=None, end_date=None):
+        if kind not in {'jira', 'confluence'}:
+            raise ValueError('invalid_audit_kind')
+        with self.database.connect() as connection:
+            records = connection.execute(
+                """SELECT id,label,json_extract(payload,'$.source'),
+                   json_extract(payload,'$.createdAt'),json_extract(payload,?),sequence,
+                   json_extract(payload,'$.reports.jira.remediation.currentSummary.passed'),
+                   json_extract(payload,'$.reports.jira.remediation.currentSummary.rate')
+                   FROM audit_email_runs WHERE json_type(payload,?) = 'object' ORDER BY sequence DESC""",
+                (f'$.summary.{kind}', f'$.summary.{kind}'),
+            ).fetchall()
+        rows = []
+        candidate_rows = 0
+        for run_id, label, source, created_at, stored_summary, sequence, modified_passed, modified_rate in records:
+            candidate_rows += 1
+            summary = json.loads(stored_summary)
+            timestamp = created_at or summary.get('generatedAt')
+            audit_date = datetime.fromisoformat(timestamp).astimezone(
+                ZoneInfo('Asia/Shanghai')).date() if timestamp else None
+            if ((start_date and (audit_date is None or audit_date < start_date))
+                    or (end_date and (audit_date is None or audit_date > end_date))):
+                continue
+            common = {'id': run_id, 'label': label, 'source': source,
+                      'date': audit_date.isoformat() if audit_date else None}
+            if kind == 'jira':
+                rows.append({**common, **{key: summary.get(key) for key in
+                             ('total', 'passed', 'failed', 'rate')},
+                             'modifiedPassed': modified_passed, 'modifiedRate': modified_rate,
+                             '_sequence': sequence})
+            else:
+                lines = []
+                for line in PRODUCT_LINES:
+                    passed, total = summary[line.name]
+                    projects = summary.get('projects')
+                    lines.append({'productLine': line.name,
+                                 'projectCount': sum(project['productLine'] == line.name
+                                     for project in projects) if projects is not None else None,
+                                 'passed': passed, 'failed': total - passed})
+                rows.append({**common, 'lines': lines, '_sequence': sequence})
+        rows.sort(key=lambda row: (row['date'] or '', row['_sequence']), reverse=True)
+        total = len(rows)
+        page = rows[offset:offset + 10]
+        for row in page:
+            del row['_sequence']
+        fields = {'database_path': str(self.database.path.resolve()), 'account': account,
+                  'kind': kind, 'database_runs': len(records), 'visible_runs': len(records), 'visibility': 'shared_authenticated',
+                  'candidate_rows': candidate_rows, 'filtered_rows': total, 'offset': offset,
+                  'start_date': start_date.isoformat() if start_date else '',
+                  'end_date': end_date.isoformat() if end_date else '', 'returned_rows': len(page)}
+        smart_log('Audit email history query ' + ' '.join(f'{key}={value}' for key, value in fields.items()),
+                  platform='web', domain='audit', source='audit_email_history',
+                  extra=fields, emit_runtime_event=False)
+        return {'rows': page, 'total': total, **({'productLines': [line.name for line in PRODUCT_LINES]} if kind == 'confluence' else {})}
 
     def get(self, account, run_id):
         with self.database.connect() as connection:
             if not connection.in_transaction:
                 connection.execute('BEGIN')
             row = connection.execute(
-                "SELECT payload FROM audit_email_runs WHERE id=? AND account IN ('',?)", (run_id, account),
+                "SELECT payload FROM audit_email_runs WHERE id=?", (run_id,),
             ).fetchone()
             if row is None:
                 raise LookupError(run_id)
@@ -114,7 +140,7 @@ class AuditEmailHistory:
             report = result.get('reports', {}).get('confluence', {})
             if report.get('state') in {'completed', 'historical_preview'}:
                 for source_id in report['sourceIds']:
-                    source = connection.execute("SELECT payload FROM audit_email_runs WHERE id=? AND account IN ('',?)", (source_id, account)).fetchone()
+                    source = connection.execute("SELECT payload FROM audit_email_runs WHERE id=?", (source_id,)).fetchone()
                     if source is None:
                         raise ValueError('missing_confluence_history')
                     source_result = json.loads(source[0])
