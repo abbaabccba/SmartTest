@@ -32,7 +32,7 @@ def creator_names() -> frozenset[str]:
 _RULE_DATA = (
     ("SUMMARY.FORMAT", "Summary", "Summary", "Summary 必须包含 4–6 个方括号分组，最后四组依次为客户、CHIP、系统版本和模块，冒号后填写非空问题描述。", "使用“[客户][CHIP][版本][模块]: 问题描述”；前面可选增加公共 Jira ID 和客户 Bug ID。"),
     ("COMPONENT.REQUIRED", "Component", "Component", "至少填写一个 Component。", "填写与问题对应的 Component。"),
-    ("TEST_CASE_ID.REQUIRED", "Test Case ID", "Test Case ID", "Channel of Reporter 为 Self-Test 时，Test Case ID 必须为三段非空英文字母，以统一的连字符或下划线分隔，或填写 None / NONE。", "填写“产品线-分类-用例号”或“产品线_分类_用例号”（每段仅英文字母），也可填写 None / NONE。"),
+    ("TEST_CASE_ID.REQUIRED", "Test Case ID", "Test Case ID", "Channel of Reporter 为 Self-Test 时，Test Case ID 必须为三段非空英文字母或数字，以统一的连字符或下划线分隔，或填写 None / NONE。", "填写“产品线-分类-用例号”或“产品线_分类_用例号”（每段仅英文字母或数字），也可填写 None / NONE。"),
     ("DESCRIPTION.STEPS_TO_REPRODUCE", "Description", "Description", "Description 必须包含非空的 Steps to reproduce。", "补充可执行的复现步骤。"),
     ("DESCRIPTION.ACTUAL_RESULTS", "Description", "Description", "Description 必须包含非空的 Actual results。", "补充实际发生的结果。"),
     ("DESCRIPTION.EXPECTED_RESULTS", "Description", "Description", "Description 必须包含非空的 Expected results。", "补充预期结果。"),
@@ -205,13 +205,13 @@ def audit_issue(issue: Issue) -> IssueAuditResult:
     channel = _item_text(custom_fields.get('Channel of Reporter'), 'value')
     if channel == 'Self-Test':
         test_case_id = _item_text(custom_fields.get('Test Case ID'))
-        if test_case_id not in ('None', 'NONE') and not re.fullmatch(r'[A-Za-z]+([-_])[A-Za-z]+\1[A-Za-z]+', test_case_id):
+        if test_case_id not in ('None', 'NONE') and not re.fullmatch(r'[A-Za-z0-9]+([-_])[A-Za-z0-9]+\1[A-Za-z0-9]+', test_case_id):
             if 'Test Case ID' not in custom_fields:
                 reason = '当前 Jira 未提供 Test Case ID 参数。'
             elif not test_case_id:
                 reason = 'Test Case ID 为空。'
             else:
-                reason = 'Test Case ID 格式不符合要求：须为三段英文字母，以统一的连字符或下划线分隔，或填写 None / NONE。'
+                reason = 'Test Case ID 格式不符合要求：须为三段英文字母或数字，以统一的连字符或下划线分隔，或填写 None / NONE。'
             fail('TEST_CASE_ID.REQUIRED', test_case_id, reason)
     _audit_description(normalized.description, fail)
 

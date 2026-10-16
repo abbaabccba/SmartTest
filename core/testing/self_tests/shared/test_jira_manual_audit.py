@@ -68,10 +68,11 @@ def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, 
 @pytest.mark.parametrize('value,passed', [
     ('TV-VIDEO-PLAY', True), ('IPTV_VIDEO_PLAY', True), ('OTT-video-play', True),
     ('NONE', True), ('None', True), ('CASE-1', False), ('TV-VIDEO_PLAY', False),
-    ('TV--PLAY', False), ('TV-VIDEO-PLAY-EXTRA', False), ('TV-VIDEO-123', False),
+    ('TV--PLAY', False), ('TV-VIDEO-PLAY-EXTRA', False), ('TV-VIDEO-123', True),
+    ('IPTV_Camera_012', True), ('IPTV-Camera-012', True), ('TV2_VIDEO2_CASE012', True),
     ('none', False),
 ])
-def test_self_test_case_id_accepts_three_letter_segments_or_none(value, passed):
+def test_self_test_case_id_accepts_three_alphanumeric_segments_or_none(value, passed):
     issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
         {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': value})))
     result = audit_issue(issue)
