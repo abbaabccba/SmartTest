@@ -370,6 +370,82 @@ input, select, textarea {
     color: var(--accent);
 }
 
+/* Every desktop navigation item has the same fixed-size panel. */
+.nav-submenu,
+.nav-backdrop {
+    display: none;
+    transition: none;
+    animation: none;
+}
+
+.nav-submenu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 280px;
+    padding: 2rem max(2rem, calc((100% - 1400px) / 2 + 2rem));
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+}
+
+.nav-submenu a {
+    display: block;
+    width: fit-content;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    white-space: nowrap;
+    transition: none;
+    animation: none;
+}
+
+.nav-submenu a:hover,
+.nav-submenu a:focus-visible {
+    background: transparent;
+    color: var(--text-primary);
+}
+
+.mobile-menu-nav a.mobile-nav-child {
+    padding-left: 2.5rem;
+    font-size: 0.9375rem;
+}
+
+@media (min-width: 1201px) {
+    .top-nav {
+        transition: none;
+    }
+
+    .nav-menu {
+        gap: 0;
+    }
+
+    .nav-item {
+        position: static;
+        display: flex;
+        align-items: center;
+        min-height: 64px;
+        padding: 0 0.25rem;
+    }
+
+    .nav-item:is(:hover, :focus-within) > .nav-submenu {
+        display: block;
+    }
+
+    .app-container:has(.nav-item:is(:hover, :focus-within)) > .nav-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 99;
+        pointer-events: none;
+        background: color-mix(in srgb, var(--bg-primary) 18%, transparent);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+    }
+}
+
 /* ===== Nav Right ===== */
 .nav-right {
     display: flex;
