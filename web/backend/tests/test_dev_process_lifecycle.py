@@ -243,3 +243,60 @@ def test_health_readiness_reports_success_timeout_and_child_failure(monkeypatch)
         urlopen=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError()),
         monotonic=lambda: 0.0, sleep=lambda _seconds: None,
     ) is False
+
+
+def test_real_loopback_health_ignores_proxy_that_returns_503(monkeypatch):
+    from contextlib import contextmanager
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from threading import Thread
+    from urllib import request
+
+    @contextmanager
+    def server(status, calls):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                calls.append(self.path)
+                self.send_response(status)
+                self.end_headers()
+            def log_message(self, *_args): pass
+        http = HTTPServer(('127.0.0.1', 0), Handler)
+        thread = Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f'http://127.0.0.1:{http.server_port}'
+        finally:
+            http.shutdown(); http.server_close(); thread.join()
+
+    proxy_calls, health_calls = [], []
+    with server(503, proxy_calls) as proxy, server(200, health_calls) as health:
+        for key in ('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy'):
+            monkeypatch.setenv(key, proxy)
+        for key in ('NO_PROXY', 'no_proxy'): monkeypatch.setenv(key, '')
+        monkeypatch.setattr(request, '_opener', None)
+        monkeypatch.setattr(dev, 'HEALTH_URL', health + '/health')
+        from pytest import raises
+        from urllib.error import HTTPError
+        with raises(HTTPError) as failure:
+            request.urlopen(dev.HEALTH_URL, timeout=.5)
+        assert failure.value.code == 503
+        assert len(proxy_calls) == 1 and health_calls == []
+        proxy_calls.clear()
+        assert dev.wait_for_backend_health([FakeProcess(1)], timeout_seconds=.5)
+    assert health_calls == ['/health']
+    assert proxy_calls == []
+
+
+def test_health_deadline_records_safe_error_status_without_changing_timeout(tmp_path, monkeypatch):
+    import json
+    from urllib.error import HTTPError
+    monkeypatch.setenv('SMARTTEST_LOG_DIR', str(tmp_path))
+    def unavailable(*_args, **_kwargs):
+        raise HTTPError(dev.HEALTH_URL, 503, 'private proxy detail', None, None)
+    assert not dev.wait_for_backend_health([FakeProcess(1)], timeout_seconds=0,
+        urlopen=unavailable, monotonic=lambda: 1, sleep=lambda _seconds: None)
+    records = [json.loads(line) for line in (tmp_path / 'smarttest.log').read_text(encoding='utf-8').splitlines()]
+    assert len(records) == 1
+    assert records[0]['source'] == 'web_dev'
+    assert records[0]['extra']['last_error_type'] == 'HTTPError'
+    assert records[0]['extra']['last_http_status'] == 503
+    assert 'private proxy detail' not in json.dumps(records)

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import ProxyHandler, build_opener
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -144,20 +144,27 @@ def clear_existing_backend_processes(
 
 
 def wait_for_backend_health(
-    processes, *, timeout_seconds: float = 30.0, urlopen=urlopen,
+    processes, *, timeout_seconds: float = 30.0, urlopen=None,
     monotonic=time.monotonic, sleep=time.sleep,
 ) -> bool:
     deadline = monotonic() + timeout_seconds
+    open_health = urlopen if urlopen is not None else build_opener(ProxyHandler({})).open
+    last_error_type, last_http_status = '', None
     while True:
         if any(process.poll() is not None for process in processes):
             return False
         try:
-            with urlopen(HEALTH_URL, timeout=0.5) as response:
+            with open_health(HEALTH_URL, timeout=0.5) as response:
                 if response.status == 200:
                     return True
-        except (OSError, URLError, TimeoutError):
-            pass
+                last_error_type, last_http_status = '', response.status
+        except (OSError, URLError, TimeoutError) as error:
+            last_error_type, last_http_status = type(error).__name__, getattr(error, 'code', None)
         if monotonic() >= deadline:
+            _log(f"Web backend health deadline expired: url={HEALTH_URL} "
+                 f"last_error_type={last_error_type} last_http_status={last_http_status}",
+                 level="error", health_url=HEALTH_URL, timeout_seconds=timeout_seconds,
+                 last_error_type=last_error_type, last_http_status=last_http_status)
             return False
         sleep(0.1)
 
