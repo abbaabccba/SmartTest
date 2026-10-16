@@ -441,6 +441,20 @@ describe('Projects', () => {
     expect(document.querySelector('.project-card-details').textContent).not.toContain('WIFI Module')
   })
 
+  it('preserves nonempty role values and uses Unknown only for empty members', async () => {
+    const values = ['NA', 'N/A', '-', '<TBD>', 'TBD', 'fan.xu', 'Fan Xu']
+    const roles = values.map(name => ({ name, identity: name }))
+    roles.push({ name: ' ', identity: 'account-only' }, { name: ' ', identity: ' ' })
+    await createProjects({ root: document.querySelector('#app'), api: {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, projects: [{ ...payload.projects[0],
+        roles: { 'Major FAE QA': roles } }] }),
+    } }).start()
+    const fact = [...document.querySelectorAll('.project-detail-item')]
+      .find(item => item.querySelector('.project-card-label').textContent === 'Major FAE QA')
+    expect(fact.querySelector('.project-card-value').textContent)
+      .toBe([...values, 'account-only', 'Unknown'].join(', '))
+  })
+
   it('keeps every declared preview attribute visible as Unknown when unavailable', async () => {
     const missing = { ...payload, projects: [{
       identity: 'DOPL:A-1', name: 'Apollo', page_url: '', space_key: 'DOPL',

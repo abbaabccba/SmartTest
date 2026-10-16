@@ -386,6 +386,23 @@ def test_local_query_searches_all_local_project_person_and_field_text(search):
     assert len(result["ownerHierarchy"][1]["people"][0]["projects"]) == 1
 
 
+def test_role_workload_groups_only_empty_assignments_without_colliding_with_named_unknown():
+    members = [[], [{"name": "  ", "identity": " "}],
+               [{"name": "Unknown", "identity": "Unknown"}],
+               [{"name": "NA", "identity": "NA"}],
+               [{"name": "N/A", "identity": "N/A"}],
+               [{"name": "Alice", "identity": "alice"}, {"name": "", "identity": ""}]]
+    projects = [{"identity": str(index), "space_key": "X", "roles": {"Major FAE QA": people}}
+                for index, people in enumerate(members)]
+    result = query_project_facts({"projects": projects})
+    people = next(role["people"] for role in result["ownerHierarchy"] if role["role"] == "Major FAE QA")
+    grouped = {(person["identity"], person["name"]): [p["identity"] for p in person["projects"]]
+               for person in people}
+    assert grouped == {("", ""): ["0", "1"], ("Unknown", "Unknown"): ["2"],
+                       ("NA", "NA"): ["3"], ("N/A", "N/A"): ["4"], ("alice", "Alice"): ["5"]}
+    assert [project["roles"] for project in result["projects"]] == [project["roles"] for project in projects]
+
+
 def test_local_query_keeps_authorized_facet_options_when_filters_match_no_projects():
     snapshot = {"projects": [
         {

@@ -3,7 +3,7 @@ import { createRankingCard } from './ranking-card.js'
 function readableName(person) {
   const name = String(person?.name ?? '').trim()
   const identity = String(person?.identity ?? '').trim()
-  return !name || (identity && name.toLocaleLowerCase() === identity.toLocaleLowerCase()) ? 'Unknown member' : name
+  return name || identity || 'Unknown'
 }
 
 export const ROLE_WORKLOAD_LAYOUT = Object.freeze({ defaultW: 24 })

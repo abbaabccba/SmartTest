@@ -339,12 +339,12 @@ def _owner_hierarchy(projects):
     for role in ROLE_LABELS:
         people = {}
         for project in projects:
-            for person in project.get("roles", {}).get(role, ()):
+            members = [person for person in project.get("roles", {}).get(role, ())
+                       if str(person.get("identity") or "").strip() or str(person.get("name") or "").strip()]
+            for person in members or ({},):
                 identity = str(person.get("identity") or "").strip()
                 name = str(person.get("name") or "").strip()
-                key = identity or name.casefold()
-                if not key:
-                    continue
+                key = identity or name.casefold() or None
                 owner = people.setdefault(key, {"name": name, "identity": identity, "projects": []})
                 if all(row.get("identity") != project.get("identity") for row in owner["projects"]):
                     owner["projects"].append(deepcopy(project))

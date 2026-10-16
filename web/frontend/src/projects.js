@@ -176,7 +176,7 @@ export function createProjects({ root, api, waitForPreferences, account,
   function readableName(person) {
     const name = String(person?.name ?? '').trim()
     const identity = String(person?.identity ?? '').trim()
-    return !name || (identity && name.toLocaleLowerCase() === identity.toLocaleLowerCase()) ? 'Unknown member' : name
+    return name || identity || 'Unknown'
   }
 
   function renderSummary(hierarchy, projects, blockProjectCount, warningProjectCount) {
