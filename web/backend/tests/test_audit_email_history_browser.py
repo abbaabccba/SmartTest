@@ -1,11 +1,12 @@
 from datetime import date
 
 from smarttest_web.audit.email_history import AuditEmailHistory
-from smarttest_web.database import WebDatabase
 
 
-def test_history_is_shared_dated_and_paginated_without_inventing_missing_values(tmp_path):
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+def test_history_is_shared_dated_and_paginated_without_inventing_missing_values(
+    tmp_path, *, database_factory
+):
+    history = AuditEmailHistory(database_factory())
     for account in ('coco', 'other'):
         for day in range(1, 13):
             run = history.create(account, {})
@@ -18,14 +19,17 @@ def test_history_is_shared_dated_and_paginated_without_inventing_missing_values(
     assert [row['total'] for row in page['rows']] == [12, 12, 11, 11, 10, 10, 9, 9, 8, 8]
     assert page['rows'][0]['date'] == '2026-10-12'
     assert page['rows'][0]['modifiedPassed'] is None
+    assert page["rows"][0]["modifiedRate"] is None
     filtered = history.browse('coco', 'jira', start_date=date(2026, 10, 3), end_date=date(2026, 10, 5))
     assert [row['total'] for row in filtered['rows']] == [5, 5, 4, 4, 3, 3]
     assert history.browse('coco', 'jira', offset=24)['rows'] == []
 
 
-def test_confluence_history_is_one_period_per_row_with_four_product_line_groups(tmp_path):
+def test_confluence_history_is_one_period_per_row_with_four_product_line_groups(
+    tmp_path, *, database_factory
+):
     from core.product_lines import PRODUCT_LINES
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+    history = AuditEmailHistory(database_factory())
     for _ in range(12):
         run = history.create('coco', {})
         run['summary']['confluence'] = {line.name: [0, 8] for line in PRODUCT_LINES}
@@ -39,9 +43,11 @@ def test_confluence_history_is_one_period_per_row_with_four_product_line_groups(
     assert len(history.browse('coco', 'confluence', offset=10)['rows']) == 2
 
 
-def test_confluence_project_count_does_not_substitute_checkpoint_total(tmp_path):
+def test_confluence_project_count_does_not_substitute_checkpoint_total(
+    tmp_path, *, database_factory
+):
     from core.product_lines import PRODUCT_LINES
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+    history = AuditEmailHistory(database_factory())
     run = history.create('coco', {})
     summary = {line.name: [0, 0] for line in PRODUCT_LINES}
     summary['TV'] = [2, 3]
@@ -54,8 +60,10 @@ def test_confluence_project_count_does_not_substitute_checkpoint_total(tmp_path)
     assert history.get('coco', run['id'])['summary']['confluence']['projects'] == summary['projects']
 
 
-def test_jira_modified_count_reuses_saved_reaudit_without_overwriting_current_summary(tmp_path):
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+def test_jira_modified_count_reuses_saved_reaudit_without_overwriting_current_summary(
+    tmp_path, *, database_factory
+):
+    history = AuditEmailHistory(database_factory())
     run = history.create('coco', {})
     run['summary']['jira'] = {'total': 74, 'passed': 60, 'failed': 14, 'rate': '81.08%'}
     run['reports']['jira']['remediation'] = {'state': 'completed', 'currentSummary': {
@@ -66,12 +74,21 @@ def test_jira_modified_count_reuses_saved_reaudit_without_overwriting_current_su
     assert row['modifiedPassed'] == 97
     assert row['modifiedRate'] == '78.86%'
     assert history.get('coco', run['id'])['reports']['jira']['remediation']['currentSummary']['issues'] == [{'key': 'saved-reaudit'}]
+    run["reports"]["jira"]["remediation"]["currentSummary"] = {
+        "passed": None,
+        "rate": None,
+    }
+    history.save("coco", run)
+    row = history.browse("coco", "jira")["rows"][0]
+    assert row["modifiedPassed"] is None and row["modifiedRate"] is None
 
 
-def test_history_query_logs_database_account_and_filter_counts_without_sensitive_payload(tmp_path, monkeypatch):
+def test_history_query_logs_database_account_and_filter_counts_without_sensitive_payload(
+    tmp_path, monkeypatch, *, database_factory
+):
     import json
     monkeypatch.setenv('SMARTTEST_LOG_DIR', str(tmp_path / 'logs'))
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+    history = AuditEmailHistory(database_factory())
     private = history.create('owner', {})
     private['summary']['jira'] = {'total': 1, 'scope': 'DO NOT LOG PRIVATE JQL'}
     history.save('owner', private)
@@ -81,14 +98,16 @@ def test_history_query_logs_database_account_and_filter_counts_without_sensitive
     assert record['platform'] == 'web'
     fields = record['extra']
     assert fields['account'] == 'viewer' and fields['kind'] == 'jira'
-    assert fields['database_path'] == str(history.database.path.resolve())
+    assert fields["database_path"] == history.database.location
     assert (fields['database_runs'], fields['visible_runs'], fields['candidate_rows'], fields['filtered_rows'], fields['returned_rows']) == (1, 1, 1, 1, 1)
     assert fields['offset'] == 0 and fields['start_date'] == '2026-01-01'
     assert 'DO NOT LOG PRIVATE JQL' not in json.dumps(records)
 
 
-def test_shared_history_read_does_not_share_execution_writes_or_scheduled_claims(tmp_path):
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+def test_shared_history_read_does_not_share_execution_writes_or_scheduled_claims(
+    tmp_path, *, database_factory
+):
+    history = AuditEmailHistory(database_factory())
     period = {'startDate': '2026-10-02T18:00:00+08:00', 'endDate': '2026-10-09T18:00:00+08:00'}
     original = history.create('owner', period)
     original['reports']['jira']['state'] = 'completed'
@@ -104,8 +123,10 @@ def test_shared_history_read_does_not_share_execution_writes_or_scheduled_claims
     assert not history.claim_scheduled_occurrence('owner', 'same-period')
 
 
-def test_reopening_history_does_not_restore_screenshot_rows(tmp_path):
-    database = WebDatabase(tmp_path / 'history.db')
+def test_reopening_history_does_not_restore_screenshot_rows(
+    tmp_path, *, database_factory
+):
+    database = database_factory()
     history = AuditEmailHistory(database)
     assert history.list_runs('viewer') == {'runs': [], 'total': 0}
     assert AuditEmailHistory(database).browse('viewer', 'jira')['rows'] == []

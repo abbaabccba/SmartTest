@@ -13,9 +13,9 @@ from ..task_manager import WEB_TASKS
 
 
 class AuditEmailJob:
-    def __init__(self, history):
+    def __init__(self, history, *, reports_root):
         self.history = history
-        self.root = history.database.path.parent / "audit-email-reports"
+        self.root = Path(reports_root)
         self._tasks = set()
         self._lock = Lock()
 
@@ -202,7 +202,7 @@ class AuditEmailJob:
                            reason='available' if baseline and saved_jql else remediation['reason'])
                     if baseline and saved_jql:
                         reviewed_summary, reviewed_at = None, ''
-                        record(kind, 'previous_scope_resolving', scope_source='sqlite_summary',
+                        record(kind, 'previous_scope_resolving', scope_source='database_summary',
                                scope_chars=len(saved_jql), original_rule_count=len(original['findings']) if 'findings' in original else None)
                         try:
                             previous_scope = owner.resolve(saved_jql)

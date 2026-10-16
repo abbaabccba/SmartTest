@@ -72,7 +72,7 @@ def test_annual_comment_coordination_reuses_inflight_work_and_isolates_accounts_
     release = Event()
     def run(token, progress):
         release.wait(2)
-        return 'sqlite-snapshot'
+        return 'database-snapshot'
     try:
         first = tasks.submit_annual(('alice', 'year-2026', 'scope', 'roster'), run)
         assert tasks.submit_annual(('alice', 'year-2026', 'scope', 'roster'), run) is first
@@ -151,7 +151,7 @@ def test_background_failure_is_recorded_and_forwarded_to_auth_lifecycle():
     assert len(failures) == 1
 
 
-def test_card_conditions_are_applied_once_for_preview_search_and_sqlite_effective_scope():
+def test_card_conditions_are_applied_once_for_preview_search_and_database_effective_scope():
     repo, tasks = Repo(), Tasks()
     class RecordingFilter(Filter):
         def validate(self, jql):
@@ -173,7 +173,7 @@ def test_unselected_basic_conditions_add_only_card_fixed_conditions():
     assert service.preview({"mode": "basic", "basic": {}})["jql"] == 'channel = "Self-Test"'
 
 
-def test_remote_pagination_progress_is_published_before_sqlite_writes():
+def test_remote_pagination_progress_is_published_before_database_writes():
     repo, tasks = Repo(), Tasks(); events = []
     class PagedGateway:
         def search_all_payloads(self, _jql, *, fields=None, expand=None, page_size=None, progress):

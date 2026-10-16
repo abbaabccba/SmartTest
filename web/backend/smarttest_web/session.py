@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from sqlalchemy import delete, text, case, func
+
+from .database import WebDatabase, upsert
+from .config import ApplicationDatabaseSettings, storage_environment
+from .schema import user_preferences, web_account_identities, web_sessions
+
 from dataclasses import dataclass
 import hashlib
 import json
-from pathlib import Path
 import secrets
-import sqlite3
 from threading import RLock
 import time
 
-from core.config.jsonTool import app_data_dir
 from core.logging import smart_log
 from core.product_lines import product_line_name, confluence_space_key
 from .credentials import CredentialMissingError, CredentialStoreError, create_credential_store
@@ -28,36 +31,23 @@ class WebSession:
     cookie_renewal_required: bool = False
 
 
-def default_web_database_path() -> Path:
-    return app_data_dir() / "web" / "smarttest-web.db"
-
-
 class PersistentSessionStore:
-    def __init__(self, path=None, *, ttl_seconds=SESSION_TTL_SECONDS,
-                 refresh_interval_seconds=24 * 60 * 60, now=time.time, credential_store=None):
-        self.path = Path(path or default_web_database_path())
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, *, ttl_seconds=SESSION_TTL_SECONDS,
+                 refresh_interval_seconds=24 * 60 * 60, now=time.time, credential_store=None, database=None):
+        self.database = database if database is not None else WebDatabase.from_settings(ApplicationDatabaseSettings.from_environment(storage_environment()))
         self._ttl = ttl_seconds
         self._refresh_interval = refresh_interval_seconds
         self._now = now
         self._credentials: dict[str, str] = {}
         self._lock = RLock()
-        self._credential_store = credential_store or create_credential_store(self.path)
+        self._credential_store = credential_store or create_credential_store(self.database)
 
     @property
     def ttl_seconds(self):
         return self._ttl
 
     def _connect(self):
-        connection = sqlite3.connect(self.path, timeout=5)
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=5000")
-        return connection
-
-    @property
-    def journal_mode(self):
-        with self._connect() as connection:
-            return connection.execute("PRAGMA journal_mode").fetchone()[0]
+        return self.database.transaction()
 
     @staticmethod
     def _hash(token):
@@ -70,8 +60,7 @@ class PersistentSessionStore:
 
     def saved_accounts(self):
         with self._connect() as connection:
-            return tuple(row[0] for row in connection.execute(
-                'SELECT username FROM web_account_identities ORDER BY username'))
+            return tuple(row[0] for row in connection.execute(text('SELECT username FROM web_account_identities ORDER BY username')))
 
     def saved_credentials(self, username):
         normalized = str(username or "").strip().casefold()
@@ -103,22 +92,31 @@ class PersistentSessionStore:
         clean_name = str(display_name or username).strip() or username
         avatar = bytes(avatar_bytes) if isinstance(avatar_bytes, (bytes, bytearray)) else b""
         with self._lock, self._connect() as connection:
-            connection.execute("""
-                INSERT INTO web_account_identities(username,display_name,avatar,updated_at)
-                VALUES(?,?,?,?)
-                ON CONFLICT(username) DO UPDATE SET
-                  display_name=CASE WHEN excluded.display_name=excluded.username
-                                    THEN web_account_identities.display_name
-                                    ELSE excluded.display_name END,
-                  avatar=CASE WHEN excluded.avatar IS NOT NULL THEN excluded.avatar
-                              ELSE web_account_identities.avatar END,
-                  updated_at=excluded.updated_at
-            """, (username, clean_name, avatar or None, self._now()))
+            upsert(
+                connection,
+                web_account_identities,
+                {
+                    "username": username,
+                    "display_name": clean_name,
+                    "avatar": avatar or None,
+                    "updated_at": self._now(),
+                },
+                conflict_columns=("username",),
+                updates=lambda incoming: {
+                    "display_name": case(
+                        (incoming.display_name == incoming.username, web_account_identities.c.display_name),
+                        else_=incoming.display_name,
+                    ),
+                    "avatar": func.coalesce(incoming.avatar, web_account_identities.c.avatar),
+                    "updated_at": incoming.updated_at,
+                },
+            )
 
     def _identity(self, username):
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT display_name,avatar FROM web_account_identities WHERE username=?", (username,),
+                text("SELECT display_name,avatar FROM web_account_identities WHERE username=:username"),
+                {"username": username},
             ).fetchone()
         return (str(row[0] or "") if row else "", bytes(row[1] or b"") if row else b"")
 
@@ -136,9 +134,18 @@ class PersistentSessionStore:
         now = self._now()
         with self._lock, self._connect() as connection:
             connection.execute(
-                "INSERT INTO web_sessions(token_hash,username,display_name,avatar,created_at,last_seen_at,expires_at,credential_ref) VALUES(?,?,?,?,?,?,?,?)",
-                (token_hash, str(username).strip().lower(), display_name or username, avatar_bytes or None,
-                 now, now, now + self._ttl, None),
+                web_sessions.insert().values(
+                    {
+                        "token_hash": token_hash,
+                        "username": str(username).strip().lower(),
+                        "display_name": display_name or username,
+                        "avatar": avatar_bytes or None,
+                        "created_at": now,
+                        "last_seen_at": now,
+                        "expires_at": now + self._ttl,
+                        "credential_ref": None,
+                    }
+                )
             )
         return token
 
@@ -149,22 +156,32 @@ class PersistentSessionStore:
         now = self._now()
         with self._lock, self._connect() as connection:
             row = connection.execute(
-                "SELECT username,display_name,avatar,last_seen_at,expires_at,credential_ref FROM web_sessions WHERE token_hash=? AND revoked_at IS NULL",
-                (token_hash,),
+                text(
+                    "SELECT username,display_name,avatar,last_seen_at,expires_at,credential_ref FROM web_sessions WHERE token_hash=:token_hash AND revoked_at IS NULL"
+                ),
+                {"token_hash": token_hash},
             ).fetchone()
             if row is None:
                 return None
             if row[4] <= now:
-                connection.execute("DELETE FROM web_sessions WHERE token_hash=?", (token_hash,))
-                connection.execute("DELETE FROM web_query_snapshots WHERE session_hash=?", (token_hash,))
-                connection.commit()
+                connection.execute(
+                    text("DELETE FROM web_sessions WHERE token_hash=:token_hash"), {"token_hash": token_hash}
+                )
+                connection.execute(
+                    text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash"),
+                    {"session_hash": token_hash},
+                )
                 return None
             expires_at = row[4]
             renewed = False
             if now - row[3] >= self._refresh_interval:
                 expires_at = now + self._ttl
-                connection.execute("UPDATE web_sessions SET last_seen_at=?,expires_at=? WHERE token_hash=?",
-                                   (now, expires_at, token_hash))
+                connection.execute(
+                    text(
+                        "UPDATE web_sessions SET last_seen_at=:last_seen_at,expires_at=:expires_at WHERE token_hash=:token_hash"
+                    ),
+                    {"last_seen_at": now, "expires_at": expires_at, "token_hash": token_hash},
+                )
                 renewed = True
             normalized = str(row[0]).strip().casefold()
             password = self._credentials.get(normalized)
@@ -181,8 +198,8 @@ class PersistentSessionStore:
                             self._credentials[normalized] = password
                             self._delete_legacy_credential(row[5])
                             connection.execute(
-                                "UPDATE web_sessions SET credential_ref=NULL WHERE token_hash=?",
-                                (token_hash,),
+                                text("UPDATE web_sessions SET credential_ref=NULL WHERE token_hash=:token_hash"),
+                                {"token_hash": token_hash},
                             )
                         except CredentialStoreError as exc:
                             smart_log("Persistent Web credential recovery failed", platform="web", domain="auth",
@@ -209,36 +226,58 @@ class PersistentSessionStore:
     def delete(self, token):
         token_hash = self._hash(token)
         with self._lock, self._connect() as connection:
-            connection.execute("UPDATE web_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
-                               (self._now(), token_hash))
-            connection.execute("DELETE FROM web_query_snapshots WHERE session_hash=?", (token_hash,))
+            connection.execute(
+                text(
+                    "UPDATE web_sessions SET revoked_at=:revoked_at WHERE token_hash=:token_hash AND revoked_at IS NULL"
+                ),
+                {"revoked_at": self._now(), "token_hash": token_hash},
+            )
+            connection.execute(
+                text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash"),
+                {"session_hash": token_hash},
+            )
 
     def delete_all(self, username):
         now = self._now()
         with self._lock, self._connect() as connection:
-            token_hashes = [row[0] for row in connection.execute(
-                "SELECT token_hash FROM web_sessions WHERE username=? AND revoked_at IS NULL", (username,))]
-            cursor = connection.execute("UPDATE web_sessions SET revoked_at=? WHERE username=? AND revoked_at IS NULL",
-                                        (now, username))
-            connection.executemany("DELETE FROM web_query_snapshots WHERE session_hash=?",
-                                   ((token_hash,) for token_hash in token_hashes))
+            token_hashes = [
+                row[0]
+                for row in connection.execute(
+                    text("SELECT token_hash FROM web_sessions WHERE username=:username AND revoked_at IS NULL"),
+                    {"username": username},
+                )
+            ]
+            cursor = connection.execute(
+                text(
+                    "UPDATE web_sessions SET revoked_at=:revoked_at WHERE username=:username AND revoked_at IS NULL"
+                ),
+                {"revoked_at": now, "username": username},
+            )
+            _batch = [{"session_hash": token_hash} for token_hash in token_hashes]
+            if _batch:
+                connection.execute(text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash"), _batch)
         return cursor.rowcount
 
     def invalidate_credentials(self, username):
         normalized = str(username or "").strip().casefold()
         now = self._now()
         with self._lock, self._connect() as connection:
-            token_hashes = [row[0] for row in connection.execute(
-                "SELECT token_hash FROM web_sessions WHERE username=? AND revoked_at IS NULL",
-                (normalized,),
-            )]
+            token_hashes = [
+                row[0]
+                for row in connection.execute(
+                    text("SELECT token_hash FROM web_sessions WHERE username=:username AND revoked_at IS NULL"),
+                    {"username": normalized},
+                )
+            ]
             cursor = connection.execute(
-                "UPDATE web_sessions SET revoked_at=?,revoked_reason='invalid_credentials' "
-                "WHERE username=? AND revoked_at IS NULL",
-                (now, normalized),
+                text(
+                    "UPDATE web_sessions SET revoked_at=:revoked_at,revoked_reason='invalid_credentials' WHERE username=:username AND revoked_at IS NULL"
+                ),
+                {"revoked_at": now, "username": normalized},
             )
-            connection.executemany("DELETE FROM web_query_snapshots WHERE session_hash=?",
-                                   ((token_hash,) for token_hash in token_hashes))
+            _batch = [{"session_hash": token_hash} for token_hash in token_hashes]
+            if _batch:
+                connection.execute(text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash"), _batch)
         self._credentials.pop(normalized, None)
         self._credential_store.delete(self._account_key(normalized))
         return cursor.rowcount
@@ -247,23 +286,26 @@ class PersistentSessionStore:
         token_hash = self._hash(token)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT revoked_reason FROM web_sessions WHERE token_hash=?", (token_hash,),
+                text("SELECT revoked_reason FROM web_sessions WHERE token_hash=:token_hash"),
+                {"token_hash": token_hash},
             ).fetchone()
         return str(row[0] or "") if row else ""
 
     def cleanup(self, limit=100):
         with self._connect() as connection:
-            rows = list(connection.execute(
-                "SELECT id,token_hash FROM web_sessions WHERE expires_at<=? OR revoked_at IS NOT NULL LIMIT ?",
-                (self._now(), limit),
-            ))
-            cursor = connection.execute(
-                "DELETE FROM web_sessions WHERE id IN (SELECT id FROM web_sessions WHERE expires_at<=? OR revoked_at IS NOT NULL LIMIT ?)",
-                (self._now(), limit),
+            rows = list(
+                connection.execute(
+                    text(
+                        "SELECT id,token_hash FROM web_sessions WHERE expires_at<=:expires_at OR revoked_at IS NOT NULL LIMIT :limit"
+                    ),
+                    {"expires_at": self._now(), "limit": limit},
+                )
             )
+            cursor = connection.execute(delete(web_sessions).where(web_sessions.c.id.in_([row[0] for row in rows])))
         with self._connect() as connection:
-            connection.executemany("DELETE FROM web_query_snapshots WHERE session_hash=?",
-                                   ((token_hash,) for _id, token_hash in rows))
+            _batch = [{"session_hash": token_hash} for (_id, token_hash) in rows]
+            if _batch:
+                connection.execute(text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash"), _batch)
         return cursor.rowcount
 
     def _delete_legacy_credential(self, credential_ref):
@@ -278,21 +320,37 @@ class PersistentSessionStore:
     def count(self):
         self.cleanup()
         with self._connect() as connection:
-            return connection.execute("SELECT count(*) FROM web_sessions WHERE revoked_at IS NULL AND expires_at>?", (self._now(),)).fetchone()[0]
+            return connection.execute(
+                text("SELECT count(*) FROM web_sessions WHERE revoked_at IS NULL AND expires_at>:expires_at"),
+                {"expires_at": self._now()},
+            ).fetchone()[0]
 
     def contains_token_hash(self, token):
         with self._connect() as connection:
-            return connection.execute("SELECT 1 FROM web_sessions WHERE token_hash=?", (self._hash(token),)).fetchone() is not None
+            return (
+                connection.execute(
+                    text("SELECT 1 FROM web_sessions WHERE token_hash=:token_hash"),
+                    {"token_hash": self._hash(token)},
+                ).fetchone()
+                is not None
+            )
 
     def contains_raw_token(self, token):
         with self._connect() as connection:
-            return connection.execute("SELECT 1 FROM web_sessions WHERE token_hash=?", (token,)).fetchone() is not None
+            return (
+                connection.execute(
+                    text("SELECT 1 FROM web_sessions WHERE token_hash=:token_hash"), {"token_hash": token}
+                ).fetchone()
+                is not None
+            )
 
     def get_preferences(self, username, scope):
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT key,value_json,schema_version,updated_at FROM user_preferences WHERE username=? AND scope=?",
-                (username, scope),
+                text(
+                    "SELECT `key`,value_json,schema_version,updated_at FROM user_preferences WHERE username=:username AND scope=:scope"
+                ),
+                {"username": username, "scope": scope},
             ).fetchall()
         items = {key: json.loads(value) for key, value, _, _ in rows}
         if scope in ('projects.html', '/projects.html', 'confluence.html', '/confluence.html') and 'field.__product_space__' in items:
@@ -307,18 +365,39 @@ class PersistentSessionStore:
         if scope in ('projects.html', '/projects.html', 'confluence.html', '/confluence.html') and 'field.__product_space__' in items:
             items['field.__product_space__'] = [product_line_name(value) for value in items['field.__product_space__']]
         with self._connect() as connection:
-            connection.executemany("""
-                INSERT INTO user_preferences(username,scope,key,value_json,schema_version,updated_at)
-                VALUES(?,?,?,?,?,?)
-                ON CONFLICT(username,scope,key) DO UPDATE SET
-                  value_json=excluded.value_json,schema_version=excluded.schema_version,updated_at=excluded.updated_at
-            """, [(username, scope, key, json.dumps(value, ensure_ascii=False, separators=(",", ":")), schema_version, now)
-                    for key, value in items.items()])
+            for _row_username, _row_scope, _row_key, _row_value_json, _row_schema_version, _row_updated_at in [
+                (
+                    username,
+                    scope,
+                    key,
+                    json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+                    schema_version,
+                    now,
+                )
+                for (key, value) in items.items()
+            ]:
+                upsert(
+                    connection,
+                    user_preferences,
+                    {
+                        "username": _row_username,
+                        "scope": _row_scope,
+                        "key": _row_key,
+                        "value_json": _row_value_json,
+                        "schema_version": _row_schema_version,
+                        "updated_at": _row_updated_at,
+                    },
+                    conflict_columns=("username", "scope", "key"),
+                    updates=("value_json", "schema_version", "updated_at"),
+                )
         return self.get_preferences(username, scope)
 
     def delete_preferences(self, username, scope):
         with self._connect() as connection:
-            return connection.execute("DELETE FROM user_preferences WHERE username=? AND scope=?", (username, scope)).rowcount
+            return connection.execute(
+                text("DELETE FROM user_preferences WHERE username=:username AND scope=:scope"),
+                {"username": username, "scope": scope},
+            ).rowcount
 
 
 # Compatibility name for existing imports; the implementation is persistent.

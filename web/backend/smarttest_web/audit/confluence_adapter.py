@@ -22,7 +22,6 @@ from core.weekly_audit import weekly_audit_project_in_scope
 from core.product_lines import PRODUCT_LINES
 
 from ..task_manager import WEB_TASKS
-from ..project_facts_api import ProjectFactsWebOwner
 from ..resource_access import remote_status
 
 
@@ -40,8 +39,7 @@ class WebConfluenceAuditOwner:
         self._access = access
 
     @classmethod
-    def from_credentials(cls, access, password: str):
-        facts = ProjectFactsWebOwner()
+    def from_credentials(cls, access, password: str, *, facts):
         return cls(*facts.audit_dependencies(access, password), access=access)
 
     def resolve(self, payload: dict) -> ResolvedConfluenceAudit:

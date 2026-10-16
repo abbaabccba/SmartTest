@@ -168,7 +168,7 @@ class ConfluenceProjectCacheService:
         self._access.publish(grants, lambda: getattr(self._repository, f"replace_{name}")(project_id, stored),
                              replace_scopes=(scope,))
         smart_log("Confluence detail persistence timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,
-                  extra={"stage": "detail.sqlite_section", "duration_ms": round((time.monotonic() - persist_started) * 1000, 3),
+                  extra={"stage": "detail.database_section", "duration_ms": round((time.monotonic() - persist_started) * 1000, 3),
                          "project_id": str(project_id), "section": name})
         return section
 
@@ -189,7 +189,7 @@ class ConfluenceProjectCacheService:
         except Exception as error:
             smart_log("Confluence catalog publish timing", platform="web", domain="framework", level="error", source="confluence_catalog_cache", emit_runtime_event=False,
                       extra={"stage": "filter.catalog_publish", "outcome": "failure",
-                             "exception_type": type(error).__name__, "sqlite_error_name": str(getattr(error, "sqlite_errorname", "") or ""),
+                             "exception_type": type(error).__name__, "database_error_code": getattr(getattr(error, "orig", error), "errno", None),
                              "duration_ms": round((time.monotonic() - started) * 1000, 1)})
             raise
         smart_log("Confluence catalog publish timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,

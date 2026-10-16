@@ -298,19 +298,80 @@ class JiraGateway:
                     "processed": len(payload.get("issues") or []) if isinstance(payload, dict) else 0})
                 return payload if isinstance(payload, dict) else {}
             except Exception as exc:
+                # Exception text/args may contain URLs, credentials, JQL or response bodies.
+                chain = []
+                cause = exc
+                seen = set()
+                while (
+                    isinstance(cause, BaseException)
+                    and id(cause) not in seen
+                    and len(chain) < 8
+                ):
+                    seen.add(id(cause))
+                    identity = {"type": type(cause).__name__}
+                    for name in ("errno", "winerror"):
+                        value = getattr(cause, name, None)
+                        if isinstance(value, int):
+                            identity[name] = value
+                    chain.append(identity)
+                    nested = cause.__cause__ or cause.__context__
+                    if not isinstance(nested, BaseException):
+                        nested = getattr(cause, "reason", None)
+                    if not isinstance(nested, BaseException):
+                        nested = next(
+                            (
+                                value
+                                for value in cause.args
+                                if isinstance(value, BaseException)
+                            ),
+                            None,
+                        )
+                    cause = nested
+                failure_context = {
+                    "exception_chain": chain,
+                    "phase": "search_page",
+                    "field_count": len(fields),
+                    "expand_changelog": "changelog" in (expand or []),
+                }
                 status = getattr(getattr(exc, "response", None), "status_code", None)
                 if status != 502 or attempt >= len(self._RETRY_DELAYS):
-                    smart_log("Jira gateway search failed", domain="jira", source="jira_gateway", level="ERROR",
-                        emit_runtime_event=False, extra={"operation": "search_page", "http_status": status,
-                        "cause_type": type(exc).__name__, "start_at": start, "page_size": page_size,
-                        "attempt": attempt + 1, "duration_ms": round((monotonic() - started) * 1000, 3),
-                        "outcome": "failed"})
+                    smart_log(
+                        "Jira gateway search failed",
+                        domain="jira",
+                        source="jira_gateway",
+                        level="ERROR",
+                        emit_runtime_event=False,
+                        extra={
+                            **failure_context,
+                            "operation": "search_page",
+                            "http_status": status,
+                            "cause_type": type(exc).__name__,
+                            "start_at": start,
+                            "page_size": page_size,
+                            "attempt": attempt + 1,
+                            "duration_ms": round((monotonic() - started) * 1000, 3),
+                            "outcome": "failed",
+                        },
+                    )
                     raise JiraGatewayError("jira_search_failed") from exc
-                smart_log("Jira gateway page retry", domain="jira", source="jira_gateway", level="WARNING",
-                    emit_runtime_event=False, extra={"operation": "search_page", "outcome": "retry",
-                    "start_at": start, "page_size": page_size, "attempt": attempt + 1,
-                    "http_status": status, "cause_type": type(exc).__name__,
-                    "duration_ms": round((monotonic() - attempt_started) * 1000, 3)})
+                smart_log(
+                    "Jira gateway page retry",
+                    domain="jira",
+                    source="jira_gateway",
+                    level="WARNING",
+                    emit_runtime_event=False,
+                    extra={
+                        **failure_context,
+                        "operation": "search_page",
+                        "outcome": "retry",
+                        "start_at": start,
+                        "page_size": page_size,
+                        "attempt": attempt + 1,
+                        "http_status": status,
+                        "cause_type": type(exc).__name__,
+                        "duration_ms": round((monotonic() - attempt_started) * 1000, 3),
+                    },
+                )
                 sleep(self._RETRY_DELAYS[attempt])
         raise JiraGatewayError("jira_search_failed")  # pragma: no cover
 

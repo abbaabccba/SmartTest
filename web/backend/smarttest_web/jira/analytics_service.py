@@ -14,6 +14,7 @@ class JiraAnalyticsService:
                  roster_fingerprint="", statistics_builder=None, comparison_conditions="",
                  activity_conditions=None, activity_roster=None,
                  business_card_key=None,
+                 reuse_basic_facts=False,
                  on_error=lambda _error: None):
         self.filters, self.gateway, self.mapper = filters, gateway, mapper
         self.repository, self.tasks = repository, tasks
@@ -23,6 +24,7 @@ class JiraAnalyticsService:
         self.business_card_key = business_card_key or card_key
         self.roster_fingerprint = roster_fingerprint
         self.statistics_builder = statistics_builder
+        self.reuse_basic_facts = reuse_basic_facts
         self.comparison_conditions = comparison_conditions
         self.activity_conditions = activity_conditions or {}
         self.activity_roster = activity_roster
@@ -115,6 +117,8 @@ class JiraAnalyticsService:
                 queries = {"current": jql, **({"previous": comparison_jql} if comparison_jql else {})}
                 queries = {period: query for period, query in queries.items() if period in periods}
                 statistics = None
+                current_facts = None
+                basic_statistics = None
                 from ..daily_refresh import manual_metric_allowed
                 layers = ['basic', *(['comment'] if activity_sources else [])] if layered else ['basic']
                 for layer in layers:
@@ -161,8 +165,12 @@ class JiraAnalyticsService:
                             since = monotonic()
                             stage = "aggregate"
                             log_stage(stage, since, period=period, layer=layer, outcome="started")
-                            statistics = self.statistics_builder(rows_by_period["current"], rows_by_period["previous"],
-                                **({"activity_facts": []} if activity_sources else {}))
+                            if self.reuse_basic_facts and layer == "comment":
+                                statistics = dict(basic_statistics)
+                            else:
+                                statistics = self.statistics_builder(rows_by_period["current"], rows_by_period["previous"],
+                                    **({"activity_facts": []} if activity_sources else {}),
+                                    **({"current_facts": current_facts} if self.reuse_basic_facts else {}))
                             statistics["availability"] = {key: dict(value) for key, value in availability.items()}
                             if activity_sources:
                                 statistics["queryRevision"] = revision
@@ -170,7 +178,23 @@ class JiraAnalyticsService:
                                 statistics["metricSources"] = source_scopes
                             token.raise_if_cancelled()
                             facts = statistics.pop("_facts", None)
-                            if not self.repository.update_statistics(snapshot_id, statistics, **({"facts": facts} if facts is not None else {})):
+                            written_facts = facts
+                            if self.reuse_basic_facts and layer == "basic":
+                                if period == "previous" and current_facts is not None:
+                                    written_facts = facts[len(current_facts):]
+                                if period == "current":
+                                    current_facts = facts
+                                basic_statistics = statistics
+                            # Comment layers publish independent sources; their basic issue facts did not change.
+                            if not self.repository.update_statistics(
+                                snapshot_id,
+                                statistics,
+                                **(
+                                    {"facts": written_facts}
+                                    if layer == "basic" and facts is not None
+                                    else {}
+                                ),
+                            ):
                                 raise TaskCancelled()
                             log_stage("aggregate", since, period=period, layer=layer, processed=len(rows))
                 if not layered:
@@ -226,6 +250,7 @@ def card_analytics_service(filters, gateway, repository, tasks, card_key, *, sto
         activity_conditions={key: item['jql'] for key, item in activity_card_jql_pair(card_key, '').items()} if definition else None,
         activity_roster=roster,
         roster_fingerprint=f'{definition.fingerprint}:annual-metrics-v5' if definition else '',
+        reuse_basic_facts=bool(definition),
         statistics_builder=(lambda current, previous, **kwargs: build_annual_facts(
             gateway, current, previous, groups_cache=groups, activity_roster=roster, **kwargs)) if definition else None,
         on_error=on_error)

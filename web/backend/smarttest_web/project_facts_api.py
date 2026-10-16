@@ -34,9 +34,7 @@ from core.logging import smart_log
 from .confluence.cache_service import ConfluenceProjectCacheService
 from .confluence.project_repository import ConfluenceProjectRepository
 from .confluence_sync import ConfluenceProjectSyncCoordinator
-from .database import WebDatabase
 from .query_snapshot_repository import PROJECT_FILTER_KEYS
-from .session import default_web_database_path
 
 PAGE_CATALOG_PRODUCT_SPACES = tuple(line.confluence_space_key for line in PRODUCT_LINES)
 PROJECT_STATUS_PATTERN = re.compile(r"^\s*(NORMAL|WARNING|BLOCK)\b", re.IGNORECASE)
@@ -83,15 +81,11 @@ class ProjectFactsWebOwner:
     def __init__(
         self,
         *,
-        repository: ConfluenceProjectRepository | None = None,
+        repository: ConfluenceProjectRepository,
         client_factory=None,
-        data_root=None,
         sync_coordinator_factory=ConfluenceProjectSyncCoordinator,
     ):
-        database_path = (
-            data_root / "smarttest-web.db" if data_root else default_web_database_path()
-        )
-        self._repository = repository or ConfluenceProjectRepository(WebDatabase(database_path))
+        self._repository = repository
         self._client_factory = client_factory or self._make_client
         self._sync_coordinator_factory = sync_coordinator_factory
         self._refresh_lock = Lock()
@@ -432,7 +426,7 @@ def _project_snapshot_rows(project):
         space_key=WIRELESS_CONNECTION.confluence_space_key,
         roles={
             label: all_roles.get(wifi_label, [])
-            for label, wifi_label in zip(ROLE_LABELS, WIFI_ROLE_LABELS)
+            for (label, wifi_label) in zip(ROLE_LABELS, WIFI_ROLE_LABELS)
         },
     )
     return original, wireless

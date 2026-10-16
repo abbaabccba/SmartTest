@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 
 from fastapi.testclient import TestClient
@@ -70,14 +70,16 @@ def make_app(**kwargs):
 
 
 @pytest.mark.parametrize('has_findings', [True, False])
-def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_confluence_remediation(tmp_path, no_real_weekly_email, has_findings):
+def test_previous_completed_audit_reuses_database_filter_without_delivery_and_confluence_remediation(
+    tmp_path, no_real_weekly_email, has_findings, *, database_factory
+):
     from core.weekly_audit import fixed_weekly_audit_scope
     from core.jira.audit.models import AuditRule
     from smarttest_web.audit.email_history import AuditEmailHistory
     from smarttest_web.audit.email_job import AuditEmailJob
     from smarttest_web.database import WebDatabase
     from zoneinfo import ZoneInfo
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'audit.db'))
+    history = AuditEmailHistory(database_factory())
     current_scope = fixed_weekly_audit_scope(datetime(2026, 9, 18, 18, tzinfo=ZoneInfo('Asia/Shanghai')))
     old = history.create('qa', current_scope['previousPeriod'])
     old['createdAt'] = '2026-09-14T07:00:00+00:00'
@@ -98,7 +100,7 @@ def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_conf
     class Access:
         def require_active(self): pass
     owner = Owner()
-    job = AuditEmailJob(history)
+    job = AuditEmailJob(history, reports_root=tmp_path / "audit-email-reports")
     try:
         result = job.trigger('qa', current_scope, Access(), 'secret', 0, None,
                              lambda *_: owner, lambda *_: Confluence(), trigger_source='manual')
@@ -119,7 +121,7 @@ def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_conf
         assert 'Previous_Audit_Remediation.xlsx' in result['reports']['jira']['attachments']
         assert result['reports']['confluence']['state'] == 'completed'
         assert 'remediation' not in result['reports']['confluence']
-        persisted = AuditEmailHistory(WebDatabase(tmp_path / 'audit.db')).get('qa', result['id'])
+        persisted = AuditEmailHistory(database_factory()).get("qa", result["id"])
         assert persisted['summary']['confluence']['projects'][0]['rules'][0]['status'] == 'updated'
         assert persisted['summary']['jira']['issues'][0]['aiReviewStatus'] == 'not_required'
         assert persisted['summary']['jira']['period'] == {key: current_scope[key] for key in ('startDate', 'endDate')}

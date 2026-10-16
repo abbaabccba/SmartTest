@@ -78,7 +78,7 @@ def test_shared_page_budget_failure_releases_slots_for_other_jobs():
         pages.close()
 
 
-def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_survives_failure(tmp_path, monkeypatch):
+def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_survives_failure(tmp_path, monkeypatch, database_factory):
     from test_jira_analytics_api import Gateway, client, query_card, wait_terminal, dated_rows
     calls = []
     fail = [False]
@@ -92,7 +92,7 @@ def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_surv
                 'items': [{'field': 'status', 'fromString': 'Resolved', 'toString': 'Verified'}]}]}
         return {'total': 1, 'issues': dated_rows([row], query)}
     monkeypatch.setattr(Gateway, 'search_metric_page', page)
-    api = client(tmp_path)
+    api = client(tmp_path, database_factory=database_factory)
     task = query_card(api, {'mode': 'advanced', 'jql': 'project=A'}).json()
     assert wait_terminal(api, task['taskId']) == 'completed'
     assert {metric for _, metric in calls} == {'comment'}

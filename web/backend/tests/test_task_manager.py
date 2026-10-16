@@ -45,7 +45,9 @@ def test_web_task_manager_reopens_with_a_fresh_owner_after_lifespan_close() -> N
     tasks.close()
 
 
-def test_app_acquires_web_tasks_only_inside_lifespan(monkeypatch, tmp_path) -> None:
+def test_app_acquires_web_tasks_only_inside_lifespan(
+    monkeypatch, tmp_path, *, database_factory
+) -> None:
     from fastapi.testclient import TestClient
     import smarttest_web.task_manager as task_manager
     from smarttest_web.app import create_app
@@ -58,7 +60,7 @@ def test_app_acquires_web_tasks_only_inside_lifespan(monkeypatch, tmp_path) -> N
 
     app = create_app(
         authenticator=FakeAuthenticator,
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
+        session_store=lambda: PersistentSessionStore(database=database_factory()),
         project_facts_owner=FakeFactsOwner,
     )
     assert events == []

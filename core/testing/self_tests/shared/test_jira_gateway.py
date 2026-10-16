@@ -497,3 +497,42 @@ def test_failed_search_cancels_unstarted_pages_without_replacing_error():
     assert caught.value is failure
     assert executor.futures[2].running()
     assert executor.futures[3].cancelled()
+
+
+def test_search_failure_logs_safe_nested_connection_cause_without_exception_text(
+    monkeypatch,
+):
+    from requests.exceptions import ConnectionError
+    import core.jira.gateway as owner
+
+    records = []
+    root = ConnectionResetError(
+        10054, "secret URL https://private:token@example.test?jql=private"
+    )
+    error = ConnectionError("secret response body", root)
+
+    class Api:
+        def jql(self, *args, **kwargs):
+            raise error
+
+    monkeypatch.setattr(
+        owner, "smart_log", lambda message, **kwargs: records.append(kwargs)
+    )
+    gateway = JiraGateway("https://jira.example", "private", "secret", api=Api())
+    with pytest.raises(JiraGatewayError) as caught:
+        gateway._search_full_page(
+            "private query", 2300, ["comment", "created"], None, 100
+        )
+    assert caught.value.__cause__ is error
+    extra = records[-1]["extra"]
+    assert extra["exception_chain"] == [
+        {"type": "ConnectionError"},
+        {"type": "ConnectionResetError", "errno": 10054},
+    ]
+    assert extra["phase"] == "search_page"
+    assert extra["field_count"] == 2 and extra["expand_changelog"] is False
+    assert extra["attempt"] == 1 and extra["start_at"] == 2300
+    assert all(
+        secret not in str(records)
+        for secret in ("private", "secret", "token", "example.test")
+    )

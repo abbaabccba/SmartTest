@@ -363,3 +363,35 @@ def test_components_count_each_module_once_and_totals_count_unique_issues():
     assert line["issueCount"] == 3
     assert line["invalidCount"] == 1
     assert line["components"] == [{"name": "Audio", "count": 2}, {"name": "Video", "count": 1}]
+
+
+def test_reused_current_facts_preserve_expanded_roster_and_duplicate_issue_order():
+    from copy import deepcopy
+
+    class Gateway:
+        def user_groups(self, account):
+            return {"alice": ("fae-wifi-qa",), "bob": ("fae-iptv-qa",)}[account]
+
+    current = [
+        {"id": "shared", "fields": {"created": "2026-01-01", "creator": {"name": "alice"},
+                                      "components": [{"name": "WiFi"}]}},
+        {"id": "shared", "fields": {"created": "2026-02-01", "creator": {"name": "alice"},
+                                      "components": [{"name": "WiFi"}]}},
+    ]
+    previous = [
+        {"id": "shared", "fields": {"created": "2025-01-01", "creator": {"name": "bob"},
+                                      "components": [{"name": "IPTV"}]}}
+    ]
+    gateway, groups = Gateway(), {}
+    first = service.build_annual_facts(gateway, current, [], groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster())
+    original_facts = deepcopy(first["_facts"])
+    expected = service.build_annual_facts(gateway, current, previous, groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster())
+    actual = service.build_annual_facts(
+        gateway, current, previous, groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster(),
+        current_facts=first["_facts"],
+    )
+    assert actual == expected
+    assert actual["roster"] != first["roster"]
+    assert actual["_facts"][:2] == original_facts
+    assert [fact["createdAt"] for fact in actual["_facts"]] == ["2026-01-01", "2026-02-01", "2025-01-01"]
+    assert first["_facts"] == original_facts

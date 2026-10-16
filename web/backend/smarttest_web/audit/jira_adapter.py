@@ -17,10 +17,8 @@ from core.jira.mapper import JiraIssueMapper
 from core.logging import smart_log
 
 from ..task_manager import WEB_TASKS
-from ..database import WebDatabase
 from ..jira.cache_service import JiraIssueCacheService
 from ..jira.issue_repository import JiraIssueRepository
-from ..session import default_web_database_path
 
 
 class WebJiraAuditOwner:
@@ -29,12 +27,12 @@ class WebJiraAuditOwner:
         self._cache = cache_service
 
     @classmethod
-    def from_credentials(cls, username: str, password: str):
+    def from_credentials(cls, username: str, password: str, *, database):
         base_url = os.getenv("SMARTTEST_JIRA_BASE_URL", "https://jira.amlogic.com")
         gateway = JiraGateway(base_url, username, password)
         cache = JiraIssueCacheService(
             gateway, JiraIssueMapper(base_url),
-            JiraIssueRepository(WebDatabase(default_web_database_path())),
+            JiraIssueRepository(database),
         )
         return cls(gateway, cache)
 

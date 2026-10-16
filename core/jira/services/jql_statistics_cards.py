@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from datetime import date
 from dataclasses import asdict, dataclass
 import hashlib
@@ -286,15 +287,16 @@ def load_activity_qa_roster() -> QARoster:
 
 
 def build_annual_facts(gateway, current_rows, previous_rows, *, groups_cache=None,
-                       current_activities=None, previous_activities=None, activity_roster=None, activity_facts=None):
+                       current_activities=None, previous_activities=None, activity_roster=None, activity_facts=None,
+                       current_facts=None):
     rows = [*current_rows, *previous_rows]
     if current_activities is not None or activity_facts is not None:
         rows = [{**{key: value for key, value in row.items() if key != "changelog"},
                  "fields": {key: value for key, value in row.get("fields", {}).items() if key != "comment"}}
                 for row in rows]
     roster = load_fae_qa_roster(gateway, statistics_accounts(rows), groups_cache=groups_cache)
-    facts = []
-    for issue in rows:
+    facts = deepcopy(current_facts) if current_facts is not None else []
+    for issue in rows[len(current_rows):] if current_facts is not None else rows:
         statistics = aggregate_jira_statistics([issue], roster).to_payload()
         statistics["productLines"] = [line for line in statistics["productLines"] if line["people"]]
         fields = issue.get("fields", {})

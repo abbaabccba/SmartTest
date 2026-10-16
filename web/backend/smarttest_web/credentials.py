@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from sqlalchemy import text
+from .database import upsert
+from .schema import web_credentials
+
 import base64
 import json
 import os
-from pathlib import Path
 import secrets
-import sqlite3
 import sys
 
 from core.credentials.windows import CredentialNotFoundError, WindowsCredentialError, WindowsCredentialStore
@@ -50,15 +52,12 @@ class WindowsWebCredentialStore:
 class LinuxEncryptedCredentialStore:
     KEY_VERSION = 1
 
-    def __init__(self, path, *, environ=None):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, database, *, environ=None):
+        self.database = database
         self._environ = os.environ if environ is None else environ
 
     def _connect(self):
-        connection = sqlite3.connect(self.path, timeout=5)
-        connection.execute("PRAGMA busy_timeout=5000")
-        return connection
+        return self.database.transaction()
 
     def _key(self):
         value = self._environ.get("SMARTTEST_WEB_CREDENTIAL_KEY", "")
@@ -81,18 +80,27 @@ class LinuxEncryptedCredentialStore:
                              ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         ciphertext = AESGCM(self._key()).encrypt(nonce, payload, self._aad(credential_ref, self.KEY_VERSION))
         with self._connect() as connection:
-            connection.execute("""
-                INSERT INTO web_credentials(credential_ref,nonce,ciphertext,key_version) VALUES(?,?,?,?)
-                ON CONFLICT(credential_ref) DO UPDATE SET nonce=excluded.nonce,
-                  ciphertext=excluded.ciphertext,key_version=excluded.key_version
-            """, (credential_ref, nonce, ciphertext, self.KEY_VERSION))
+            upsert(
+                connection,
+                web_credentials,
+                {
+                    "credential_ref": credential_ref,
+                    "nonce": nonce,
+                    "ciphertext": ciphertext,
+                    "key_version": self.KEY_VERSION,
+                },
+                conflict_columns=("credential_ref",),
+                updates=("nonce", "ciphertext", "key_version"),
+            )
 
     def read(self, credential_ref):
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT nonce,ciphertext,key_version FROM web_credentials WHERE credential_ref=?",
-                (credential_ref,),
+                text(
+                    "SELECT nonce,ciphertext,key_version FROM web_credentials WHERE credential_ref=:credential_ref"
+                ),
+                {"credential_ref": credential_ref},
             ).fetchone()
         if row is None:
             raise CredentialMissingError("Server credential was not found.")
@@ -109,11 +117,14 @@ class LinuxEncryptedCredentialStore:
 
     def delete(self, credential_ref):
         with self._connect() as connection:
-            connection.execute("DELETE FROM web_credentials WHERE credential_ref=?", (credential_ref,))
+            connection.execute(
+                text("DELETE FROM web_credentials WHERE credential_ref=:credential_ref"),
+                {"credential_ref": credential_ref},
+            )
 
 
-def create_credential_store(path, *, platform_name=None, environ=None, windows_native=None):
+def create_credential_store(database, *, platform_name=None, environ=None, windows_native=None):
     platform_name = platform_name or sys.platform
     if platform_name == "win32":
         return WindowsWebCredentialStore(native=windows_native)
-    return LinuxEncryptedCredentialStore(path, environ=environ)
+    return LinuxEncryptedCredentialStore(database, environ=environ)

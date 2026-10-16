@@ -6,8 +6,8 @@ from smarttest_web.session import PersistentSessionStore
 from test_web_session import FakeAuthenticator, FakeFactsOwner
 
 
-def api(tmp_path, username="coco"):
-    store = PersistentSessionStore(tmp_path / "web.db")
+def api(tmp_path, username="coco", *, database_factory):
+    store = PersistentSessionStore(database=database_factory())
     auth = FakeAuthenticator({"success": True, "username": username,
                               "display_name": username.title(), "avatar_bytes": b""})
     client = TestClient(create_app(authenticator=lambda: auth, session_store=lambda: store,
@@ -17,8 +17,12 @@ def api(tmp_path, username="coco"):
     return client
 
 
-def test_suite_api_auth_visibility_copy_and_owner_boundary(tmp_path):
-    coco, atlas = api(tmp_path, "coco"), api(tmp_path, "atlas")
+def test_suite_api_auth_visibility_copy_and_owner_boundary(
+    tmp_path, *, database_factory
+):
+    coco, atlas = api(tmp_path, "coco", database_factory=database_factory), api(
+        tmp_path, "atlas", database_factory=database_factory
+    )
     created = coco.post("/api/test-suites", json={"name": "Mine", "description": "d",
                         "visibility": "private", "orderedNodeids": ["a"],
                         "ownerUsername": "atlas"})
@@ -36,8 +40,10 @@ def test_suite_api_auth_visibility_copy_and_owner_boundary(tmp_path):
     assert copied.status_code == 200 and copied.json()["ownerUsername"] == "atlas"
 
 
-def test_suite_api_validation_conflicts_and_authentication(tmp_path):
-    client = api(tmp_path)
+def test_suite_api_validation_conflicts_and_authentication(
+    tmp_path, *, database_factory
+):
+    client = api(tmp_path, database_factory=database_factory)
     payload = {"name": "Suite", "description": "", "visibility": "private", "orderedNodeids": ["a"]}
     assert client.post("/api/test-suites", json=payload).status_code == 200
     assert client.post("/api/test-suites", json=payload).status_code == 409
@@ -48,8 +54,10 @@ def test_suite_api_validation_conflicts_and_authentication(tmp_path):
     assert anonymous.get("/api/test-suites?scope=mine").status_code == 401
 
 
-def test_http_login_cookie_is_returned_by_real_cookie_jar_for_suite_list(tmp_path):
-    store = PersistentSessionStore(tmp_path / "http-web.db")
+def test_http_login_cookie_is_returned_by_real_cookie_jar_for_suite_list(
+    tmp_path, *, database_factory
+):
+    store = PersistentSessionStore(database=database_factory())
     auth = FakeAuthenticator({"success": True, "username": "coco",
                               "display_name": "Coco", "avatar_bytes": b""})
     client = TestClient(create_app(
@@ -66,8 +74,10 @@ def test_http_login_cookie_is_returned_by_real_cookie_jar_for_suite_list(tmp_pat
     assert suites.json() == []
 
 
-def test_client_session_skips_ldap_and_authenticates_suite_list(tmp_path):
-    store = PersistentSessionStore(tmp_path / "client-session.db")
+def test_client_session_skips_ldap_and_authenticates_suite_list(
+    tmp_path, *, database_factory
+):
+    store = PersistentSessionStore(database=database_factory())
     auth = FakeAuthenticator({"success": False, "code": "ldap_unavailable"})
     client = TestClient(create_app(
         authenticator=lambda: auth,
@@ -86,13 +96,18 @@ def test_client_session_skips_ldap_and_authenticates_suite_list(tmp_path):
     assert client.get("/api/test-suites?scope=mine").status_code == 200
 
 
-def test_client_session_rejects_empty_credentials_without_ldap(tmp_path):
+def test_client_session_rejects_empty_credentials_without_ldap(
+    tmp_path, *, database_factory
+):
     auth = FakeAuthenticator()
-    client = TestClient(create_app(
-        authenticator=lambda: auth,
-        session_store=lambda: PersistentSessionStore(tmp_path / "invalid-client-session.db"),
-        project_facts_owner=lambda: FakeFactsOwner({"projects": []}),
-    ), base_url="https://testserver")
+    client = TestClient(
+        create_app(
+            authenticator=lambda: auth,
+            session_store=lambda: PersistentSessionStore(database=database_factory()),
+            project_facts_owner=lambda: FakeFactsOwner({"projects": []}),
+        ),
+        base_url="https://testserver",
+    )
 
     for payload in ({"username": "", "password": "secret"},
                     {"username": "coco", "password": ""}):
@@ -102,15 +117,16 @@ def test_client_session_rejects_empty_credentials_without_ldap(tmp_path):
     assert auth.calls == []
 
 
-def test_client_session_reports_credential_store_failure_without_ldap_or_secret(tmp_path):
+def test_client_session_reports_credential_store_failure_without_ldap_or_secret(
+    tmp_path, *, database_factory
+):
     class FailingCredentialStore:
         def write(self, *_args):
             raise CredentialStoreError("secret-marker")
 
     auth = FakeAuthenticator()
     store = PersistentSessionStore(
-        tmp_path / "failed-client-session.db",
-        credential_store=FailingCredentialStore(),
+        credential_store=FailingCredentialStore(), database=database_factory()
     )
     client = TestClient(create_app(
         authenticator=lambda: auth,
@@ -129,13 +145,15 @@ def test_client_session_reports_credential_store_failure_without_ldap_or_secret(
     assert auth.calls == []
 
 
-def test_http_suite_chain_emits_safe_readable_cookie_and_session_logs(tmp_path, monkeypatch):
+def test_http_suite_chain_emits_safe_readable_cookie_and_session_logs(
+    tmp_path, monkeypatch, *, database_factory
+):
     import smarttest_web.app as app_module
 
     messages = []
     monkeypatch.setattr(app_module, "smart_log",
                         lambda message, *args, **kwargs: messages.append(message % args))
-    store = PersistentSessionStore(tmp_path / "observable-web.db")
+    store = PersistentSessionStore(database=database_factory())
     auth = FakeAuthenticator({"success": True, "username": "coco",
                               "display_name": "Coco", "avatar_bytes": b""})
     client = TestClient(app_module.create_app(

@@ -1,4 +1,9 @@
 """Persistent audit email history, separate from disposable query caches."""
+from sqlalchemy import JSON, select, text, type_coerce
+from sqlalchemy.exc import IntegrityError
+from ..database import is_unique_violation
+
+from ..schema import audit_email_occurrences, audit_email_runs
 
 import json
 from copy import deepcopy
@@ -15,79 +20,47 @@ class AuditEmailHistory:
     def __init__(self, database):
         self.database = database
 
-    @staticmethod
-    def _migrate_confluence_names(connection):
-        runs = {row[0]: json.loads(row[1]) for row in connection.execute(
-            'SELECT id,payload FROM audit_email_runs')}
-        for run in runs.values():
-            summary = run.get('summary', {}).get('confluence')
-            if summary is None:
-                continue
-            for mapping in (summary, summary.get('counts', {})):
-                normalized = {}
-                for old_name, value in mapping.items():
-                    name = product_line_name(old_name)
-                    if name in normalized:
-                        raise ValueError('conflicting_confluence_product_line')
-                    normalized[name] = value
-                mapping.clear()
-                mapping.update(normalized)
-            for project in summary.get('projects', []):
-                project['productLine'] = product_line_name(project['productLine'])
-            validate_confluence_summary(summary)
-        for run in runs.values():
-            report = run.get('reports', {}).get('confluence', {})
-            if report.get('state') in {'completed', 'historical_preview'}:
-                records = []
-                for source_id in report['sourceIds']:
-                    source = runs[source_id]
-                    label = source['label']
-                    if source.get('createdAt'):
-                        label = datetime.fromisoformat(source['createdAt']).astimezone(
-                            ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-                    records.append({'id': source_id, 'label': label,
-                                    'summary': source['summary']['confluence']})
-                report['html'] = render_history_report(
-                    'confluence', records, current=report['state'] == 'completed')['html']
-            connection.execute('UPDATE audit_email_runs SET payload=? WHERE id=?',
-                               (AuditEmailHistory._stored_payload(run), run['id']))
-
     def claim_scheduled_occurrence(self, account, occurrence):
-        with self.database.transaction() as connection:
-            return bool(connection.execute(
-                'INSERT OR IGNORE INTO audit_email_occurrences(account,occurrence,claimed_at) VALUES(?,?,?)',
-                (account, occurrence, datetime.now(timezone.utc).isoformat()),
-            ).rowcount)
+        try:
+            with self.database.transaction() as connection:
+                connection.execute(audit_email_occurrences.insert().values(account=account, occurrence=occurrence,
+                    claimed_at=datetime.now(timezone.utc).isoformat()))
+        except IntegrityError as error:
+            if not is_unique_violation(error):
+                raise
+            return False
+        return True
 
     def list_runs(self, account, offset=0):
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT id,label,state,payload FROM audit_email_runs ORDER BY sequence DESC LIMIT 4 OFFSET ?",
-                (offset,),
+                text(
+                    "SELECT id,label,state,payload FROM audit_email_runs ORDER BY sequence DESC LIMIT 4 OFFSET :offset"
+                ),
+                {"offset": offset},
             ).fetchall()
-            total = connection.execute(
-                "SELECT COUNT(*) FROM audit_email_runs",
-            ).fetchone()[0]
+            total = connection.execute(text('SELECT COUNT(*) FROM audit_email_runs')).fetchone()[0]
         return {'runs': [dict(id=row[0], label=row[1], state=row[2],
                              source=json.loads(row[3])['source']) for row in rows], 'total': total}
 
     def browse(self, account, kind, offset=0, start_date=None, end_date=None):
         if kind not in {'jira', 'confluence'}:
             raise ValueError('invalid_audit_kind')
+        payload = type_coerce(audit_email_runs.c.payload, JSON)
+        summary = payload['summary'][kind]
+        modified = payload['reports']['jira']['remediation']['currentSummary']
         with self.database.connect() as connection:
-            records = connection.execute(
-                """SELECT id,label,json_extract(payload,'$.source'),
-                   json_extract(payload,'$.createdAt'),json_extract(payload,?),sequence,
-                   json_extract(payload,'$.reports.jira.remediation.currentSummary.passed'),
-                   json_extract(payload,'$.reports.jira.remediation.currentSummary.rate')
-                   FROM audit_email_runs WHERE json_type(payload,?) = 'object' ORDER BY sequence DESC""",
-                (f'$.summary.{kind}', f'$.summary.{kind}'),
-            ).fetchall()
+            records = connection.execute(select(
+                audit_email_runs.c.id, audit_email_runs.c.label,
+                payload['source'].as_string(), payload['createdAt'].as_string(),
+                summary, audit_email_runs.c.sequence,
+                modified['passed'].as_integer(), modified['rate'].as_string(),
+            ).order_by(audit_email_runs.c.sequence.desc())).fetchall()
+        records = [row for row in records if isinstance(row[4], dict)]
         rows = []
         candidate_rows = 0
-        for run_id, label, source, created_at, stored_summary, sequence, modified_passed, modified_rate in records:
+        for run_id, label, source, created_at, summary, sequence, modified_passed, modified_rate in records:
             candidate_rows += 1
-            summary = json.loads(stored_summary)
             timestamp = created_at or summary.get('generatedAt')
             audit_date = datetime.fromisoformat(timestamp).astimezone(
                 ZoneInfo('Asia/Shanghai')).date() if timestamp else None
@@ -116,7 +89,7 @@ class AuditEmailHistory:
         page = rows[offset:offset + 10]
         for row in page:
             del row['_sequence']
-        fields = {'database_path': str(self.database.path.resolve()), 'account': account,
+        fields = {'database_path': self.database.location, 'account': account,
                   'kind': kind, 'database_runs': len(records), 'visible_runs': len(records), 'visibility': 'shared_authenticated',
                   'candidate_rows': candidate_rows, 'filtered_rows': total, 'offset': offset,
                   'start_date': start_date.isoformat() if start_date else '',
@@ -128,10 +101,8 @@ class AuditEmailHistory:
 
     def get(self, account, run_id):
         with self.database.connect() as connection:
-            if not connection.in_transaction:
-                connection.execute('BEGIN')
             row = connection.execute(
-                "SELECT payload FROM audit_email_runs WHERE id=?", (run_id,),
+                text("SELECT payload FROM audit_email_runs WHERE id=:id"), {"id": run_id}
             ).fetchone()
             if row is None:
                 raise LookupError(run_id)
@@ -140,7 +111,9 @@ class AuditEmailHistory:
             report = result.get('reports', {}).get('confluence', {})
             if report.get('state') in {'completed', 'historical_preview'}:
                 for source_id in report['sourceIds']:
-                    source = connection.execute("SELECT payload FROM audit_email_runs WHERE id=?", (source_id,)).fetchone()
+                    source = connection.execute(
+                        text("SELECT payload FROM audit_email_runs WHERE id=:id"), {"id": source_id}
+                    ).fetchone()
                     if source is None:
                         raise ValueError('missing_confluence_history')
                     source_result = json.loads(source[0])
@@ -159,15 +132,31 @@ class AuditEmailHistory:
                               for kind in ('jira', 'confluence')}}
         with self.database.transaction() as connection:
             connection.execute(
-                'INSERT INTO audit_email_runs(id,account,label,state,payload) VALUES(?,?,?,?,?)',
-                (run_id, account, now, result['state'], self._stored_payload(result)),
+                audit_email_runs.insert().values(
+                    {
+                        "id": run_id,
+                        "account": account,
+                        "label": now,
+                        "state": result["state"],
+                        "payload": self._stored_payload(result),
+                    }
+                )
             )
         return result
 
     def save(self, account, result):
         with self.database.transaction() as connection:
-            connection.execute('UPDATE audit_email_runs SET state=?,payload=? WHERE id=? AND account=?',
-                               (result['state'], self._stored_payload(result), result['id'], account))
+            connection.execute(
+                text(
+                    "UPDATE audit_email_runs SET state=:state,payload=:payload WHERE id=:id AND account=:account"
+                ),
+                {
+                    "state": result["state"],
+                    "payload": self._stored_payload(result),
+                    "id": result["id"],
+                    "account": account,
+                },
+            )
 
     @staticmethod
     def _convert_scope(result, convert):
@@ -204,8 +193,8 @@ class AuditEmailHistory:
                     for key in ('startDate', 'endDate')}
         with self.database.connect() as connection:
             rows = connection.execute(
-                'SELECT payload FROM audit_email_runs WHERE account=? ORDER BY sequence DESC',
-                (account,),
+                text("SELECT payload FROM audit_email_runs WHERE account=:account ORDER BY sequence DESC"),
+                {"account": account},
             ).fetchall()
         for row in rows:
             old = json.loads(row[0])
@@ -221,9 +210,10 @@ class AuditEmailHistory:
     def complete_report(self, account, result, kind, summary, attachments, remediation=None):
         with self.database.transaction() as connection:
             previous = connection.execute(
-                """SELECT payload FROM audit_email_runs WHERE account IN ('',?) AND sequence <
-                (SELECT sequence FROM audit_email_runs WHERE id=?) ORDER BY sequence DESC""",
-                (account, result['id']),
+                text(
+                    "SELECT payload FROM audit_email_runs WHERE account IN ('',:account) AND sequence <\n                (SELECT sequence FROM audit_email_runs WHERE id=:id) ORDER BY sequence DESC"
+                ),
+                {"account": account, "id": result["id"]},
             ).fetchall()
             label = datetime.fromisoformat(result['createdAt']).astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             records = [{'id': result['id'], 'label': label, 'summary': summary}]

@@ -12,6 +12,7 @@ from core.jira.services.jql_statistics_cards import (
     JIRA_STATISTICS_CARDS,
     card_definition,
     effective_card_jql_pair,
+    load_activity_qa_roster,
 )
 
 from .audit.registry import AuditConflictError
@@ -143,7 +144,11 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         expected = effective_card_jql_pair(card_key, applied_jql or "", "year")
         fingerprint = f"{card_definition(card_key).fingerprint}:annual-metrics-v5"
         def matches(jql, comparison_jql, user_jql, version):
-            return (user_jql is not None and user_jql == applied_jql and version == fingerprint
+            supported = version == fingerprint
+            legacy_prefix = f"{card_definition(card_key).fingerprint}:annual-activity-v4:"
+            if version.startswith(legacy_prefix):
+                supported = version == legacy_prefix + load_activity_qa_roster().fingerprint
+            return (user_jql is not None and user_jql == applied_jql and supported
                     and jql == expected["current"]["jql"] and comparison_jql == expected["previous"]["jql"])
         active_matches = matches(query["activeJql"], query["activeComparisonJql"],
                                  query["userJql"], query["rosterFingerprint"])

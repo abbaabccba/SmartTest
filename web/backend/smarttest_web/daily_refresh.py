@@ -1,9 +1,13 @@
+
+from sqlalchemy import select, update, text
+
+from .database import upsert
+from .schema import web_daily_refresh
 from datetime import datetime, timedelta
 from time import time
 from zoneinfo import ZoneInfo
 
 from core.product_lines import PRODUCT_LINES
-from .schema import ensure_component_schema
 from core.logging import smart_log
 
 
@@ -38,37 +42,35 @@ def latest_slot(timestamp):
 class DailyRefreshClock:
     def __init__(self, database, *, now=time):
         self.database, self.now = database, now
-        ensure_component_schema(database, component='daily_refresh', version=1, statements=(
-            '''CREATE TABLE IF NOT EXISTS web_daily_refresh (
-                account TEXT PRIMARY KEY, claimed_slot REAL NOT NULL,
-                running INTEGER NOT NULL DEFAULT 0, last_finished REAL,
-                error TEXT NOT NULL DEFAULT '')''',
-        ))
 
     def claim(self, accounts):
         slot = latest_slot(self.now())
         claimed = []
         with self.database.transaction() as connection:
             for account in accounts:
-                row = connection.execute(
-                    'SELECT claimed_slot,running FROM web_daily_refresh WHERE account=?',
-                    (account,)).fetchone()
-                if row and (row[0] >= slot or row[1]):
+                upsert(connection, web_daily_refresh, {'account': account, 'claimed_slot': slot - 1, 'running': 0},
+                       conflict_columns=('account',))
+                row = connection.execute(select(web_daily_refresh.c.claimed_slot, web_daily_refresh.c.running)
+                    .where(web_daily_refresh.c.account == account).with_for_update()).one()
+                if row[0] >= slot or row[1]:
                     continue
-                connection.execute('''INSERT INTO web_daily_refresh(account,claimed_slot,running)
-                    VALUES(?,?,1) ON CONFLICT(account) DO UPDATE SET
-                    claimed_slot=excluded.claimed_slot,running=1,error='' ''', (account, slot))
+                connection.execute(update(web_daily_refresh).where(web_daily_refresh.c.account == account)
+                    .values(claimed_slot=slot, running=1, error=''))
                 claimed.append(account)
         return claimed
 
     def finish(self, account, error=''):
         with self.database.transaction() as connection:
-            connection.execute('UPDATE web_daily_refresh SET running=0,last_finished=?,error=? WHERE account=?',
-                               (self.now(), error, account))
+            connection.execute(
+                text(
+                    "UPDATE web_daily_refresh SET running=0,last_finished=:last_finished,error=:error WHERE account=:account"
+                ),
+                {"last_finished": self.now(), "error": error, "account": account},
+            )
 
     def recover(self):
         with self.database.transaction() as connection:
-            connection.execute("UPDATE web_daily_refresh SET running=0,error='interrupted' WHERE running=1")
+            connection.execute(text("UPDATE web_daily_refresh SET running=0,error='interrupted' WHERE running=1"))
 
 
 class DailyFactsRefresh:

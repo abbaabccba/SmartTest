@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sqlalchemy import text
 
 import pytest
 
@@ -9,7 +10,6 @@ from core.domain.detail import DetailSection, DetailState
 from core.domain.values import FieldBag
 from smarttest_web.confluence.cache_service import ConfluenceProjectCacheService
 from smarttest_web.confluence.project_repository import ConfluenceProjectRepository
-from smarttest_web.database import WebDatabase
 from smarttest_web.release_query import ProjectReleaseQueryService
 
 
@@ -52,18 +52,20 @@ class ConfluenceGateway:
         }
 
 
-def _service(tmp_path):
+def _service(tmp_path, *, database_factory):
     gateway = ConfluenceGateway()
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+    repository = ConfluenceProjectRepository(database_factory())
     return ConfluenceProjectCacheService(gateway, ConfluenceProjectMapper(), repository, access=confirmed_access(repository.database)), gateway, repository
 
 
-def test_catalog_ready_is_not_published_when_sqlite_write_fails(tmp_path, monkeypatch) -> None:
+def test_catalog_ready_is_not_published_when_database_write_fails(
+    tmp_path, monkeypatch, *, database_factory
+) -> None:
     import smarttest_web.confluence.cache_service as cache_module
 
     records = []
     monkeypatch.setattr(cache_module, "smart_log", lambda message, **kwargs: records.append((message, kwargs)), raising=False)
-    service, gateway, repository = _service(tmp_path)
+    service, gateway, repository = _service(tmp_path, database_factory=database_factory)
     gateway.refresh_project_catalogs = lambda _scope: {
         "projects": [_row()], "failed_product_spaces": [], "complete_spaces": ["DOPL"],
     }
@@ -76,11 +78,13 @@ def test_catalog_ready_is_not_published_when_sqlite_write_fails(tmp_path, monkey
     assert service._access.ids("catalog", "ready") == set()
     failed = next(kwargs for message, kwargs in records if message == "Confluence catalog publish timing" and kwargs["extra"].get("outcome") == "failure")
     assert failed["extra"]["exception_type"] == "RuntimeError"
-    assert failed["extra"]["sqlite_error_name"] == ""
+    assert failed["extra"]["database_error_code"] is None
     assert "db failed" not in repr(records)
 
 
-def test_catalog_refresh_emits_safe_mapping_and_publish_timings(tmp_path, monkeypatch) -> None:
+def test_catalog_refresh_emits_safe_mapping_and_publish_timings(
+    tmp_path, monkeypatch, *, database_factory
+) -> None:
     import smarttest_web.confluence.cache_service as cache_module
     import smarttest_web.confluence.project_repository as repository_module
 
@@ -88,7 +92,9 @@ def test_catalog_refresh_emits_safe_mapping_and_publish_timings(tmp_path, monkey
     capture = lambda message, **kwargs: records.append((message, kwargs))
     monkeypatch.setattr(cache_module, "smart_log", capture, raising=False)
     monkeypatch.setattr(repository_module, "smart_log", capture, raising=False)
-    service, gateway, _repository = _service(tmp_path)
+    service, gateway, _repository = _service(
+        tmp_path, database_factory=database_factory
+    )
     gateway.refresh_project_catalogs = lambda _scope: {
         "projects": [_row()], "failed_product_spaces": [], "complete_spaces": ["DOPL"],
     }
@@ -96,12 +102,21 @@ def test_catalog_refresh_emits_safe_mapping_and_publish_timings(tmp_path, monkey
     service.refresh_projects(ProjectSyncScope())
 
     stages = {kwargs["extra"]["stage"] for _message, kwargs in records}
-    assert {"filter.catalog_mapping", "filter.catalog_publish_begin", "filter.catalog_publish", "filter.sqlite_write"} <= stages
+    assert {
+        "filter.catalog_mapping",
+        "filter.catalog_publish_begin",
+        "filter.catalog_publish",
+        "filter.database_write",
+    } <= stages
     assert "P100" not in repr(records) and "900" not in repr(records)
 
 
-def test_confluence_list_fetches_only_core_and_get_loads_only_requested_section(tmp_path) -> None:
-    service, gateway, _repository = _service(tmp_path)
+def test_confluence_list_fetches_only_core_and_get_loads_only_requested_section(
+    tmp_path, *, database_factory
+) -> None:
+    service, gateway, _repository = _service(
+        tmp_path, database_factory=database_factory
+    )
 
     page = service.list_projects(ProjectQuery(), 0, 100)
     project = service.get_project("P100", ProjectDetails(facts=True))
@@ -113,8 +128,10 @@ def test_confluence_list_fetches_only_core_and_get_loads_only_requested_section(
     assert gateway.detail_calls == []
 
 
-def test_confluence_revision_change_and_remote_failure_preserve_cache(tmp_path) -> None:
-    service, gateway, repository = _service(tmp_path)
+def test_confluence_revision_change_and_remote_failure_preserve_cache(
+    tmp_path, *, database_factory
+) -> None:
+    service, gateway, repository = _service(tmp_path, database_factory=database_factory)
     service.list_projects(ProjectQuery(), 0, 100)
     service.get_project("P100", ProjectDetails(roles=True, facts=True))
     gateway.version = 2
@@ -134,8 +151,12 @@ def test_confluence_revision_change_and_remote_failure_preserve_cache(tmp_path) 
     assert cached.roles.state is DetailState.STALE
 
 
-def test_catalog_refresh_merges_catalog_facts_without_erasing_provider_details(tmp_path) -> None:
-    service, _gateway, repository = _service(tmp_path)
+def test_catalog_refresh_merges_catalog_facts_without_erasing_provider_details(
+    tmp_path, *, database_factory
+) -> None:
+    service, _gateway, repository = _service(
+        tmp_path, database_factory=database_factory
+    )
     service.list_projects(ProjectQuery())
     repository.replace_facts(
         "P100", DetailSection.loaded(FieldBag.from_mapping({"wifi module": "W2"})),
@@ -149,8 +170,12 @@ def test_catalog_refresh_merges_catalog_facts_without_erasing_provider_details(t
     assert dict(facts.value.values)["launch os"] == "Android 16"
 
 
-def test_confluence_empty_filter_result_does_not_refetch_when_cache_exists(tmp_path) -> None:
-    service, gateway, _repository = _service(tmp_path)
+def test_confluence_empty_filter_result_does_not_refetch_when_cache_exists(
+    tmp_path, *, database_factory
+) -> None:
+    service, gateway, _repository = _service(
+        tmp_path, database_factory=database_factory
+    )
     service.list_projects(ProjectQuery(), 0, 100)
 
     page = service.list_projects(
@@ -161,8 +186,12 @@ def test_confluence_empty_filter_result_does_not_refetch_when_cache_exists(tmp_p
     assert gateway.catalog_calls == 1
 
 
-def test_confluence_remote_detail_failure_preserves_catalog_fields(tmp_path) -> None:
-    service, gateway, _repository = _service(tmp_path)
+def test_confluence_remote_detail_failure_preserves_catalog_fields(
+    tmp_path, *, database_factory
+) -> None:
+    service, gateway, _repository = _service(
+        tmp_path, database_factory=database_factory
+    )
     service.list_projects(ProjectQuery())
     gateway.fail_sections.add("facts")
 
@@ -173,8 +202,10 @@ def test_confluence_remote_detail_failure_preserves_catalog_fields(tmp_path) -> 
     assert project.facts.error_code == "remote_unavailable"
 
 
-def test_detail_refresh_preserves_confluence_catalog_owner_and_exposes_all_major_qa(tmp_path) -> None:
-    service, gateway, repository = _service(tmp_path)
+def test_detail_refresh_preserves_confluence_catalog_owner_and_exposes_all_major_qa(
+    tmp_path, *, database_factory
+) -> None:
+    service, gateway, repository = _service(tmp_path, database_factory=database_factory)
     gateway.load_project_sections = lambda _project_id, _sections: {
         "roles": {
             "Major FAE QA": [
@@ -190,10 +221,12 @@ def test_detail_refresh_preserves_confluence_catalog_owner_and_exposes_all_major
     dashboard = ProjectReleaseQueryService(repository.database).dashboard(visible_ids=("900",))
     release = dashboard["releases"][0]
     with repository.database.connect() as connection:
-        stored_roles = tuple(connection.execute(
-            """SELECT role_id,role_name FROM confluence_project_roles
-            WHERE confluence_id='900' ORDER BY role_id""",
-        ))
+        stored_roles = tuple(
+            connection.execute(
+                text("""SELECT role_id,role_name FROM confluence_project_roles
+            WHERE confluence_id='900' ORDER BY role_id""")
+            )
+        )
 
     assert [person.display_name for person in refreshed.owner_summary] == ["Catalog Owner"]
     assert stored_roles == (

@@ -1,151 +1,220 @@
 from __future__ import annotations
 
-from ..database import WebDatabase
-from ..schema import ensure_component_schema
+from sqlalchemy import BigInteger, Column, Double, ForeignKeyConstraint, Index, Integer, String, Table, Text, UniqueConstraint, text
+from sqlalchemy.dialects.mysql import LONGTEXT
+from ..database import APPLICATION_METADATA
 
-
-JIRA_STATEMENTS = (
-    """CREATE TABLE IF NOT EXISTS jira_history_scopes (
-        account TEXT NOT NULL, card_key TEXT NOT NULL, user_jql TEXT NOT NULL,
-        PRIMARY KEY(account,card_key))""",
-    """CREATE TABLE IF NOT EXISTS jira_analytics_queries (
-        session_hash TEXT PRIMARY KEY, account TEXT NOT NULL,
-        active_snapshot_id TEXT NOT NULL DEFAULT '', pending_snapshot_id TEXT NOT NULL DEFAULT '',
-        task_id TEXT NOT NULL DEFAULT '', expires_at REAL NOT NULL,
-        card_key TEXT NOT NULL DEFAULT '', user_conditions_json TEXT,
-        task_session_hash TEXT NOT NULL DEFAULT '', last_snapshot_id TEXT NOT NULL DEFAULT ''
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_analytics_snapshots (
-        snapshot_id TEXT PRIMARY KEY, session_hash TEXT NOT NULL, account TEXT NOT NULL,
-        jql TEXT NOT NULL, basic_json TEXT NOT NULL, source_filter_id TEXT NOT NULL DEFAULT '',
-        state TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL, user_jql TEXT,
-        card_key TEXT NOT NULL DEFAULT '', statistics_json TEXT,
-        roster_fingerprint TEXT NOT NULL DEFAULT '', comparison_jql TEXT NOT NULL DEFAULT '',
-        FOREIGN KEY(session_hash) REFERENCES jira_analytics_queries(session_hash) ON DELETE CASCADE
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_analytics_snapshot_issues (
-        snapshot_id TEXT NOT NULL REFERENCES jira_analytics_snapshots(snapshot_id) ON DELETE CASCADE,
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        ordinal INTEGER NOT NULL, period_kind TEXT NOT NULL DEFAULT 'current', PRIMARY KEY(snapshot_id,issue_id,period_kind)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_analytics_facts (
-        snapshot_id TEXT NOT NULL REFERENCES jira_analytics_snapshots(snapshot_id) ON DELETE CASCADE,
-        issue_id TEXT NOT NULL, fact_json TEXT NOT NULL, PRIMARY KEY(snapshot_id,issue_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issues (
-        issue_id TEXT PRIMARY KEY, issue_key TEXT NOT NULL UNIQUE,
-        web_url TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '',
-        project_id TEXT NOT NULL DEFAULT '', project_key TEXT NOT NULL DEFAULT '',
-        project_name TEXT NOT NULL DEFAULT '', status_id TEXT NOT NULL DEFAULT '',
-        status_name TEXT NOT NULL DEFAULT '', issue_type_id TEXT NOT NULL DEFAULT '',
-        issue_type_name TEXT NOT NULL DEFAULT '', priority_id TEXT, priority_name TEXT,
-        assignee_identity TEXT, assignee_account TEXT, assignee_display_name TEXT,
-        reporter_identity TEXT, reporter_account TEXT, reporter_display_name TEXT,
-        created_at TEXT, updated_at TEXT, source_revision TEXT NOT NULL DEFAULT '',
-        cached_at TEXT NOT NULL,
-        creator_identity TEXT, creator_account TEXT, creator_display_name TEXT,
-        resolution_id TEXT, resolution_name TEXT
-    )""",
-    "CREATE INDEX IF NOT EXISTS jira_issues_project_key_idx ON jira_issues(project_key)",
-    "CREATE INDEX IF NOT EXISTS jira_issues_updated_at_idx ON jira_issues(updated_at)",
-    """CREATE TABLE IF NOT EXISTS jira_issue_release_facts (
-        issue_id TEXT PRIMARY KEY REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        project_business_id TEXT NOT NULL DEFAULT '', software_release TEXT NOT NULL DEFAULT '',
-        severity TEXT NOT NULL DEFAULT '', compare_status TEXT NOT NULL DEFAULT '',
-        qa_assignee_identity TEXT NOT NULL DEFAULT '', manager_identity TEXT NOT NULL DEFAULT '',
-        resolved_at TEXT NOT NULL DEFAULT ''
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_fix_versions (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        version_id TEXT NOT NULL DEFAULT '', version_name TEXT NOT NULL DEFAULT '',
-        released INTEGER, release_date TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY(issue_id,version_id,version_name)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_release_field_metadata (
-        field_name TEXT PRIMARY KEY, field_key TEXT NOT NULL,
-        cached_at TEXT NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_labels (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        label TEXT NOT NULL, PRIMARY KEY(issue_id,label)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_components (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        component_id TEXT NOT NULL, component_name TEXT NOT NULL,
-        PRIMARY KEY(issue_id,component_id,component_name)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_detail_states (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        section_name TEXT NOT NULL, state TEXT NOT NULL,
-        source_revision TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '',
-        has_value INTEGER NOT NULL DEFAULT 0, cached_at TEXT NOT NULL,
-        PRIMARY KEY(issue_id,section_name)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_descriptions (
-        issue_id TEXT PRIMARY KEY REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        content_json TEXT NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_comments (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        comment_id TEXT NOT NULL, body_json TEXT NOT NULL,
-        author_identity TEXT, author_account TEXT, author_display_name TEXT,
-        created_at TEXT, updated_at TEXT, PRIMARY KEY(issue_id,comment_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_attachments (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        attachment_id TEXT NOT NULL, filename TEXT NOT NULL, url TEXT NOT NULL DEFAULT '',
-        size INTEGER, author_identity TEXT, author_account TEXT,
-        author_display_name TEXT, PRIMARY KEY(issue_id,attachment_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_links (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        link_id TEXT NOT NULL, link_type TEXT NOT NULL, direction TEXT NOT NULL,
-        target_id TEXT NOT NULL DEFAULT '', target_key TEXT NOT NULL DEFAULT '',
-        target_web_url TEXT NOT NULL DEFAULT '', target_summary TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY(issue_id,link_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_issue_custom_fields (
-        issue_id TEXT NOT NULL REFERENCES jira_issues(issue_id) ON DELETE CASCADE,
-        field_key TEXT NOT NULL, value_json TEXT NOT NULL,
-        PRIMARY KEY(issue_id,field_key)
-    )""",
-    """CREATE TABLE IF NOT EXISTS jira_sync_state (
-        scope_key TEXT PRIMARY KEY, cursor TEXT, last_synced_at TEXT, last_error TEXT
-    )""",
+jira_history_scopes = Table('jira_history_scopes', APPLICATION_METADATA,
+    Column('account', String(128), primary_key=True, nullable=False),
+    Column('card_key', String(191), primary_key=True, nullable=False),
+    Column('user_jql', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
 )
 
+jira_analytics_queries = Table('jira_analytics_queries', APPLICATION_METADATA,
+    Column('session_hash', String(384), primary_key=True, nullable=False),
+    Column('account', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('active_snapshot_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('pending_snapshot_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('task_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('expires_at', Double(), nullable=False),
+    Column('card_key', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('user_conditions_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('task_session_hash', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('last_snapshot_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
 
-def initialize_jira_schema(database: WebDatabase) -> None:
-    ensure_component_schema(
-        database,
-        component="jira_cache",
-        version=7,
-        statements=JIRA_STATEMENTS,
-        upgrade_statements=("DROP TABLE IF EXISTS jira_history_schedule",),
-    )
-    with database.transaction() as connection:
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(jira_issue_release_facts)")}
-        if "resolved_at" not in columns:
-            connection.execute("ALTER TABLE jira_issue_release_facts ADD COLUMN resolved_at TEXT NOT NULL DEFAULT ''")
-        analytics_columns = {row[1] for row in connection.execute("PRAGMA table_info(jira_analytics_snapshots)")}
-        if "user_jql" not in analytics_columns:
-            connection.execute("ALTER TABLE jira_analytics_snapshots ADD COLUMN user_jql TEXT")
-        if "card_key" not in analytics_columns:
-            connection.execute("ALTER TABLE jira_analytics_snapshots ADD COLUMN card_key TEXT NOT NULL DEFAULT ''")
-        for column, definition in (("statistics_json", "TEXT"), ("roster_fingerprint", "TEXT NOT NULL DEFAULT ''")):
-            if column not in analytics_columns:
-                connection.execute(f"ALTER TABLE jira_analytics_snapshots ADD COLUMN {column} {definition}")
-        if "comparison_jql" not in analytics_columns:
-            connection.execute("ALTER TABLE jira_analytics_snapshots ADD COLUMN comparison_jql TEXT NOT NULL DEFAULT ''")
-        membership_columns = {row[1] for row in connection.execute("PRAGMA table_info(jira_analytics_snapshot_issues)")}
-        if "period_kind" not in membership_columns:
-            connection.execute("ALTER TABLE jira_analytics_snapshot_issues ADD COLUMN period_kind TEXT NOT NULL DEFAULT 'current'")
-        query_columns = {row[1] for row in connection.execute("PRAGMA table_info(jira_analytics_queries)")}
-        if "card_key" not in query_columns:
-            connection.execute("ALTER TABLE jira_analytics_queries ADD COLUMN card_key TEXT NOT NULL DEFAULT ''")
-        if "user_conditions_json" not in query_columns:
-            connection.execute("ALTER TABLE jira_analytics_queries ADD COLUMN user_conditions_json TEXT")
-        if "task_session_hash" not in query_columns:
-            connection.execute("ALTER TABLE jira_analytics_queries ADD COLUMN task_session_hash TEXT NOT NULL DEFAULT ''")
-        if "last_snapshot_id" not in query_columns:
-            connection.execute("ALTER TABLE jira_analytics_queries ADD COLUMN last_snapshot_id TEXT NOT NULL DEFAULT ''")
+jira_analytics_snapshots = Table('jira_analytics_snapshots', APPLICATION_METADATA,
+    Column('sequence', BigInteger, primary_key=True, autoincrement=True),
+    Column('snapshot_id', String(191), unique=True, nullable=False),
+    Column('session_hash', String(384), nullable=False),
+    Column('account', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('jql', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('basic_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('source_filter_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('state', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('error', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('created_at', Double(), nullable=False),
+    Column('user_jql', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('card_key', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('statistics_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('roster_fingerprint', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('comparison_jql', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['session_hash'], ['jira_analytics_queries.session_hash'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_analytics_snapshot_issues = Table('jira_analytics_snapshot_issues', APPLICATION_METADATA,
+    Column('snapshot_id', String(191), primary_key=True, nullable=False),
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('ordinal', Integer, nullable=False),
+    Column('period_kind', String(64), primary_key=True, nullable=False, server_default=text("'current'")),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    ForeignKeyConstraint(['snapshot_id'], ['jira_analytics_snapshots.snapshot_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_analytics_facts = Table('jira_analytics_facts', APPLICATION_METADATA,
+    Column('sequence', BigInteger, primary_key=True, autoincrement=True),
+    Column('snapshot_id', String(191), nullable=False),
+    Column('issue_id', String(191), nullable=False),
+    Column('fact_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    UniqueConstraint('snapshot_id','issue_id'),
+    ForeignKeyConstraint(['snapshot_id'], ['jira_analytics_snapshots.snapshot_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issues = Table('jira_issues', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('issue_key', String(191), nullable=False),
+    Column('web_url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('summary', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('project_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('project_key', String(191), nullable=False, server_default=text("''")),
+    Column('project_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('status_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('status_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('issue_type_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('issue_type_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('priority_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('priority_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('assignee_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('assignee_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('assignee_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('reporter_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('reporter_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('reporter_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('created_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('updated_at', String(64), nullable=True),
+    Column('source_revision', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('creator_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('creator_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('creator_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('resolution_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('resolution_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Index('jira_issues_updated_at_idx','updated_at'),
+    Index('jira_issues_project_key_idx','project_key'),
+    UniqueConstraint('issue_key'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_release_facts = Table('jira_issue_release_facts', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('project_business_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('software_release', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('severity', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('compare_status', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('qa_assignee_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('manager_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('resolved_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_fix_versions = Table('jira_issue_fix_versions', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('version_id', String(191), primary_key=True, nullable=False, server_default=text("''")),
+    Column('version_name', String(384), primary_key=True, nullable=False, server_default=text("''")),
+    Column('released', Integer, nullable=True),
+    Column('release_date', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_release_field_metadata = Table('jira_release_field_metadata', APPLICATION_METADATA,
+    Column('field_name', String(191), primary_key=True, nullable=False),
+    Column('field_key', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_labels = Table('jira_issue_labels', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('label', String(576), primary_key=True, nullable=False),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_components = Table('jira_issue_components', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('component_id', String(191), primary_key=True, nullable=False),
+    Column('component_name', String(384), primary_key=True, nullable=False),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_detail_states = Table('jira_issue_detail_states', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('section_name', String(64), primary_key=True, nullable=False),
+    Column('state', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('source_revision', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('error_code', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('has_value', Integer, nullable=False, server_default=text('0')),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_descriptions = Table('jira_issue_descriptions', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('content_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_comments = Table('jira_issue_comments', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('comment_id', String(191), primary_key=True, nullable=False),
+    Column('body_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('author_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('created_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('updated_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_attachments = Table('jira_issue_attachments', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('attachment_id', String(191), primary_key=True, nullable=False),
+    Column('filename', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('size', BigInteger, nullable=True),
+    Column('author_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_links = Table('jira_issue_links', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('link_id', String(191), primary_key=True, nullable=False),
+    Column('link_type', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('direction', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('target_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('target_key', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('target_web_url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('target_summary', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_issue_custom_fields = Table('jira_issue_custom_fields', APPLICATION_METADATA,
+    Column('issue_id', String(191), primary_key=True, nullable=False),
+    Column('field_key', String(384), primary_key=True, nullable=False),
+    Column('value_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['issue_id'], ['jira_issues.issue_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+jira_sync_state = Table('jira_sync_state', APPLICATION_METADATA,
+    Column('scope_key', String(512), primary_key=True, nullable=False),
+    Column('cursor', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('last_synced_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('last_error', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)

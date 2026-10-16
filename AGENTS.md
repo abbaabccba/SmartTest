@@ -63,18 +63,30 @@ Skill `MUST`/prohibitions, ownership boundaries, and acceptance gates are mandat
 - Keep one clear business owner per behavior. Reuse or extend that owner; do not add case-specific workarounds, parallel state/transport/report flows, or speculative abstraction.
 - Do not rebuild packages during ordinary debugging unless requested, preparing release handoff, required by the affected layer skill, or validating package-specific behavior.
 
+## 通用存储规则
+
+- 每个新增存储需求先明确权威性、恢复要求、可重建性、一致性、隔离范围、生命周期、依赖版本和负载；依据这些属性选择存储，不维护按页面、卡片或业务名称分配 MySQL/Redis 的映射表，也不建立自动猜测归属的路由类。
+- 需要跨重启保留、决定业务动作范围或有效结果、要求事务与可靠追溯，或无法在允许时间内从可靠来源重建的数据，由 MySQL 持久保存。凭据继续经项目已有安全 owner 加密或使用系统安全存储；密钥不与密文一起放入普通业务表、配置样例或日志。
+- Redis 展示缓存必须同时满足：有独立权威来源、删除不丢已提交信息、可按明确规则重建、重复读取或计算有实际成本，并已声明缓存标识、隔离、完整依赖版本、时间边界、TTL、容量及故障行为。Redis 不作为第二个权威 owner，业务动作不能从展示缓存取得权威资源集合。
+- 原业务 owner 负责权限、数据版本和一致的 identity/loader；统一缓存能力只处理键编码、序列化、TTL 和通信。命中与未命中必须结果等价，不跳过权限或有效版本检查；可变或未完整发布的结果不进入共享缓存。动态任务权限与进度在当前请求中组合。
+- 更新在 MySQL 事务中校验发布资格并原子更新有效版本；缓存版本覆盖全部独立来源、规则及时间依赖。迟到请求只能写旧版本键，旧键由 TTL 回收。数据库提交与 Redis 写入不视为同一事务，缓存失败不撤销已经成功的业务提交。
+- 可重建展示缓存不启用 AOF/RDB，所有键有 TTL，并设置容量与淘汰策略；TTL 按需求时效和重建成本声明，不能代替数据版本或远端刷新授权。Redis 不可用时按同一授权范围从 MySQL 重建；业务计算异常仍向上传播，MySQL 不可用明确失败，无 SQLite 回退。
+- 跨进程协调或可靠消息须另行声明执行归属、期限、确认、重试、去重、幂等和持久接受点，并复用成熟机制；不能套用展示缓存的淘汰与故障策略。首期保持单服务器、单 Web 进程，不自动引入队列或分布式调度。
+- SQL 连接与事务复用 SQLAlchemy Core，schema 升级由 Alembic 显式执行；普通应用启动只检查版本，不执行历史数据修补。索引字段上限按完整组合键预算声明，超限明确失败，不截断、不用唯一前缀替代完整键。既有外部只读数据库保持独立。
+- 数据迁移先停写并建立完整备份，保留 ID、关联、有效指针和插入顺序，校验全表规范化内容摘要及用户可观察结果。清理活动数据前验证备份恢复；接受新数据后不能直接退回旧 SQLite 备份。迁移工具读取历史源格式与正常运行依赖隔离，历史归档按已确认保留规则管理。
+
 ## Web Cache And Database Boundaries
 
 - 页面过滤器与卡片独立查询、固定边界及异步快照隔离必须遵循 `docs/superpowers/specs/2026-08-31-global-async-task-manager-design.md` 的“页面过滤器与卡片查询边界”；共享过滤器只发布用户条件，不先查询公共大集合。
-- Self-Test Jira 卡片的已应用条件与有效结果按认证账号+卡片持久恢复，Dashboard/Jira 共用一个接口与 SQLite owner；执行任务仍按真实会话隔离。普通登出不删除该账号有效结果，GET 不启动远端查询。其他页面既有会话快照边界不变。
+- Self-Test Jira 卡片的已应用条件与有效结果按认证账号+卡片持久恢复，Dashboard/Jira 共用一个接口与 MySQL owner；执行任务仍按真实会话隔离。普通登出不删除该账号有效结果，GET 不启动远端查询。其他页面既有会话快照边界不变。
 
 - Web 页面只保存展示和未提交控件状态；不得保存审查、导出或批量动作的权威资源 ID。
 - Web 进程内存只保存异步任务、进度、订阅和取消；服务重启后允许这些运行时状态消失，禁止在其中保存可复用的筛选结果或业务选择集。
-- SQLite 是项目事实、用户偏好和查询快照的唯一持久 owner。需要精确复用筛选范围的业务动作必须使用当前会话的数据库查询快照，不能信任前端 ID，也不能静默回退到全量数据。
+- MySQL 是项目事实、用户偏好和查询快照的唯一持久 owner。需要精确复用筛选范围的业务动作必须使用当前会话的数据库查询快照，不能信任前端 ID，也不能静默回退到全量数据。
 - 从本地缓存读取列表不得访问远端或启动详情任务；Apply 只刷新当前查询快照范围内的详情。筛选快照的完整规则见 `docs/superpowers/specs/2026-09-01-web-cache-database-boundaries-design.md`。
 - Web 页面重新进入时必须优先重放当前会话最后一个有效数据库查询快照，不得先清空结果，也不得因进入页面自动启动远端详情任务。Apply 必须先用当前控件条件更新数据库查询快照，再严格按该快照执行；Reset 必须清空已应用筛选和搜索并在账号授权 catalog 边界内重建快照。
 - 固定展示结构不得由权限或当前查询结果决定。Projects 对所有账号始终展示 Core `PRODUCT_LINES` 定义的四个完整名称产品线容器；权限只约束容器内容和筛选候选。
-- 为避免多 HTML 页面返回时视觉清空，前端可按账号在当前浏览器会话保存一份可丢弃的最后展示 payload；它只能用于同步首帧渲染，必须由后台 SQLite 快照响应原位校准，账号切换/注销时清理，且任何业务动作不得从中读取权威资源 ID。
+- 为避免多 HTML 页面返回时视觉清空，前端可按账号在当前浏览器会话保存一份可丢弃的最后展示 payload；它只能用于同步首帧渲染，必须由后台 MySQL 快照响应原位校准，账号切换/注销时清理，且任何业务动作不得从中读取权威资源 ID。
 
 ## Delivery Gates
 

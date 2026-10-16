@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from sqlalchemy import select, text
+
+from .schema import test_suites
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 import json
-import sqlite3
+from sqlalchemy.exc import IntegrityError
 import time
 from uuid import uuid4
 
-from .database import WebDatabase
+from .database import WebDatabase, is_unique_violation
 
 
 class NameConflictError(ValueError):
@@ -62,18 +66,19 @@ class TestSuiteRepository:
             raise ValueError("invalid_input")
         return clean_name, str(description or ""), visibility, json.dumps(ordered, ensure_ascii=False)
 
-    def _query(self, sql: str, params=()) -> list[TestSuiteRecord]:
+    def _query(self, statement, params=None):
         with self.database.connect() as connection:
-            return [self._record(row) for row in connection.execute(sql, tuple(params)).fetchall()]
+            return [self._record(row) for row in connection.execute(statement, params or {}).fetchall()]
 
-    def list_mine(self, username: str) -> list[TestSuiteRecord]:
-        return self._query("SELECT * FROM test_suites WHERE owner_username=? ORDER BY updated_at DESC", (username,))
+    def list_mine(self, username):
+        return self._query(select(test_suites).where(test_suites.c.owner_username == username).order_by(test_suites.c.updated_at.desc()))
 
-    def list_shared(self, username: str) -> list[TestSuiteRecord]:
-        return self._query("SELECT * FROM test_suites WHERE visibility='shared' AND owner_username<>? ORDER BY updated_at DESC", (username,))
+    def list_shared(self, username):
+        return self._query(select(test_suites).where(test_suites.c.visibility == 'shared', test_suites.c.owner_username != username).order_by(test_suites.c.updated_at.desc()))
 
-    def get_visible(self, suite_id: str, username: str) -> TestSuiteRecord | None:
-        rows = self._query("SELECT * FROM test_suites WHERE id=? AND (owner_username=? OR visibility='shared')", (suite_id, username))
+    def get_visible(self, suite_id, username):
+        rows = self._query(select(test_suites).where(test_suites.c.id == suite_id,
+            (test_suites.c.owner_username == username) | (test_suites.c.visibility == 'shared')))
         return rows[0] if rows else None
 
     def create(self, *, owner_username: str, owner_display_name: str, name: str,
@@ -82,10 +87,25 @@ class TestSuiteRepository:
         suite_id, timestamp = str(uuid4()), float(self._now())
         try:
             with self.database.transaction() as connection:
-                connection.execute("INSERT INTO test_suites VALUES(?,?,?,?,?,?,?,?,?,?)",
-                                   (suite_id, owner_username, owner_display_name, clean_name, description,
-                                    visibility, encoded, 1, timestamp, timestamp))
-        except sqlite3.IntegrityError as error:
+                connection.execute(
+                    test_suites.insert().values(
+                        {
+                            "id": suite_id,
+                            "owner_username": owner_username,
+                            "owner_display_name": owner_display_name,
+                            "name": clean_name,
+                            "description": description,
+                            "visibility": visibility,
+                            "ordered_nodeids_json": encoded,
+                            "revision": 1,
+                            "created_at": timestamp,
+                            "updated_at": timestamp,
+                        }
+                    )
+                )
+        except IntegrityError as error:
+            if not is_unique_violation(error):
+                raise
             raise NameConflictError(clean_name) from error
         return self.get_visible(suite_id, owner_username)  # type: ignore[return-value]
 
@@ -95,20 +115,37 @@ class TestSuiteRepository:
         timestamp = float(self._now())
         try:
             with self.database.transaction() as connection:
-                owner = connection.execute("SELECT revision FROM test_suites WHERE id=? AND owner_username=?", (suite_id, owner_username)).fetchone()
+                owner = connection.execute(select(test_suites.c.revision).where(test_suites.c.id == suite_id, test_suites.c.owner_username == owner_username).with_for_update()).fetchone()
                 if owner is None:
                     return None
                 if int(owner[0]) != int(revision):
                     raise RevisionConflictError(suite_id)
-                connection.execute("UPDATE test_suites SET name=?,description=?,visibility=?,ordered_nodeids_json=?,revision=revision+1,updated_at=? WHERE id=? AND owner_username=?",
-                                   (clean_name, description, visibility, encoded, timestamp, suite_id, owner_username))
-        except sqlite3.IntegrityError as error:
+                connection.execute(
+                    text(
+                        "UPDATE test_suites SET name=:name,description=:description,visibility=:visibility,ordered_nodeids_json=:ordered_nodeids_json,revision=revision+1,updated_at=:updated_at WHERE id=:id AND owner_username=:owner_username"
+                    ),
+                    {
+                        "name": clean_name,
+                        "description": description,
+                        "visibility": visibility,
+                        "ordered_nodeids_json": encoded,
+                        "updated_at": timestamp,
+                        "id": suite_id,
+                        "owner_username": owner_username,
+                    },
+                )
+        except IntegrityError as error:
+            if not is_unique_violation(error):
+                raise
             raise NameConflictError(clean_name) from error
         return self.get_visible(suite_id, owner_username)
 
     def delete(self, suite_id: str, *, owner_username: str) -> bool:
         with self.database.transaction() as connection:
-            cursor = connection.execute("DELETE FROM test_suites WHERE id=? AND owner_username=?", (suite_id, owner_username))
+            cursor = connection.execute(
+                text("DELETE FROM test_suites WHERE id=:id AND owner_username=:owner_username"),
+                {"id": suite_id, "owner_username": owner_username},
+            )
             return cursor.rowcount > 0
 
     def copy(self, suite_id: str, *, reader_username: str, owner_display_name: str,

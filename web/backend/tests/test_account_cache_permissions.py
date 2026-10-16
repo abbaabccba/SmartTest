@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from types import SimpleNamespace
 
 import pytest
@@ -25,8 +26,12 @@ class CatalogClient:
             '<table><tr><th>Page</th><th>Project ID</th><th>ODM</th></tr>'+row+'</table>')
 
 
-def test_confluence_account_catalog_refresh_and_403_keep_single_shared_data(tmp_path):
-    database, sessions, first, second = contexts(tmp_path)
+def test_confluence_account_catalog_refresh_and_403_keep_single_shared_data(
+    tmp_path, *, database_factory
+):
+    database, sessions, first, second = contexts(
+        tmp_path, database_factory=database_factory
+    )
     alice = sessions.resource_access(first, 'confluence:test', database)
     bob = sessions.resource_access(second, 'confluence:test', database)
     owner = ProjectFactsWebOwner(repository=ConfluenceProjectRepository(database),
@@ -37,13 +42,20 @@ def test_confluence_account_catalog_refresh_and_403_keep_single_shared_data(tmp_
     assert {row['project_id'] for row in owner.query(alice)['projects']} == {'TV', 'DOPL', 'OOPL', 'SDPL'}
     assert {row['project_id'] for row in owner.query(bob)['projects']} == {'DOPL', 'OOPL', 'SDPL'}
     with database.connect() as connection:
-        assert connection.execute('SELECT count(*) FROM confluence_projects').fetchone()[0] == 4
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM confluence_projects")
+            ).fetchone()[0]
+            == 4
+        )
     with pytest.raises(PermissionError, match='permission_denied'):
         owner._service(bob, 'test').get_project('TV', ProjectDetails(roles=True))
 
 
-def test_review_selection_cannot_bypass_account_catalog(tmp_path):
-    database, sessions, first, second = contexts(tmp_path)
+def test_review_selection_cannot_bypass_account_catalog(tmp_path, *, database_factory):
+    database, sessions, first, second = contexts(
+        tmp_path, database_factory=database_factory
+    )
     alice = sessions.resource_access(first, 'confluence:test', database)
     bob = sessions.resource_access(second, 'confluence:test', database)
     facts = ProjectFactsWebOwner(repository=ConfluenceProjectRepository(database), client_factory=lambda account, _: CatalogClient(account))
@@ -53,8 +65,12 @@ def test_review_selection_cannot_bypass_account_catalog(tmp_path):
         owner.resolve({'projectIds': ['TV'], 'startDate': '2026-08-17', 'endDate': '2026-08-24'})
 
 
-def test_catalog_403_revokes_existing_account_scope_without_deleting_shared_projects(tmp_path):
-    database, sessions, first, second = contexts(tmp_path)
+def test_catalog_403_revokes_existing_account_scope_without_deleting_shared_projects(
+    tmp_path, *, database_factory
+):
+    database, sessions, first, second = contexts(
+        tmp_path, database_factory=database_factory
+    )
     alice = sessions.resource_access(first, 'confluence:test', database)
     bob = sessions.resource_access(second, 'confluence:test', database)
     client = CatalogClient('alice')
@@ -70,8 +86,12 @@ def test_catalog_403_revokes_existing_account_scope_without_deleting_shared_proj
 
 
 @pytest.mark.parametrize('rendered_empty', [False, True])
-def test_valid_empty_catalog_is_ready_after_owner_restart(tmp_path, rendered_empty):
-    database, sessions, first, second = contexts(tmp_path)
+def test_valid_empty_catalog_is_ready_after_owner_restart(
+    tmp_path, rendered_empty, *, database_factory
+):
+    database, sessions, first, second = contexts(
+        tmp_path, database_factory=database_factory
+    )
     alice = sessions.resource_access(first, 'confluence:test', database)
     bob = sessions.resource_access(second, 'confluence:test', database)
     class Empty(CatalogClient):
@@ -141,11 +161,15 @@ def test_catalog_parse_failure_logs_safe_reason_and_phase(monkeypatch):
 
 
 @pytest.mark.parametrize('status', [401, 403])
-def test_detail_failure_preserves_shared_cache_and_revokes_only_denied_section(tmp_path, status):
+def test_detail_failure_preserves_shared_cache_and_revokes_only_denied_section(
+    tmp_path, status, *, database_factory
+):
     from test_confluence_cache_service import ConfluenceGateway, _row
     from core.confluence.project_mapper import ConfluenceProjectMapper
     from smarttest_web.confluence.cache_service import ConfluenceProjectCacheService
-    database, sessions, first, second = contexts(tmp_path)
+    database, sessions, first, second = contexts(
+        tmp_path, database_factory=database_factory
+    )
     repo = ConfluenceProjectRepository(database)
     mapper = ConfluenceProjectMapper()
     repo.save_core((mapper.from_catalog(_row()),))
@@ -165,12 +189,14 @@ def test_detail_failure_preserves_shared_cache_and_revokes_only_denied_section(t
     assert service.read_project('P100', ProjectDetails(roles=True)).roles.value[0].people[0].display_name == 'Alice'
 
 
-def test_partial_catalog_does_not_revoke_previous_confirmed_resources(tmp_path):
+def test_partial_catalog_does_not_revoke_previous_confirmed_resources(
+    tmp_path, *, database_factory
+):
     from test_confluence_cache_service import ConfluenceGateway, _row
     from core.confluence.project import ProjectSyncScope
     from core.confluence.project_mapper import ConfluenceProjectMapper
     from smarttest_web.confluence.cache_service import ConfluenceProjectCacheService
-    database, sessions, first, _ = contexts(tmp_path)
+    database, sessions, first, _ = contexts(tmp_path, database_factory=database_factory)
     access = sessions.resource_access(first, 'confluence:test', database)
     repo = ConfluenceProjectRepository(database)
     class Gateway(ConfluenceGateway):
@@ -182,8 +208,10 @@ def test_partial_catalog_does_not_revoke_previous_confirmed_resources(tmp_path):
     assert 'old' in access.ids('project', 'catalog')
 
 
-def test_actual_malformed_catalog_is_not_published_as_confirmed_empty_scope(tmp_path):
-    database, sessions, first, _ = contexts(tmp_path)
+def test_actual_malformed_catalog_is_not_published_as_confirmed_empty_scope(
+    tmp_path, *, database_factory
+):
+    database, sessions, first, _ = contexts(tmp_path, database_factory=database_factory)
     access = sessions.resource_access(first, 'confluence:test', database)
     repo = ConfluenceProjectRepository(database)
     client = CatalogClient('alice')
@@ -199,10 +227,10 @@ def test_actual_malformed_catalog_is_not_published_as_confirmed_empty_scope(tmp_
     assert len(restored.query(access)['projects']) == 4
 
 
-def test_page_mapping_replacement_and_403_remove_only_account_page_proof(tmp_path):
+def test_page_mapping_replacement_and_403_remove_only_account_page_proof(tmp_path, database_factory):
     from conftest import confirmed_access
     from test_manual_audit_adapters import _discovery_cache, _audit_token
-    repository, client, cache = _discovery_cache(tmp_path)
+    repository, client, cache = _discovery_cache(tmp_path, database_factory=database_factory)
     cache.refresh_project('P1', ProjectDetails(roles=True, evidence=True))
     alice = cache._access
     bob = confirmed_access(repository.database, ('P1',), ('14',), account='bob')

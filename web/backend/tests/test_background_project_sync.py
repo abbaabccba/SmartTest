@@ -1,14 +1,15 @@
 from conftest import confirmed_access
-from smarttest_web.database import WebDatabase
 from core.async_tasks import AsyncTaskSnapshot
 from smarttest_web.background_refresh import BackgroundFactsRefresh
 import smarttest_web.background_refresh as background_refresh
 
 
-def test_failed_refresh_logs_account_and_http_status_without_exception_secrets(tmp_path, monkeypatch):
+def test_failed_refresh_logs_account_and_http_status_without_exception_secrets(
+    tmp_path, monkeypatch, *, database_factory
+):
     from requests import HTTPError
     from types import SimpleNamespace
-    access = confirmed_access(WebDatabase(tmp_path / 'access.db'))
+    access = confirmed_access(database_factory())
     records = []
     monkeypatch.setattr(background_refresh, 'smart_log', lambda message, **kwargs: records.append(kwargs), raising=False)
     submitted = []
@@ -28,8 +29,10 @@ def test_failed_refresh_logs_account_and_http_status_without_exception_secrets(t
     assert 'secret' not in repr(records) and 'private' not in repr(records)
 
 
-def test_scoped_detail_job_is_single_flight_reports_progress_and_can_cancel(tmp_path):
-    access = confirmed_access(WebDatabase(tmp_path / 'access.db'))
+def test_scoped_detail_job_is_single_flight_reports_progress_and_can_cancel(
+    tmp_path, *, database_factory
+):
+    access = confirmed_access(database_factory())
     submitted = []
     refresh = BackgroundFactsRefresh(submit=submitted.append)
 
@@ -49,9 +52,10 @@ def test_scoped_detail_job_is_single_flight_reports_progress_and_can_cancel(tmp_
     assert refresh.cancel(access.session_hash)
 
 
-
-def test_detail_status_exposes_only_the_session_owned_root_snapshot(tmp_path, monkeypatch):
-    access = confirmed_access(WebDatabase(tmp_path / "access.db"))
+def test_detail_status_exposes_only_the_session_owned_root_snapshot(
+    tmp_path, monkeypatch, *, database_factory
+):
+    access = confirmed_access(database_factory())
 
     class Tasks:
         def task_id(self, _future): return "root-task"
@@ -75,13 +79,15 @@ def test_detail_status_exposes_only_the_session_owned_root_snapshot(tmp_path, mo
     assert "id" not in status["task"]
 
 
-def test_query_snapshot_persists_across_repository_restart_and_isolates_sessions(tmp_path):
+def test_query_snapshot_persists_across_repository_restart_and_isolates_sessions(
+    tmp_path, *, database_factory
+):
     from smarttest_web.query_snapshot_repository import ConfluenceQuerySnapshotRepository
 
     from smarttest_web.session import PersistentSessionStore
 
-    database = WebDatabase(tmp_path / "web.db")
-    PersistentSessionStore(database.path)
+    database = database_factory()
+    PersistentSessionStore(database=database_factory())
     repository = ConfluenceQuerySnapshotRepository(database)
     repository.record("session-a", {"project id": ("P156",), "support mode": ("A",)}, "", ("P156",), "facts-1", expires_at=100)
 

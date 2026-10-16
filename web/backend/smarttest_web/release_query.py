@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from sqlalchemy import select, or_, text, func
+from .confluence.schema import confluence_projects, project_current_releases, confluence_project_owners, confluence_project_roles, confluence_project_role_people
+from .jira.schema import jira_issue_components, jira_issue_fix_versions
+
+
 from collections import defaultdict
 from datetime import date, datetime
 import re
@@ -17,7 +22,7 @@ def normalize_release_value(value: object) -> str:
 
 
 class ProjectReleaseQueryService:
-    """SQLite-only presentation query for current project releases and Jira issues."""
+    """Local presentation query for current project releases and Jira issues."""
 
     def __init__(self, database: WebDatabase, *, today=date.today):
         self.database = database
@@ -75,7 +80,7 @@ class ProjectReleaseQueryService:
 
     def jira_cache_version(self) -> str:
         with self.database.connect() as connection:
-            row = connection.execute("SELECT max(cached_at) FROM jira_issues").fetchone()
+            row = connection.execute(text('SELECT max(cached_at) FROM jira_issues')).fetchone()
         return str(row[0] or "")
 
     def issue_detail(self, issue_key: str, *, visible_ids=(), project_ids=(), filters=None) -> dict | None:
@@ -88,81 +93,66 @@ class ProjectReleaseQueryService:
         visible = tuple(dict.fromkeys(str(value) for value in visible_ids if str(value)))
         if not visible:
             return []
-        clauses = [f"(p.confluence_id IN ({','.join('?' for _ in visible)}) OR p.project_id IN ({','.join('?' for _ in visible)}))"]
-        parameters = [*visible, *visible]
+        p, r = confluence_projects.alias('p'), project_current_releases.alias('r')
+        owners = confluence_project_owners.alias('o')
+        roles, people = confluence_project_roles.alias('rr'), confluence_project_role_people.alias('rp')
+        conditions = [or_(p.c.confluence_id.in_(visible), p.c.project_id.in_(visible))]
         selected = tuple(dict.fromkeys(str(value) for value in project_ids if str(value)))
         if selected:
-            clauses.append(f"p.project_id IN ({','.join('?' for _ in selected)})")
-            parameters.extend(selected)
-        for key, role_id in (("owner", None), ("qa", MAJOR_QA_ROLE_ID)):
+            conditions.append(p.c.project_id.in_(selected))
+        for key in ('owner', 'qa'):
             values = tuple(str(value) for value in filters.get(key, ()) if str(value))
             if not values:
                 continue
-            if key == "owner":
-                clauses.append(f"EXISTS (SELECT 1 FROM confluence_project_owners fo WHERE fo.confluence_id=p.confluence_id AND fo.display_name IN ({','.join('?' for _ in values)}))")
+            if key == 'owner':
+                conditions.append(select(owners.c.identity).where(owners.c.confluence_id == p.c.confluence_id, owners.c.display_name.in_(values)).exists())
             else:
-                clauses.append(f"EXISTS (SELECT 1 FROM confluence_project_roles fr JOIN confluence_project_role_people fp ON fp.confluence_id=fr.confluence_id AND fp.role_id=fr.role_id WHERE fr.confluence_id=p.confluence_id AND fr.role_id=? AND fp.display_name IN ({','.join('?' for _ in values)}))")
-                parameters.append(role_id)
-            parameters.extend(values)
-        columns = {
-            "productLine": "p.product_space_key", "stage": "p.stage_name",
-            "project": "p.project_id", "release": "r.release_name",
-            "status": "p.status_name", "_scopeRelease": "r.release_name",
-        }
+                conditions.append(select(people.c.identity).where(people.c.confluence_id == p.c.confluence_id,
+                    people.c.role_id == MAJOR_QA_ROLE_ID, people.c.display_name.in_(values)).exists())
+        columns = {'productLine': p.c.product_space_key, 'stage': p.c.stage_name, 'project': p.c.project_id,
+                   'release': r.c.release_name, 'status': p.c.status_name, '_scopeRelease': func.coalesce(r.c.release_name, '')}
         for key, values in filters.items():
             raw_values = values if isinstance(values, (list, tuple)) else (values,)
-            values = tuple(str(value) for value in raw_values if key == "_scopeRelease" or str(value))
-            column = columns.get(key)
-            if column and values:
-                if key == "_scopeRelease":
-                    column = f"COALESCE({column},'')"
-                clauses.append(f"{column} IN ({','.join('?' for _ in values)})")
-                parameters.extend(values)
+            values = tuple(str(value) for value in raw_values if key == '_scopeRelease' or str(value))
+            if key in columns and values:
+                conditions.append(columns[key].in_(values))
+        statement = select(p.c.confluence_id,p.c.project_id,p.c.name,r.c.release_name,r.c.launch_time,r.c.mp_time,
+            r.c.next_target,r.c.next_target_date,r.c.current_hw_stage,r.c.status_summary,
+            p.c.product_space_key,p.c.status_name,p.c.stage_name,p.c.catalog_page_url,
+            p.c.source_revision,p.c.cached_at,r.c.source_revision,r.c.cached_at).select_from(
+                p.outerjoin(r, r.c.confluence_id == p.c.confluence_id)).where(*conditions).order_by(p.c.project_id,p.c.product_space_key)
         with self.database.connect() as connection:
-            return connection.execute(
-                f"""SELECT p.confluence_id,p.project_id,p.name,r.release_name,r.launch_time,r.mp_time,
-                r.next_target,r.next_target_date,r.current_hw_stage,r.status_summary,
-                p.product_space_key,p.status_name,p.stage_name,p.catalog_page_url,
-                p.source_revision,p.cached_at,r.source_revision,r.cached_at,
-                COALESCE((SELECT group_concat(display_name, ', ') FROM confluence_project_owners o
-                    WHERE o.confluence_id=p.confluence_id),'') AS owners,
-                COALESCE((SELECT group_concat(rp.display_name, ', ') FROM confluence_project_roles rr
-                    JOIN confluence_project_role_people rp ON rp.confluence_id=rr.confluence_id AND rp.role_id=rr.role_id
-                    WHERE rr.confluence_id=p.confluence_id AND rr.role_id=?),'') AS qa
-                FROM confluence_projects p
-                LEFT JOIN project_current_releases r ON r.confluence_id=p.confluence_id
-                WHERE {' AND '.join(clauses)} ORDER BY p.project_id,p.product_space_key""",
-                (MAJOR_QA_ROLE_ID, *parameters),
-            ).fetchall()
+            rows = connection.execute(statement).fetchall()
+            identities = tuple(row[0] for row in rows)
+            owner_names, qa_names = defaultdict(list), defaultdict(list)
+            if identities:
+                for identity, name in connection.execute(select(owners.c.confluence_id, owners.c.display_name)
+                        .where(owners.c.confluence_id.in_(identities))):
+                    if name is not None:
+                        owner_names[identity].append(name)
+                for identity, name in connection.execute(select(people.c.confluence_id, people.c.display_name)
+                        .select_from(roles.join(people, (people.c.confluence_id == roles.c.confluence_id)
+                            & (people.c.role_id == roles.c.role_id)))
+                        .where(roles.c.confluence_id.in_(identities), roles.c.role_id == MAJOR_QA_ROLE_ID)):
+                    if name is not None:
+                        qa_names[identity].append(name)
+            return [(*row, ', '.join(owner_names[row[0]]), ', '.join(qa_names[row[0]])) for row in rows]
 
     def _issue_rows(self, project_ids):
         normalized = {normalize_release_value(value) for value in project_ids if value}
         if not normalized:
             return []
         with self.database.connect() as connection:
-            rows = connection.execute(
-                """SELECT i.issue_id,i.issue_key,i.web_url,i.summary,i.status_name,i.resolution_name,
-                i.priority_name,i.assignee_identity,i.assignee_display_name,i.created_at,i.updated_at,
-                f.software_release,f.severity,f.compare_status,f.qa_assignee_identity,f.manager_identity,
-                f.resolved_at,i.cached_at,i.source_revision,f.project_business_id,i.project_key,i.issue_type_name
-                FROM jira_issues i JOIN jira_issue_release_facts f ON f.issue_id=i.issue_id"""
-            ).fetchall()
+            rows = connection.execute(text('SELECT i.issue_id,i.issue_key,i.web_url,i.summary,i.status_name,i.resolution_name,\n                i.priority_name,i.assignee_identity,i.assignee_display_name,i.created_at,i.updated_at,\n                f.software_release,f.severity,f.compare_status,f.qa_assignee_identity,f.manager_identity,\n                f.resolved_at,i.cached_at,i.source_revision,f.project_business_id,i.project_key,i.issue_type_name\n                FROM jira_issues i JOIN jira_issue_release_facts f ON f.issue_id=i.issue_id')).fetchall()
             rows = [row for row in rows if normalize_release_value(row[19]) in normalized]
             if not rows:
                 return []
             issue_ids = tuple(row[0] for row in rows)
-            placeholders = ",".join("?" for _ in issue_ids)
             components = defaultdict(list)
-            for issue_id, name in connection.execute(
-                f"SELECT issue_id,component_name FROM jira_issue_components WHERE issue_id IN ({placeholders})",
-                issue_ids,
-            ):
+            for issue_id, name in connection.execute(select(jira_issue_components.c.issue_id, jira_issue_components.c.component_name).where(jira_issue_components.c.issue_id.in_(issue_ids))):
                 components[issue_id].append(name)
             fix_versions = defaultdict(list)
-            for issue_id, name in connection.execute(
-                f"SELECT issue_id,version_name FROM jira_issue_fix_versions WHERE issue_id IN ({placeholders})",
-                issue_ids,
-            ):
+            for issue_id, name in connection.execute(select(jira_issue_fix_versions.c.issue_id, jira_issue_fix_versions.c.version_name).where(jira_issue_fix_versions.c.issue_id.in_(issue_ids))):
                 fix_versions[issue_id].append(name)
         return [
             (*row, tuple(components[row[0]]), tuple(fix_versions[row[0]]))
@@ -250,7 +240,7 @@ class ProjectReleaseQueryService:
 
     def _metadata_ready(self):
         with self.database.connect() as connection:
-            names = {row[0].casefold() for row in connection.execute("SELECT field_name FROM jira_release_field_metadata")}
+            names = {row[0].casefold() for row in connection.execute(text('SELECT field_name FROM jira_release_field_metadata'))}
         required = {"project id", "software release", "severity", "compare status", "qa assignee", "manager"}
         return required <= names
 
