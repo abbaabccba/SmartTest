@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, Iterable
 
 from core.issues.create_schema import (
     CreateFieldControl,
@@ -12,6 +12,26 @@ from core.issues.errors import JiraRequestError
 
 
 _USER_FIELD_NAMES = {"assignee", "reporter", "manager", "fae coworker", "fae manager"}
+
+
+def jira_create_defaults(
+    schema: Iterable[CreateFieldSchema], values: dict[str, Any],
+) -> dict[str, Any]:
+    fields = {field.name.strip().casefold(): field for field in schema}
+    channel = fields.get("channel of reporter")
+    test_case = fields.get("test case id")
+    if (
+        channel is None or test_case is None
+        or values.get(test_case.field_id) not in (None, "")
+    ):
+        return {}
+    parent = (values.get(channel.field_id) or {}).get("parent")
+    if any(
+        option.value == parent and option.label == "Self-Test"
+        for option in channel.options
+    ):
+        return {test_case.field_id: "None"}
+    return {}
 
 
 class JiraCreateSchemaService:

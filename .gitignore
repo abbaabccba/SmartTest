@@ -63,5 +63,6 @@ core/testing/self_tests/ui/*
 !core/testing/self_tests/ui/test_async_feedback_components.py
 !core/testing/self_tests/ui/test_global_async_feedback.py
 !core/testing/self_tests/ui/test_runtime_business_credentials.py
+!core/testing/self_tests/ui/test_jira_create_defaults_qml.py
 core/config/avatars/*
 !core/config/avatars/.gitkeep

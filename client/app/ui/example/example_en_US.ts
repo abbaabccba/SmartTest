@@ -1615,7 +1615,7 @@ Updated content:
         <translation>Search cancelled.</translation>
     </message>
     <message>
-        <location filename="bridge/RedmineBridge.py" line="1221" />
+        <location filename="bridge/RedmineBridge.py" line="1223" />
         <source>Redmine sign-in cancelled.</source>
         <translation>Redmine sign-in cancelled.</translation>
     </message>

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from copy import deepcopy
 
 import pytest
 
 from core.issues.create_schema import CreateFieldControl
 from core.issues.errors import JiraRequestError
-from core.jira.services.create_schema_service import JiraCreateSchemaService
+from core.jira.services.create_schema_service import JiraCreateSchemaService, jira_create_defaults
+from core.jira.gateway import JiraGateway
+from core.jira.create_draft import JiraCreateDraft, JiraCreateDraftField
+from core.tools.SmartHome.redmine.clone_draft import RedmineCloneDraftService
+from core.tools.SmartHome.redmine.models import RedmineIssueDetail, RedmineProject
 
 
 CREATE_META = {
@@ -266,3 +271,62 @@ def test_compare_status_is_required_single_select_even_when_metadata_is_optional
 def test_schema_rejects_missing_project_or_issue_type(payload, project_key, issue_type):
     with pytest.raises(JiraRequestError):
         JiraCreateSchemaService(RecordingClient(payload)).schema(project_key, issue_type)
+
+
+@pytest.mark.parametrize("existing", [None, "", "TV-CATEGORY-CASE"])
+def test_clone_self_test_defaults_test_case_id_and_preserves_reporter_channel(existing):
+    payload = deepcopy(CREATE_META)
+    metadata = payload["projects"][0]["issuetypes"][0]["fields"]
+    metadata["customfield_channel"] = metadata.pop("customfield_12200")
+    metadata["customfield_case_id"] = {
+        "name": "Test Case ID", "required": True,
+        "schema": {"type": "string"}, "defaultValue": existing,
+    }
+    schema = JiraCreateSchemaService(RecordingClient(payload)).schema("SH", "Bug")
+    draft = RedmineCloneDraftService().build(
+        issue=RedmineIssueDetail(id="1", url="https://redmine/1", subject="Bug"),
+        project=RedmineProject(name="Project", identifier="project", url="p"),
+        schema=schema, account="alice", department="QA", prepared_description="body",
+    )
+    customer_channel = {"parent": "13251", "child": ""}
+    assert draft.value("customfield_channel") == customer_channel
+    assert draft.value("customfield_case_id") == (existing or "")
+
+    self_test_channel = {"parent": "13261", "child": ""}
+    draft.update("customfield_channel", self_test_channel)
+
+    expected = existing or "None"
+    assert draft.value("customfield_channel") == self_test_channel
+    assert draft.value("customfield_case_id") == expected
+    assert not any(error.field_id == "customfield_case_id" for error in draft.errors)
+    fields = JiraGateway.command_fields(draft.to_command())
+    assert fields["customfield_case_id"] == expected
+    assert fields["customfield_channel"] == {"id": "13261"}
+
+    draft.update("customfield_case_id", "MANUAL-CASE-ID")
+    assert draft.value("customfield_case_id") == "MANUAL-CASE-ID"
+    draft.update("customfield_channel", customer_channel)
+    draft.update("customfield_case_id", "")
+    assert draft.value("customfield_case_id") == ""
+    assert "customfield_case_id" not in JiraGateway.command_fields(draft.to_command())
+
+
+def test_jira_create_defaults_uses_metadata_option_identity():
+    payload = deepcopy(CREATE_META)
+    metadata = payload["projects"][0]["issuetypes"][0]["fields"]
+    metadata["customfield_case_id"] = {
+        "name": "Test Case ID", "schema": {"type": "string"},
+    }
+    schema = JiraCreateSchemaService(RecordingClient(payload)).schema("SH", "Bug")
+    values = {"customfield_12200": {"parent": "13261", "child": ""}}
+
+    assert jira_create_defaults(schema, values) == {"customfield_case_id": "None"}
+    assert values == {"customfield_12200": {"parent": "13261", "child": ""}}
+    assert jira_create_defaults(schema, {}) == {}
+    assert jira_create_defaults(schema, {**values, "customfield_case_id": "TV-CASE-ID"}) == {}
+
+    draft = JiraCreateDraft(tuple(
+        JiraCreateDraftField(field, values.get(field.field_id)) for field in schema
+    ))
+    assert draft.value("customfield_case_id") == "None"
+    assert not any(error.field_id == "customfield_case_id" for error in draft.errors)

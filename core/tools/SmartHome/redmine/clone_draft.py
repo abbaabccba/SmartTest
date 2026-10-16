@@ -1,74 +1,31 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 from core.issues.create_schema import (
     CreateFieldControl,
-    CreateFieldOption,
     CreateFieldSchema,
 )
 from core.jira.commands import CreateIssueCommand
+from core.jira.create_draft import (
+    JiraCreateDraft, JiraCreateDraftField, find_create_option, validate_create_value,
+)
 from core.tools.SmartHome.redmine.jira_mapper import RedmineToJiraMapper
 from core.issues.third_party_bug import ThirdPartyBugAttachment
 from core.tools.SmartHome.redmine.mapping import redmine_tracker_to_jira_type
 from core.tools.SmartHome.redmine.models import RedmineIssueDetail, RedmineProject
 
 
-@dataclass(frozen=True)
-class CloneDraftError:
-    field_id: str
-    message: str
-    blocking: bool = True
-
-
-@dataclass(frozen=True)
-class CloneDraftField:
-    schema: CreateFieldSchema
-    value: Any
-    error: str = ""
-
-    @property
-    def field_id(self) -> str:
-        return self.schema.field_id
-
-
 @dataclass
-class CloneDraft:
+class CloneDraft(JiraCreateDraft):
     source_id: str
     source_url: str
-    fields: tuple[CloneDraftField, ...]
     source_attachments: tuple[ThirdPartyBugAttachment, ...] = ()
 
     @property
     def id(self) -> str:
         return self.source_id
-
-    def value(self, field_id: str) -> Any:
-        field = self._field(field_id)
-        return field.value if field is not None else None
-
-    @property
-    def errors(self) -> tuple[CloneDraftError, ...]:
-        return tuple(
-            CloneDraftError(field_id=field.field_id, message=field.error)
-            for field in self.fields
-            if field.error
-        )
-
-    def update(self, field_id: str, value: Any) -> None:
-        updated = []
-        found = False
-        for field in self.fields:
-            if field.field_id != field_id:
-                updated.append(field)
-                continue
-            found = True
-            error = _validate_value(field.schema, value)
-            updated.append(replace(field, value=value, error=error))
-        if not found:
-            raise KeyError(field_id)
-        self.fields = tuple(updated)
 
     def to_command(self) -> CreateIssueCommand:
         controls = {
@@ -104,9 +61,6 @@ class CloneDraft:
             extra_fields=extra_fields,
             field_controls=controls,
         )
-
-    def _field(self, field_id: str) -> CloneDraftField | None:
-        return next((field for field in self.fields if field.field_id == field_id), None)
 
 
 class RedmineCloneDraftService:
@@ -149,7 +103,7 @@ def _draft_field(
     department: str,
     assignee_account: str,
     prepared_description: str,
-) -> CloneDraftField:
+) -> JiraCreateDraftField:
     initial = _initial_value(
         schema,
         issue=issue,
@@ -160,8 +114,8 @@ def _draft_field(
         prepared_description=prepared_description,
     )
     value, option_error = _resolve_options(schema, initial)
-    error = option_error or _validate_value(schema, value)
-    return CloneDraftField(schema=schema, value=value, error=error)
+    error = option_error or validate_create_value(schema, value)
+    return JiraCreateDraftField(schema=schema, value=value, error=error)
 
 
 def _initial_value(
@@ -221,8 +175,8 @@ def _resolve_options(schema: CreateFieldSchema, initial: Any) -> tuple[Any, str]
     if schema.control == CreateFieldControl.CASCADE:
         parent_label = str((initial or {}).get("parent") or "")
         child_label = str((initial or {}).get("child") or "")
-        parent = _find_option(schema.options, parent_label)
-        child = _find_option(parent.children, child_label) if parent else None
+        parent = find_create_option(schema.options, parent_label)
+        child = find_create_option(parent.children, child_label) if parent else None
         if parent is None or (child_label and child is None):
             return {}, f"Configured option is unavailable for {schema.name}"
         return {
@@ -230,54 +184,13 @@ def _resolve_options(schema: CreateFieldSchema, initial: Any) -> tuple[Any, str]
             "child": child.value if child else "",
         }, ""
     if schema.control == CreateFieldControl.MULTI:
-        resolved = [_find_option(schema.options, str(label)) for label in initial]
+        resolved = [find_create_option(schema.options, str(label)) for label in initial]
         if any(item is None for item in resolved):
             return [], f"Configured option is unavailable for {schema.name}"
         return [item.value for item in resolved if item is not None], ""
     if schema.control == CreateFieldControl.SINGLE:
-        resolved = _find_option(schema.options, str(initial))
+        resolved = find_create_option(schema.options, str(initial))
         if resolved is None:
             return "", f"Configured option is unavailable for {schema.name}"
         return resolved.value, ""
     return initial, ""
-
-
-def _find_option(
-    options: Iterable[CreateFieldOption],
-    label_or_value: str,
-) -> CreateFieldOption | None:
-    return next(
-        (
-            option
-            for option in options
-            if option.label == label_or_value or option.value == label_or_value
-        ),
-        None,
-    )
-
-
-def _validate_value(schema: CreateFieldSchema, value: Any) -> str:
-    if schema.required and value in (None, "", [], {}):
-        return f"{schema.name} is required"
-    if not schema.options or value in (None, "", [], {}):
-        return ""
-    if schema.control == CreateFieldControl.CASCADE:
-        if not isinstance(value, dict):
-            return f"Invalid option for {schema.name}"
-        parent = _find_option(schema.options, str(value.get("parent") or ""))
-        child_value = str(value.get("child") or "")
-        if parent and schema.child_required and not child_value:
-            return f"{schema.name} child is required"
-        child = _find_option(parent.children, child_value) if parent and child_value else None
-        return "" if parent and (not child_value or child) else f"Invalid option for {schema.name}"
-    if schema.control == CreateFieldControl.MULTI:
-        if not isinstance(value, (list, tuple)):
-            return f"Invalid option for {schema.name}"
-        return (
-            ""
-            if all(_find_option(schema.options, str(item)) for item in value)
-            else f"Invalid option for {schema.name}"
-        )
-    if schema.control == CreateFieldControl.SINGLE:
-        return "" if _find_option(schema.options, str(value)) else f"Invalid option for {schema.name}"
-    return ""
