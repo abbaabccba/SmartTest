@@ -36,7 +36,7 @@ def test_ai_review_cannot_remove_missing_self_test_case_id():
     reviewed = review_issue(result, AIClient([response]))
     assert not reviewed.passed
     assert [item.rule_id for item in reviewed.violations] == ['TEST_CASE_ID.REQUIRED']
-    assert '缺少 Test Case ID' in reviewed.violations[0].reason
+    assert 'Test Case ID 为空' in reviewed.violations[0].reason
     assert (reviewed.ai_passed_count, reviewed.ai_failed_count) == (1, 1)
 
 
