@@ -192,6 +192,59 @@ def test_browser_login_reuses_saved_account_credential_without_ldap(tmp_path):
     assert unavailable_ldap.calls == []
 
 
+@pytest.mark.parametrize("existing_avatar", [None, b"", b"current-avatar"])
+def test_startup_recovers_latest_historical_account_avatar_without_overwriting_profile(tmp_path, existing_avatar):
+    from smarttest_web.database import WebDatabase
+    from smarttest_web.schema import initialize_web_schema
+
+    client, store = make_client(tmp_path)
+    store.create("coco", "secret", "Old Name", b"old-avatar")
+    latest = store.create("coco", "secret", "Latest Name", b"latest-avatar")
+    with store._connect() as connection:
+        connection.execute("UPDATE web_sessions SET created_at=10 WHERE token_hash<>?", (store._hash(latest),))
+        connection.execute("UPDATE web_sessions SET created_at=20 WHERE token_hash=?", (store._hash(latest),))
+        connection.execute("DELETE FROM web_account_identities")
+        if existing_avatar is not None:
+            connection.execute(
+                "INSERT INTO web_account_identities VALUES(?,?,?,?)",
+                ("coco", "Current Name", existing_avatar, 30),
+            )
+    empty = store._create_session("coco", "coco")
+    initialize_web_schema(WebDatabase(store.path))
+    initialize_web_schema(WebDatabase(store.path))
+    client.cookies.set("smarttest_session", empty)
+    profile = client.get("/api/auth/session").json()
+    assert profile["avatarUrl"] == "/api/auth/avatar"
+    assert profile["displayName"] == ("Latest Name" if existing_avatar is None else "Current Name")
+    assert client.get("/api/auth/avatar").content == (existing_avatar or b"latest-avatar")
+    saved = store.create_from_saved("coco")
+    assert store.get(saved).avatar_bytes == (existing_avatar or b"latest-avatar")
+
+
+def test_client_session_reuses_account_profile_without_ldap(tmp_path):
+    auth = FakeAuthenticator()
+    client, store = make_client(tmp_path, authenticator=auth)
+    client.post("/api/auth/login", json={"username": "coco", "password": "secret"})
+    response = client.post("/api/auth/client-session", json={"username": "coco", "password": "secret"})
+    assert response.json()["displayName"] == "Coco Chen"
+    assert response.json()["avatarUrl"] == "/api/auth/avatar"
+    assert client.get("/api/auth/avatar").content == b"avatar"
+    assert store._identity("coco") == ("Coco Chen", b"avatar")
+    assert auth.calls == [("coco", "secret")]
+
+
+def test_existing_empty_session_reads_updated_account_profile_and_stays_revoked(tmp_path):
+    client, store = make_client(tmp_path)
+    empty = store.create("coco", "secret")
+    store.create("coco", "secret", "Coco Chen", b"avatar")
+    client.cookies.set("smarttest_session", empty)
+    assert client.get("/api/auth/session").json()["displayName"] == "Coco Chen"
+    assert client.get("/api/auth/avatar").content == b"avatar"
+    store.delete(empty)
+    assert client.get("/api/auth/session").json() == {"authenticated": False}
+    assert client.get("/api/auth/avatar").status_code == 404
+
+
 @pytest.mark.parametrize("cached_avatar", [False, True])
 def test_browser_login_replaces_saved_credential_with_verified_new_password(tmp_path, cached_avatar):
     store = PersistentSessionStore(tmp_path / "web.db")

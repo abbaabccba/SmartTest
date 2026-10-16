@@ -193,6 +193,25 @@ def initialize_web_schema(database: WebDatabase) -> None:
             connection.execute("ALTER TABLE web_sessions ADD COLUMN credential_ref TEXT")
         if "revoked_reason" not in columns:
             connection.execute("ALTER TABLE web_sessions ADD COLUMN revoked_reason TEXT")
+        connection.execute("""
+            INSERT INTO web_account_identities(username,display_name,avatar,updated_at)
+            SELECT username,display_name,avatar,created_at FROM (
+                SELECT lower(trim(username)) AS username,display_name,avatar,created_at,
+                       row_number() OVER (
+                           PARTITION BY lower(trim(username)) ORDER BY created_at DESC,id DESC
+                       ) AS position
+                FROM web_sessions WHERE length(avatar)>0
+            ) WHERE position=1
+            ON CONFLICT(username) DO UPDATE SET
+              display_name=CASE
+                WHEN web_account_identities.display_name IN ('',excluded.username)
+                THEN excluded.display_name ELSE web_account_identities.display_name END,
+              avatar=CASE WHEN coalesce(length(web_account_identities.avatar),0)=0
+                          THEN excluded.avatar ELSE web_account_identities.avatar END,
+              updated_at=max(web_account_identities.updated_at,excluded.updated_at)
+            WHERE coalesce(length(web_account_identities.avatar),0)=0
+               OR web_account_identities.display_name IN ('',excluded.username)
+        """)
         snapshot_columns = {row[1] for row in connection.execute("PRAGMA table_info(web_query_snapshots)")}
         if "release_names_json" not in snapshot_columns:
             connection.execute("ALTER TABLE web_query_snapshots ADD COLUMN release_names_json TEXT NOT NULL DEFAULT '[]'")
