@@ -2,6 +2,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
+
+import pytest
 
 import web.scripts.dev as dev
 
@@ -27,6 +30,61 @@ class FakeProcess:
     def wait(self, timeout=None): return self.returncode
 
 
+def test_macos_backend_environment_loads_missing_secrets_from_keychain():
+    calls = []
+
+    def read(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(stdout=(
+            "db-secret\n" if command[5] == dev.MACOS_DB_PASSWORD_SERVICE
+            else "credential-key\n"
+        ))
+
+    environment = dev.resolve_backend_environment(
+        environment={"EXISTING": "kept"}, platform="darwin", run=read,
+    )
+
+    assert environment == {
+        "EXISTING": "kept",
+        "SMARTTEST_DB_PASSWORD": "db-secret",
+        "SMARTTEST_WEB_CREDENTIAL_KEY": "credential-key",
+    }
+    assert [call[0][5] for call in calls] == [
+        dev.MACOS_DB_PASSWORD_SERVICE,
+        dev.MACOS_WEB_CREDENTIAL_KEY_SERVICE,
+    ]
+    assert all(call[1] == {"check": True, "capture_output": True, "text": True}
+               for call in calls)
+
+
+def test_macos_backend_environment_preserves_explicit_secrets():
+    environment = {
+        "SMARTTEST_DB_PASSWORD": "explicit-db",
+        "SMARTTEST_WEB_CREDENTIAL_KEY": "explicit-key",
+    }
+
+    assert dev.resolve_backend_environment(
+        environment=environment,
+        platform="darwin",
+        run=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Keychain must not be read")
+        ),
+    ) == environment
+
+
+def test_macos_backend_environment_reports_keychain_failure_without_secret_detail():
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(
+            44, ["security"], stderr="private keychain diagnostic"
+        )
+
+    with pytest.raises(OSError) as failure:
+        dev.resolve_backend_environment(environment={}, platform="darwin", run=fail)
+
+    assert "SMARTTEST_DB_PASSWORD" in str(failure.value)
+    assert "private keychain diagnostic" not in str(failure.value)
+
+
 def test_windows_backend_keeps_process_group_and_inherits_development_console():
     kwargs = dev.backend_process_kwargs()
 
@@ -37,7 +95,8 @@ def test_windows_backend_keeps_process_group_and_inherits_development_console():
         assert kwargs == {}
 
 
-def test_runtime_tools_use_adjacent_npm_for_managed_environment(tmp_path):
+def test_runtime_tools_use_adjacent_npm_for_managed_environment(tmp_path, monkeypatch):
+    monkeypatch.setattr(dev.sys, "platform", "win32")
     python = tmp_path / "Scripts" / "python.exe"
     npm = python.parent / "npm.cmd"
     python.parent.mkdir()
@@ -65,7 +124,8 @@ def test_runtime_tools_use_path_npm_for_system_environment(tmp_path):
     ) == (python.resolve(), npm.resolve())
 
 
-def test_runtime_tools_use_managed_python_when_system_environment_lacks_backend(tmp_path):
+def test_runtime_tools_use_managed_python_when_system_environment_lacks_backend(tmp_path, monkeypatch):
+    monkeypatch.setattr(dev.sys, "platform", "win32")
     system_python = tmp_path / "system" / "python.exe"
     managed_python = tmp_path / ".venv" / "Scripts" / "python.exe"
     npm = managed_python.parent / "npm.cmd"
@@ -132,7 +192,8 @@ def test_occupied_port_without_resolvable_owner_is_not_killed():
     assert kills == []
 
 
-def test_port_owner_resolver_returns_live_workers_for_stale_listener_parent():
+def test_port_owner_resolver_returns_live_workers_for_stale_listener_parent(monkeypatch):
+    monkeypatch.setattr(dev.sys, "platform", "win32")
     class Result:
         returncode = 0
         stdout = '[{"owner_pid":2184,"target_pids":[19992]}]'
@@ -195,6 +256,27 @@ def test_backend_failure_cleans_the_other_child_and_checks_port_release():
     assert result == 1
     assert cleaned == [10, 20]
     assert release_checks == [True]
+
+
+def test_run_passes_resolved_environment_to_backend_process():
+    backend = FakeProcess(10, polls=[None, 0], returncode=0)
+    frontend = FakeProcess(20, polls=[None, None])
+    processes = iter([backend, frontend])
+    starts = []
+
+    result = dev.run(
+        popen=lambda *args, **kwargs: starts.append((args, kwargs)) or next(processes),
+        port_in_use=lambda: False,
+        wait_for_health=lambda *_args, **_kwargs: True,
+        terminate_tree=lambda _process: None,
+        wait_for_port_release=lambda: True,
+        sleep=lambda _seconds: None,
+        backend_environment={"SMARTTEST_DB_PASSWORD": "keychain-secret"},
+    )
+
+    assert result == 0
+    assert starts[0][1]["env"] == {"SMARTTEST_DB_PASSWORD": "keychain-secret"}
+    assert starts[1][1]["env"].get("SMARTTEST_DB_PASSWORD") is None
 
 
 def test_keyboard_interrupt_returns_zero_and_cleans_both_children():
