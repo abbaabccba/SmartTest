@@ -10,12 +10,10 @@ function mountProductLineTheme() {
   const compactRule = source.match(/\[data-product-line="Wireless Connection"\]\[data-product-surface\]:is\([^}]+\}/)?.[0]
   const layoutRule = source.match(/\[data-product-line="Wireless Connection"\]\[data-product-surface="layout"\] \{[^}]+\}/)?.[0]
   const nestedRule = source.match(/\[data-product-surface="layout"\] \[data-product-line\]\[data-product-surface\]:not\(\[data-product-surface="layout"\]\) \{[^}]+\}/)?.[0]
-  const transparentDisclosureRule = source.match(/\[data-product-surface="layout"\] \[data-product-surface="disclosure"\] \{[^}]+\}/)?.[0]
-  const transparentGroupRule = source.match(/\[data-product-surface="layout"\] :is\(\.stage-group, \.launch-os-group, \.stage-summary, \.launch-os-summary\) \{[^}]+\}/)?.[0]
   const motionRule = source.match(/@keyframes product-ofdm-flow \{[\s\S]*?\n\}/)?.[0]
-  expect(wirelessRule && darkWirelessRule && compactRule && layoutRule && nestedRule && transparentDisclosureRule && transparentGroupRule && motionRule).toBeTruthy()
+  expect(wirelessRule && darkWirelessRule && compactRule && layoutRule && nestedRule && motionRule).toBeTruthy()
   const style = document.createElement('style')
-  style.textContent = `.stage-summary { background: rgb(255, 255, 255); }\n${wirelessRule}\n${compactRule}\n${layoutRule}\n${darkWirelessRule}\n${nestedRule}\n${transparentDisclosureRule}\n${transparentGroupRule}\n${motionRule}`
+  style.textContent = `.stage-summary { background: rgb(255, 255, 255); }\n${wirelessRule}\n${compactRule}\n${layoutRule}\n${darkWirelessRule}\n${nestedRule}\n${motionRule}`
   document.head.append(style)
   return style.sheet
 }
@@ -107,7 +105,7 @@ it('uses the Wireless OFDM motion across every supported product surface', () =>
   stageGroup.append(stageSummary)
   surfaces[0].append(stageGroup)
   expect(getComputedStyle(stageGroup).backgroundColor).toBe('rgba(0, 0, 0, 0)')
-  expect(getComputedStyle(stageSummary).backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(getComputedStyle(stageSummary).backgroundColor).toBe('rgb(255, 255, 255)')
 
   document.documentElement.classList.add('dark-theme')
   expect(getComputedStyle(surfaces[0]).getPropertyValue('--product-motion-pattern')).toContain('wireless-ofdm-dark.svg')

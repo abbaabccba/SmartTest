@@ -24,20 +24,12 @@
   --product-line-animation: none;
 }
 [data-product-line][data-product-surface]:is([data-product-surface="card"], [data-product-surface="layout"]) {
-  background-color: var(--product-line-background, transparent);
   color: var(--product-line-foreground, var(--text-primary));
-  border-color: var(--product-line-border, var(--border-color));
   background-image: var(--product-line-texture, none);
   animation: var(--product-line-animation, none);
 }
-[data-product-line][data-product-surface="layout"].product-space-group {
-  border: 1px solid var(--product-line-border, var(--border-color));
-  border-radius: .75rem;
-  background-color: var(--product-line-background, var(--bg-surface));
-}
 [data-product-line][data-product-surface="button"] {
   color: var(--product-line-foreground, var(--text-primary));
-  border: 0;
   background-color: var(--product-line-background, transparent);
   background-image: var(--product-line-texture, none);
   cursor: pointer;
@@ -45,9 +37,8 @@
 }
 [data-product-line][data-product-surface="badge"] {
   color: var(--product-line-foreground, var(--text-primary));
-  background: var(--product-line-texture, none), var(--product-line-background, var(--bg-primary));
-  border: 1px solid var(--product-line-border, var(--border-color));
-  border-radius: 999px;
+  background-color: var(--product-line-background, var(--bg-primary));
+  background-image: var(--product-line-texture, none);
   animation: var(--product-line-animation, none);
 }
 [data-product-line][data-product-surface="button"]:focus-visible {
@@ -81,38 +72,19 @@
   --product-line-border: #26738d;
   --product-line-texture: radial-gradient(ellipse at 100% 0%, #36cfff14, transparent 65%);
 }
-[data-product-line="Smart Device"][data-product-surface="card"] {
-  border-top: 2px solid var(--product-line-border);
-  box-shadow: inset 0 0 24px #0891b209;
-}
 [data-product-line="Smart Device"][data-product-surface="button"],
 [data-product-line="Smart Device"][data-product-surface="badge"] {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--product-line-border);
-  border-radius: 7px;
-  background: linear-gradient(135deg, #e8f5fb, var(--product-line-background));
   color: var(--product-line-foreground);
-  box-shadow: inset 0 1px 0 #ffffff40;
-  transition: background .2s, box-shadow .2s, transform .2s;
-}
-.dark-theme [data-product-line="Smart Device"][data-product-surface="button"],
-.dark-theme [data-product-line="Smart Device"][data-product-surface="badge"] {
-  background: linear-gradient(135deg, #102b3c, var(--product-line-background));
 }
 [data-product-line="Smart Device"][data-product-surface="button"][aria-pressed="true"],
 [data-product-line="Smart Device"][data-product-surface="button"].product-space-summary {
   background-color: #091d30;
-  background-image: linear-gradient(100deg, #091d30, #0d3044);
-  background-size: 100% 100%;
   color: #e2f6ff;
-  border-color: #24768c;
   text-shadow: none;
-  box-shadow: inset 0 1px 0 #a7efff26, 0 0 13px #0891b226;
 }
 [data-product-line="Smart Device"][data-product-surface="button"].product-space-summary {
-  border-radius: 0;
-  border-width: 0 0 1px;
   padding-left: 3rem;
 }
 [data-product-line="Smart Device"][data-product-surface="button"].product-space-summary::before { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); }
@@ -130,23 +102,16 @@
   pointer-events: none;
 }
 [data-product-line="Smart Device"][data-product-surface="button"]:disabled::before { opacity: 1; }
-[data-product-line="Smart Device"][data-product-surface="badge"] { border-left: 3px solid var(--product-line-accent); }
 [data-product-line="Smart Device"][data-product-surface="button"].product-space-summary > .kanban-title { color: inherit; }
 
 /* Disclosure surfaces decorate the existing hover-revealed project row as a whole.
    The summary/detail visibility and stage/launch-OS folding remain page-owned. */
 [data-product-line][data-product-surface="disclosure"] {
   color: var(--product-line-foreground, var(--text-primary));
-  background-color: var(--product-line-background, var(--bg-primary));
   background-image: var(--product-line-texture, none);
-  border-color: var(--product-line-border, var(--border-color));
-}
-[data-product-line][data-product-surface="disclosure"]:is(:hover, :focus-within) {
-  border-color: var(--product-line-accent, var(--accent));
 }
 [data-product-line="Smart Device"][data-product-surface="disclosure"] {
   --product-line-texture: linear-gradient(110deg, #0891b208, transparent 70%);
-  border-left: 2px solid var(--product-line-border);
 }
 .dark-theme [data-product-line="Smart Device"][data-product-surface="disclosure"] {
   --product-line-texture: linear-gradient(110deg, #36cfff0a, transparent 70%);
@@ -186,24 +151,16 @@
   --product-line-border: color-mix(in srgb, var(--product-line-tone) 55%, #304256);
 }
 :is([data-product-line="China Operator"], [data-product-line="TV"], [data-product-line="Global Operator & STB"], [data-product-line="Wireless Connection"]) {
-  &:is([data-product-surface="card"], [data-product-surface="layout"]) { border-top: 2px solid var(--product-line-border); }
-  &[data-product-surface="disclosure"] { border-left: 2px solid var(--product-line-border); }
   &[data-product-surface="disclosure"] > .project-card-details { border-top-color: var(--product-line-border); }
   &[data-product-surface="badge"], &[data-product-surface="button"] {
     position: relative;
     overflow: hidden;
-    border: 1px solid var(--product-line-border);
-    border-radius: 7px;
-    transition: box-shadow .2s, transform .2s;
   }
-  &[data-product-surface="badge"] { border-left: 3px solid var(--product-line-tone); }
   &[data-product-surface="button"][aria-pressed="true"], &[data-product-surface="button"].product-space-summary {
     background-color: var(--product-line-title);
     color: #f2f7fc;
-    border-color: var(--product-line-tone);
-    box-shadow: inset 0 1px 0 #ffffff20, 0 3px 12px color-mix(in srgb, var(--product-line-tone) 20%, transparent);
   }
-  &[data-product-surface="button"].product-space-summary { border-radius: 0; border-width: 0 0 1px; padding-left: 3rem; }
+  &[data-product-surface="button"].product-space-summary { padding-left: 3rem; }
   &[data-product-surface="button"].product-space-summary > .kanban-title { color: inherit; }
   &[data-product-surface="badge"]::before, &[data-product-surface="button"]::before {
     content: ''; display: inline-block; flex: 0 0 18px; width: 18px; height: 20px;
@@ -211,7 +168,6 @@
     mask: var(--product-line-icon) center / contain no-repeat; pointer-events: none;
   }
   &[data-product-surface="button"].product-space-summary::before { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); }
-  &[data-product-surface="button"]:is(:hover, :focus-visible):not(:disabled) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--product-line-tone) 16%, transparent); }
   &[data-product-surface="button"]:disabled::before { opacity: 1; }
 }
 /* Independent CSS interpretation of the approved rain / particles / aurora concepts.
@@ -374,12 +330,6 @@
 }
 [data-product-surface="layout"] > [data-product-surface="button"].product-space-summary {
   background-color: color-mix(in srgb, var(--product-line-title, #091d30) 88%, transparent);
-}
-[data-product-surface="layout"] [data-product-surface="disclosure"] {
-  background-color: transparent;
-}
-[data-product-surface="layout"] :is(.stage-group, .launch-os-group, .stage-summary, .launch-os-summary) {
-  background: transparent;
 }
 @keyframes product-ofdm-flow {
   from { background-position: 0 50%; }
