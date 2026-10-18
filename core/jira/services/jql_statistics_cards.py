@@ -11,7 +11,7 @@ from typing import Any, Iterable
 from core.config.jsonTool import read_json
 
 from core.jira.mapper import JiraIssueMapper
-from core.jira.jql import CARD_BUSINESS_JQL, creator_group_jql
+from core.jira.jql import CARD_BUSINESS_JQL, creator_group_jql, jql_string
 from core.jira.services.filter_service import compose_jql, jira_period_condition, jira_period_ranges
 from core.product_lines import (
     CHINA_OPERATOR_BUSINESS,
@@ -32,6 +32,7 @@ FAE_QA_GROUP_PRODUCT_LINES = (
     ("fae-iptv-qa", CHINA_OPERATOR_BUSINESS),
 )
 FAE_QA_GROUPS = tuple(group for group, _line in FAE_QA_GROUP_PRODUCT_LINES)
+JIRA_STATISTICS_PERIODS = ("week", "month", "quarter", "year")
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,28 @@ def effective_card_jql_pair(card_key: str, user_jql: str, period: str, today=Non
         fixed = definition.fixed_jql(period)
         fixed = fixed.replace(jira_period_condition(period), str(value["condition"]))
         result[key] = {**value, "jql": compose_jql(user_jql, fixed)}
+    return result
+
+
+def current_card_jql_by_product_line_and_metric(
+    card_key: str, user_jql: str, period: str, today=None,
+) -> dict[str, dict[str, str]]:
+    common = card_definition(card_key).fixed_jql(period)
+    common = common.replace(jira_period_condition(period), jira_period_condition(period, today))
+    result = {}
+    for line in DASHBOARD_PRODUCT_LINES:
+        if line is WIRELESS_CONNECTION:
+            product = creator_group_jql(("fae-wifi-qa",))
+        else:
+            projects = ", ".join(f'"{jql_string(key)}"' for key in line.jira_project_keys)
+            product = f'project IN ({projects}) AND creator NOT IN membersOf("fae-wifi-qa")'
+        base = compose_jql(user_jql, f"({common}) AND ({product})")
+        result[line.name] = {
+            "bugCount": base,
+            "commentCount": base,
+            "verifyCount": base,
+            "invalidCount": compose_jql(base, 'resolution = "Invalid"'),
+        }
     return result
 
 

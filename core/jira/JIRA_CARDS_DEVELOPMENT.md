@@ -25,7 +25,7 @@
 | R4 | Comment 按 QA 评论作者计数；Verify 对每个 Jira 取最后一次 Resolved → Verified 的操作者，仅该操作者为 QA 时计数。 |
 | R5 | 活动统计的 QA 名单和产品线来自 `core/config/personnel.json`，按人员归属分类，不按 Jira 项目分类。基本字段链路暂保留，来源差异见第 9 节。 |
 | R6 | 今年、去年分别获取；展示周期按 Jira 创建时间拆分，不能误写成按评论或 Verify 的发生时间统计。 |
-| R7 | 显式 Apply 必须刷新远端。GET 卡片统计和周期切换只读取 SQLite，不启动远端活动查询。 |
+| R7 | 显式 Apply 必须刷新远端。GET 卡片统计只读取 SQLite；周期切换只读前端 payload，二者都不启动远端活动查询。 |
 | R8 | SQLite 是事实及查询快照唯一持久 owner；进程内只放任务、进度、取消和在途协调；前端展示缓存不能成为业务范围来源。 |
 | R9 | Jira 页面业务 JQL 集中到 `core/jira/jql.py`，条件语法组合继续复用 `compose_jql`。 |
 | R10 | 两类取数能力分别为基本字段与 comment＋changelog。当前 4/12 并发参数不等于已经实现全卡共享两个并发池；共享调度设计需明确后再实现。 |
@@ -98,7 +98,7 @@ Customer Feedback 的现有分支必须完整保留：
 
 ### 4.3 年度获取与展示周期
 
-Web 分别拉取今年、去年的年度数据。周期切换复用年度事实，不按每次周/月选择重新请求 Jira。
+Web 分别拉取今年、去年的年度数据。GET statistics 从同一有效年度快照一次派生并返回 week/month/quarter/year 四套视图；周期切换只选择前端已有视图，不请求 API、SQLite 或 Jira。
 
 `JIRA_PERIODS` 支持 `week/month/quarter/year`，当前默认 month。`jira_period_ranges` 以本周周一、本月 1 日、本季度首日、本年 1 月 1 日作为本周期起点，到 now 为止；上一周期为上一完整周期，右边界不包含本周期起点。年度远端 JQL 和本地周期边界必须复用现有时间函数，不能在前端新增另一套计算。
 
@@ -112,8 +112,8 @@ Web 分别拉取今年、去年的年度数据。周期切换复用年度事实�
 | --- | --- |
 | 进入 Jira 页面 | 可丢弃的账号展示缓存用于首帧，随后 GET 用 SQLite 原位校准；不因重进页面发起活动取数 |
 | 修改 Basic/Advanced 或 saved filter | 修改草稿、获取候选或校验；未 Apply 不改变已应用结果范围 |
-| 点击 Apply | 验证并发布用户条件/刷新批次，各卡片独立发 refresh；显式刷新不得直接命中旧完成结果冒充远端刷新 |
-| 切换周期 | 保存周期偏好，以 reuse 读取 SQLite 年度事实重新聚合，不请求远端活动数据 |
+| 点击 Apply | 验证并发布用户条件/刷新批次，各卡片独立 POST query 刷新最大年度 snapshot；显式刷新不得直接命中旧完成结果冒充远端刷新 |
+| 切换周期 | 从卡片已有四周期 payload 本地切换数据与 Current JQL；零 API、无 period preference/reuse |
 | 任务运行 | 轮询状态、展示进度和 partial；按年度与数据层 availability 控制指标可用性 |
 | 成功 | 当前有效 pending 快照激活，呈现结果；成功零条是 ready 空结果，不是失败 |
 | 失败/取消 | 明确显示失败或取消并停止轮询；符合条件的旧有效结果可以保留，不将未知数写成零 |
@@ -131,8 +131,8 @@ Web 分别拉取今年、去年的年度数据。周期切换复用年度事实�
 | GET `/api/jira/analytics/saved-filters`、`saved-filters/{filter_id}` | 保存筛选器列表及内容 |
 | POST `/api/jira/analytics/validate` | 校验用户条件 |
 | POST `/api/jira/analytics/search` | 验证并发布共享条件，不先查公共 Jira 大集合 |
-| POST `/api/jira/cards/{card_key}/query` | `intent=refresh` 启动该卡查询；`intent=reuse` 本地重放，可保存 period |
-| GET `/api/jira/cards/{card_key}/statistics` | SQLite 统计、partial 和状态；不启动远端查询 |
+| POST `/api/jira/cards/{card_key}/query` | 仅由显式 Apply 启动该卡最大年度 snapshot 刷新 |
+| GET `/api/jira/cards/{card_key}/statistics` | 从 SQLite 有效年度快照一次返回四周期统计、partial 和状态；不启动远端查询 |
 | GET `/api/jira/cards/{card_key}/tasks/{task_id}` | 当前真实会话有权读取的卡片任务状态 |
 | DELETE `/api/jira/cards/{card_key}/tasks/{task_id}` | 当前真实会话有权取消的卡片任务 |
 
@@ -338,7 +338,7 @@ total 是当时 Jira 响应中的范围总量，不是本轮下载数量，且�
 | --- | --- | --- |
 | Apply 和卡片范围 | 共享条件只发布，各卡独立查询 | `test_public_search_only_publishes_conditions_and_card_queries_its_own_effective_scope` |
 | 再次 Apply、失败 | 刷新活动源；匹配旧结果可保留 | `test_each_explicit_apply_refreshes_activities_and_failure_keeps_prior_result` |
-| 周期切换 | 仅切 SQLite 年度事实，不查远端 | `test_period_switches_read_one_annual_snapshot_without_jira_or_tasks` |
+| 周期切换 | 前端本地切四周期数据与 Current JQL，零 API | `switches all four local period views without another API request` |
 | Basic/Advanced | 切换保留 builder JQL，编辑后按实际草稿处理 | `switches builder jql back losslessly until advanced text is edited` |
 | saved filter | 加载为草稿，Search 才发布 | `loads saved filter as advanced draft without searching and Search publishes conditions` |
 | 指标/产品线 | 本地切换指标、产品线和排序结果 | `switches four metrics and product lines with sorted horizontal ranking data` |
@@ -573,7 +573,7 @@ Coco 提出的机制方向是 changelog 定期后台更新，用户不能随时�
 | 卡片范围 | 三卡业务谓词和用户条件独立；活动不加 creator/owner 限制；基本范围不被无意改变 |
 | Comment/Verify | 非 QA 创建但 QA 评论/Verify 可计入；最后一次非 QA Verify 不回找旧 QA；历史截断不会伪造完整统计 |
 | 人员/周期 | 活动按 personnel 作者与产品线；created 周期及跨年边界正确；不按活动发生时间切分 |
-| 刷新/重放 | 再次 Apply 真正刷新；GET/周期切换无远端活动请求；相同批次合理复用、不同批次不误用旧完成源 |
+| 刷新/重放 | 再次 Apply 真正刷新；GET 无远端活动请求，周期切换零 API；相同批次合理复用、不同批次不误用旧完成源 |
 | 隔离/竞态 | 跨账号隔离、真实会话任务授权、旧任务不可覆盖新 pending、失败不发布不完整结果 |
 | UI 终态 | 基础 partial 与活动 availability 分开；零条 ready；failed/cancelled/interrupted 明确且停止轮询 |
 | 并发/取消 | 实测所选预算上限；取消未启动任务、在途收尾和共享使用方语义正确；不因等待依赖占尽全部工作槽 |

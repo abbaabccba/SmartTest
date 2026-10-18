@@ -7,17 +7,14 @@ from fastapi.testclient import TestClient
 from test_jira_analytics_api import Gateway, client, query_card, wait_terminal
 
 
-def test_period_switches_read_one_annual_snapshot_without_jira_or_tasks(
+def test_statistics_returns_all_period_views_from_one_annual_snapshot_without_requery(
     tmp_path, monkeypatch, *, database_factory
 ):
     calls = []
     monkeypatch.setattr(Gateway, 'search_all_payloads', lambda _self, jql, **_kw: calls.append(jql) or [])
     api = client(tmp_path, database_factory=database_factory)
     api.post('/api/jira/analytics/search', json={'mode': 'basic', 'basic': {}})
-    absent = api.post('/api/jira/cards/self-test/query', json={'period': 'week', 'intent': 'reuse'}).json()
-    assert absent['state'] == 'no_snapshot' and 'taskId' not in absent
-    assert calls == []
-    started = api.post('/api/jira/cards/self-test/query', json={'intent': 'refresh'}).json()
+    started = api.post('/api/jira/cards/self-test/query').json()
     assert wait_terminal(api, started['taskId']) == 'completed'
     assert len(calls) == 2
     assert jira_period_condition('year') in calls[0]
@@ -27,49 +24,16 @@ def test_period_switches_read_one_annual_snapshot_without_jira_or_tasks(
     monkeypatch.setattr(FilterOwner, 'validate', reject)
     monkeypatch.setattr(Gateway, 'search_all_payloads', reject)
     monkeypatch.setattr(Gateway, 'user_groups', reject)
-    for period in ['week', 'month', 'quarter', 'year']:
-        payload = api.post('/api/jira/cards/self-test/query', json={'period': period, 'intent': 'reuse'}).json()
-        assert payload['state'] == 'ready' and 'taskId' not in payload
-        assert payload['query']['activeSnapshotId'] == started['snapshotId']
-        assert payload['period'] == period
+    payload = api.get('/api/jira/cards/self-test/statistics').json()
+    assert payload['state'] == 'ready'
+    assert tuple(payload['periods']) == ('week', 'month', 'quarter', 'year')
+    assert all(set(view['currentJqlByProductLineAndMetric']) == {
+        'China Operator', 'Smart Device', 'TV', 'Global Operator & STB', 'Wireless Connection',
+    } for view in payload['periods'].values())
+    assert len(calls) == 2
     api.post('/api/auth/logout')
     api.post('/api/auth/login', json={'username': 'coco', 'password': 'secret'})
     assert api.get('/api/jira/cards/self-test/statistics').json()['state'] == 'ready'
-
-
-def test_card_period_defaults_to_month_and_restores_independently_without_get_fetch(
-    tmp_path, monkeypatch, *, database_factory
-):
-    calls = []
-    monkeypatch.setattr(Gateway, 'search_all_payloads', lambda _self, jql, **_kw: calls.append(jql) or [])
-    api = client(tmp_path, database_factory=database_factory)
-    api.put('/api/preferences/jira/cards/customer-feedback', json={'items': {'period': 'quarter'}})
-    assert api.get('/api/jira/cards/self-test/statistics').json()['period'] == 'month'
-    assert api.get('/api/jira/cards/customer-feedback/statistics').json()['period'] == 'quarter'
-    api.post('/api/jira/analytics/search', json={'mode': 'advanced', 'jql': 'status = Open OR status = Closed ORDER BY created DESC'})
-    periods = [('week', f'created >= "{(date.today() - timedelta(days=date.today().weekday())).isoformat()}"'),
-               ('month', f'created >= "{date.today().replace(day=1).isoformat()}"'),
-               ('quarter', f'created >= "{date.today().year}-{((date.today().month - 1) // 3) * 3 + 1:02d}-01"'),
-               ('year', f'created >= "{date.today().year}-01-01"')]
-    for period, condition in periods:
-        started = api.post('/api/jira/cards/self-test/query', json={'period': period}).json()
-        assert wait_terminal(api, started['taskId']) == 'completed'
-        payload = api.get('/api/jira/cards/self-test/statistics').json()
-        assert payload['period'] == period
-        assert jira_period_condition("year") in calls[-2]
-        assert calls[-2].endswith('ORDER BY created DESC')
-        for response in [started, payload, api.get(f"/api/jira/cards/self-test/tasks/{started['taskId']}").json()]:
-            assert not {'activeJql', 'activeComparisonJql', 'userJql'} & response['query'].keys()
-    api.post('/api/auth/logout')
-    api.post('/api/auth/login', json={'username': 'coco', 'password': 'secret'})
-    assert api.get('/api/jira/cards/self-test/statistics').json()['period'] == 'year'
-    assert len(calls) == 8
-    assert api.post('/api/jira/cards/self-test/query', json={'period': 'invalid'}).status_code == 422
-    assert len(calls) == 8
-    api.post('/api/auth/logout')
-    api.post('/api/auth/login', json={'username': 'bob', 'password': 'secret'})
-    assert api.get('/api/jira/cards/self-test/statistics').json()['period'] == 'month'
-    assert len(calls) == 8
 
 
 def test_stale_statistics_version_is_rejected_before_decoding_annual_facts(
@@ -107,7 +71,7 @@ def test_same_account_relogin_restores_conditions_and_card_without_remote_fetch(
     assert len(calls) == 2
     assert api.get('/api/dashboard/jira-team-bugs').status_code == 404
     assert restored['state'] == 'ready'
-    assert restored['teamTotal'] == 0
+    assert restored['periods']['month']['teamTotal'] == 0
 
 
 def test_wrong_year_snapshot_is_not_replayed_or_queried_by_get(
@@ -172,7 +136,7 @@ def test_login_and_session_restore_do_not_fetch_organization_architecture_or_jir
     monkeypatch.setattr(Gateway, 'search_all_payloads', reject)
     api = client(tmp_path, database_factory=database_factory)
     assert api.get('/api/auth/session').json()['authenticated'] is True
-    assert api.get('/api/jira/cards/self-test/statistics').json() == {'state': 'no_snapshot', 'period': 'month'}
+    assert api.get('/api/jira/cards/self-test/statistics').json() == {'state': 'no_snapshot'}
 
 
 def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(
@@ -224,16 +188,17 @@ def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(
     monkeypatch.setattr(Gateway, 'search_activity_payloads', reject)
     monkeypatch.setattr(Gateway, 'user_groups', reject)
     restarted = client(tmp_path, database_factory=database_factory)
+    payload = restarted.get('/api/jira/cards/self-test/statistics').json()
+    assert payload['state'] == 'ready' and 'taskId' not in payload
     for period in ['week', 'month', 'quarter', 'year']:
-        payload = restarted.post('/api/jira/cards/self-test/query', json={'intent': 'reuse', 'period': period}).json()
-        assert payload['state'] == 'ready' and 'taskId' not in payload
+        view = payload['periods'][period]
         for key, window in jira_period_ranges(period).items():
             count = sum(created >= window['start'] and (window['end'] is None or created < window['end']) for created in dates)
-            assert payload[key]['teamTotal'] == count
+            assert view[key]['teamTotal'] == count
             for metric in ('bugCount', 'commentCount', 'verifyCount'):
-                assert sum(person[metric] for line in payload[key]['productLines'] for person in line['people']) == count
+                assert sum(person[metric] for line in view[key]['productLines'] for person in line['people']) == count
     restarted.post('/api/jira/analytics/search', json={'mode': 'advanced', 'jql': 'status = Closed'})
-    changed = restarted.post('/api/jira/cards/self-test/query', json={'intent': 'reuse'}).json()
+    changed = restarted.get('/api/jira/cards/self-test/statistics').json()
     assert changed['state'] == 'no_snapshot' and 'taskId' not in changed
     assert restarted.get('/api/jira/cards/task/statistics').json()['state'] == 'no_snapshot'
 
@@ -265,12 +230,11 @@ def test_supported_v4_annual_snapshot_restores_without_remote_and_keeps_scope_ga
     monkeypatch.setattr(Gateway, 'search_all_payloads', reject)
     monkeypatch.setattr(Gateway, 'search_activity_payloads', reject)
     monkeypatch.setattr(FilterOwner, 'validate', reject)
-    for period in ('month', 'year', 'week'):
-        api.put('/api/preferences/jira/cards/task', json={'items': {'period': period}})
-        restored = api.get('/api/jira/cards/task/statistics').json()
-        assert restored['state'] == 'ready' and restored['period'] == period
-        assert restored['query']['activeSnapshotId'] == snapshot
-        assert 'productLines' in restored and 'task' not in restored
+    restored = api.get('/api/jira/cards/task/statistics').json()
+    assert restored['state'] == 'ready'
+    assert tuple(restored['periods']) == ('week', 'month', 'quarter', 'year')
+    assert restored['query']['activeSnapshotId'] == snapshot
+    assert all('productLines' in view for view in restored['periods'].values()) and 'task' not in restored
     api.post('/api/auth/logout')
     api.post('/api/auth/login', json={'username': 'bob', 'password': 'secret'})
     assert api.get('/api/jira/cards/task/statistics').json()['state'] == 'no_snapshot'

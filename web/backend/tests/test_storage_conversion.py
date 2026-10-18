@@ -202,7 +202,7 @@ def test_mysql_app_session_credentials_snapshots_and_lifespan(application_databa
             time.sleep(.01)
         assert task['state'] == 'completed'
         statistics = client.get('/api/jira/cards/task/statistics').json()
-        assert statistics['period'] == 'year'
+        assert tuple(statistics['periods']) == ('week', 'month', 'quarter', 'year')
         if cache is not None:
             assert cache_reads == []  # Fake Gateway has not published verification facts.
             from core.jira.services.jql_statistics_cards import load_activity_qa_roster

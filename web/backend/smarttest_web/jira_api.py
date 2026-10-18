@@ -11,6 +11,7 @@ from core.jira.mapper import JiraIssueMapper
 from core.jira.services.jql_statistics_cards import (
     JIRA_STATISTICS_CARDS,
     card_definition,
+    current_card_jql_by_product_line_and_metric,
     effective_card_jql_pair,
     load_activity_qa_roster,
 )
@@ -106,13 +107,6 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         if card_key not in JIRA_STATISTICS_CARDS:
             raise HTTPException(status_code=404, detail={"state": "card_not_found"})
 
-    def jira_card_period(value, card_key):
-        from core.jira.services.filter_service import JIRA_PERIODS
-        period = sessions.get_preferences(value.username, f"jira/cards/{card_key}")["items"].get("period", "month")
-        if not isinstance(period, str) or period not in JIRA_PERIODS:
-            raise HTTPException(status_code=422, detail={"state": "invalid_jira_period"})
-        return period
-
     def analytics_query_state(session_hash, account, card_key):
         query = jira_analytics.state(session_hash, account, card_key=card_key)
         task = JIRA_ANALYTICS_TASKS.status(session_hash, query["taskId"], card_key=card_key) if query["taskId"] else None
@@ -138,7 +132,6 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         require_jira_card(card_key)
         session_hash = audit_session(request)
         query, task = analytics_query_state(session_hash, value.username, card_key)
-        period = jira_card_period(value, card_key)
         conditions = jira_analytics.published_conditions(session_hash, value.username)
         applied_jql = (conditions or {}).get("userJql")
         expected = effective_card_jql_pair(card_key, applied_jql or "", "year")
@@ -152,15 +145,26 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
                     and jql == expected["current"]["jql"] and comparison_jql == expected["previous"]["jql"])
         active_matches = matches(query["activeJql"], query["activeComparisonJql"],
                                  query["userJql"], query["rosterFingerprint"])
-        summary = jira_analytics.local_statistics(query["activeSnapshotId"], period) if active_matches else None
-        active_matches = active_matches and summary is not None
+        from core.jira.services.jql_statistics_cards import JIRA_STATISTICS_PERIODS
+        def period_views(snapshot_id):
+            result = {}
+            for period in JIRA_STATISTICS_PERIODS:
+                summary = jira_analytics.local_statistics(snapshot_id, period)
+                if summary is None:
+                    return None
+                result[period] = {**summary, "currentJqlByProductLineAndMetric": current_card_jql_by_product_line_and_metric(
+                    card_key, applied_jql or "", period,
+                )}
+            return result
+        summaries = period_views(query["activeSnapshotId"]) if active_matches else None
+        active_matches = active_matches and summaries is not None
         preview = jira_analytics.statistics_preview(session_hash, value.username, card_key=card_key)
         preview_matches = preview is not None and matches(preview["jql"], preview["comparisonJql"],
                                                          preview["userJql"], preview["fingerprint"])
         state = ("loading" if query["pendingSnapshotId"] and preview_matches else query["latestState"]
                  if preview_matches and query["latestState"] in {"failed", "cancelled"} else "ready"
                  if active_matches else "no_snapshot")
-        payload = {"state": state, "period": period}
+        payload = {"state": state}
         if query["activeSnapshotId"] or query["pendingSnapshotId"] or query["latestState"]:
             payload["query"] = card_query_payload(query)
         if state == "loading":
@@ -168,15 +172,19 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         if state in {"failed", "cancelled"}:
             payload["error"] = query["error"] or ("query_cancelled" if state == "cancelled" else "query_failed")
         if preview_matches and preview["statistics"] and (state == "loading" or not active_matches):
-            partial = jira_analytics.local_statistics(preview["snapshotId"], period)
+            partial = period_views(preview["snapshotId"])
             if partial is not None:
-                payload.update(partial)
+                payload["periods"] = partial
         elif active_matches:
-            payload.update(summary)
-        if state == "loading" and "productLines" not in payload:
-            payload["productLines"] = [{"id": line.name, "label": line.name, "people": []}
-                                       for line in DASHBOARD_PRODUCT_LINES]
-            payload["availability"] = {key: {"basic": False, "comment": False, "verify": False} for key in ("current", "previous")}
+            payload["periods"] = summaries
+        if state == "loading" and "periods" not in payload:
+            empty = {"productLines": [{"id": line.name, "label": line.name, "people": []}
+                                      for line in DASHBOARD_PRODUCT_LINES],
+                     "availability": {key: {"basic": False, "comment": False, "verify": False}
+                                      for key in ("current", "previous")}}
+            payload["periods"] = {period: {**empty, "currentJqlByProductLineAndMetric": current_card_jql_by_product_line_and_metric(
+                card_key, applied_jql or "", period,
+            )} for period in JIRA_STATISTICS_PERIODS}
         return payload
 
     @router.get("/api/jira/analytics/fields")
@@ -230,22 +238,11 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
             raise_downstream_error(value, error)
 
     @router.post("/api/jira/cards/{card_key}/query")
-    def query_jira_card(card_key: str, request: Request, payload: dict = Body(default={}), value=Depends(authenticated_session)):
+    def query_jira_card(card_key: str, request: Request, value=Depends(authenticated_session)):
         require_jira_card(card_key)
-        intent = payload.get("intent", "refresh")
-        if not isinstance(intent, str) or intent not in {"reuse", "refresh"}:
-            raise HTTPException(status_code=422, detail={"state": "invalid_jira_query_intent"})
-        from core.jira.services.filter_service import JIRA_PERIODS
-        if "period" in payload:
-            if not isinstance(payload["period"], str) or payload["period"] not in JIRA_PERIODS:
-                raise HTTPException(status_code=422, detail={"state": "invalid_jira_period"})
-            sessions.upsert_preferences(value.username, f"jira/cards/{card_key}", {"period": payload["period"]}, 1)
-        period = jira_card_period(value, card_key)
         conditions = jira_analytics.published_conditions(audit_session(request), value.username)
         if conditions is None:
-            return {"state": "no_snapshot", "period": period}
-        if intent == "reuse":
-            return jira_analytics_statistics(card_key, request, value)
+            return {"state": "no_snapshot"}
         service = resolve_jira_analytics(value, card_key=card_key)
         try:
             started = service.search(

@@ -30,6 +30,149 @@
 .workload-chart-scroll { max-height: min(32rem,60vh); padding: 1rem; overflow-y: auto; }
 [data-jira-ranking] .workload-chart-scroll { min-height: 12rem; }
 .workload-chart-surface { position: relative; width: 100%; }
+
+/* Spatial glass treatment is scoped to Jira statistics cards; product-line controls retain their existing owner and styling. */
+.card.jira-statistics-shell {
+  --jira-glass-surface: rgb(248 252 255 / 86%);
+  --jira-glass-inner: rgb(255 255 255 / 62%);
+  --jira-glass-border: rgb(72 125 180 / 18%);
+  --jira-glass-muted: #60728d;
+  --jira-glass-track: rgb(74 112 153 / 12%);
+  --jira-current-bar: #4c88ff;
+  --jira-previous-bar: #4bd8dc;
+  position: relative;
+  isolation: isolate;
+  border-color: var(--jira-glass-border);
+  border-radius: 1.25rem;
+  background: var(--jira-glass-surface);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), 0 1.125rem 3rem rgb(37 79 128 / 14%);
+  backdrop-filter: blur(1.125rem) saturate(1.15);
+}
+.dark-theme .card.jira-statistics-shell {
+  --jira-glass-surface: rgb(12 21 35 / 86%);
+  --jira-glass-inner: rgb(7 16 29 / 54%);
+  --jira-glass-border: rgb(126 181 255 / 20%);
+  --jira-glass-muted: #9fb2cc;
+  --jira-glass-track: rgb(128 164 207 / 16%);
+  --jira-current-bar: #6fa2ff;
+  --jira-previous-bar: #62e5e6;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), 0 1.125rem 3rem rgb(0 0 0 / 36%);
+}
+.card.jira-statistics-shell::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 38% 58% 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 20% 0%, rgb(66 155 255 / 20%), transparent 68%);
+  content: "";
+  pointer-events: none;
+}
+.jira-statistics-shell > .dashboard-widget-head {
+  min-height: 3.5rem;
+  padding: .875rem 1.25rem;
+  border-bottom: 0;
+  background: linear-gradient(90deg, rgb(76 136 255 / 8%), transparent 42%);
+}
+.jira-statistics-shell > .dashboard-widget-head strong { font-size: 1.0625rem; letter-spacing: -.012em; }
+.jira-statistics-card .jira-dimension-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .875rem 1.25rem .625rem;
+}
+.jira-statistics-card .jira-period-fieldset {
+  gap: .25rem;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: .3125rem;
+  border: 1px solid var(--jira-glass-border);
+  border-radius: .75rem;
+  background: var(--jira-glass-track);
+}
+.jira-statistics-card .jira-period-button-group label {
+  width: auto;
+  min-width: 5.25rem;
+  margin: 0;
+  padding: .5rem .875rem;
+  border: 0;
+  border-radius: .5rem;
+  background: transparent;
+  box-shadow: none;
+  color: var(--jira-glass-muted);
+  font-weight: 500;
+}
+.jira-statistics-card .jira-period-button-group input:checked + label {
+  background: var(--jira-glass-inner);
+  color: var(--text-primary);
+  box-shadow: 0 .1875rem .75rem rgb(36 86 143 / 13%);
+}
+.jira-statistics-card .segmented-ranking .role-segments {
+  flex: 0 0 auto;
+  height: 2.625rem;
+  padding: .25rem;
+  border: 1px solid var(--jira-glass-border);
+  border-radius: .75rem;
+  background: var(--jira-glass-track);
+}
+.jira-statistics-card .segmented-ranking .role-segments::before {
+  top: .25rem;
+  height: 2rem;
+  border-radius: .5rem;
+  background: var(--jira-glass-inner);
+  box-shadow: 0 .1875rem .75rem rgb(36 86 143 / 13%);
+}
+.jira-statistics-card .segmented-ranking .role-segment {
+  padding: .35rem .75rem;
+  color: var(--jira-glass-muted);
+  font-weight: 500;
+}
+.jira-statistics-card .segmented-ranking .role-segment:hover {
+  color: var(--text-primary);
+  background: transparent;
+}
+.jira-statistics-card .segmented-ranking .role-segment.active {
+  color: var(--text-primary);
+  background: transparent;
+  font-weight: 500;
+}
+.jira-statistics-card .jira-current-jql {
+  gap: .4375rem;
+  margin: .625rem 1.25rem 0;
+  padding: .75rem .875rem;
+  border: 1px solid var(--jira-glass-border);
+  border-radius: .75rem;
+  background: var(--jira-glass-inner);
+  color: var(--jira-glass-muted);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 42%);
+}
+.dark-theme .jira-statistics-card .jira-current-jql { box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%); }
+.jira-statistics-card .jira-current-jql-head button {
+  border-color: transparent;
+  background: transparent;
+}
+.jira-statistics-card .jira-current-jql-head button:hover {
+  border-color: var(--jira-glass-border);
+  background: var(--jira-glass-track);
+}
+.jira-statistics-card .workload-chart-scroll {
+  margin: .75rem 1.25rem 1.25rem;
+  padding: 1rem;
+  border: 0;
+  border-radius: .875rem;
+  background: var(--jira-glass-inner);
+}
+.jira-statistics-card .report-preview-toolbar { border-bottom: 0; }
+@media (prefers-reduced-transparency: reduce) {
+  .card.jira-statistics-shell { background: var(--bg-surface); backdrop-filter: none; }
+  .jira-statistics-card .jira-current-jql,
+  .jira-statistics-card .workload-chart-scroll { background: var(--bg-primary); }
+}
+@media (max-width: 900px) {
+  .jira-statistics-card .jira-dimension-controls { align-items: stretch; flex-direction: column; }
+  .jira-statistics-card .segmented-ranking .role-segments,
+  .jira-statistics-card .jira-period-fieldset { align-self: flex-start; }
+}
 /* From Uiverse.io by 00Kubi; scoped to ranking-card product dimensions. */ 
 .segmented-ranking .product-line-segments {
   position: relative;
@@ -98,8 +241,8 @@
   .segmented-ranking .role-segment { transition: none; }
 }
 
-/* Rank decorations use Chart.js row coordinates; data and period colors remain on the canvas. */
-.ranking-medal {
+/* Plain ordinal positions use Chart.js row coordinates; data and period colors remain on the canvas. */
+.ranking-position {
   position: absolute;
   left: 2px;
   display: grid;
@@ -107,34 +250,12 @@
   width: 24px;
   height: 24px;
   margin-top: -12px;
-  border: 1px solid var(--medal-edge);
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--medal-light), var(--medal-base));
-  color: var(--medal-ink);
-  font-size: 12px;
-  font-weight: 800;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--medal-edge) 12%, transparent), inset 0 1px 2px #ffffffa0;
-  overflow: hidden;
-  animation: ranking-medal-enter 420ms ease-out var(--rank-delay) both;
-  transition: filter .2s;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -.01em;
 }
-.ranking-medal--gold { --medal-light: #fff1aa; --medal-base: #e6b63d; --medal-edge: #b88616; --medal-ink: #634400; }
-.ranking-medal--silver { --medal-light: #f2f5fa; --medal-base: #b9c5d4; --medal-edge: #8492a6; --medal-ink: #334155; }
-.ranking-medal--bronze { --medal-light: #f9dcc5; --medal-base: #dba173; --medal-edge: #af7547; --medal-ink: #653913; }
-.dark-theme .ranking-medal--gold { --medal-light: #edce70; --medal-base: #bb8a28; --medal-edge: #f3d581; --medal-ink: #352400; }
-.dark-theme .ranking-medal--silver { --medal-light: #d2dbe6; --medal-base: #93a4b8; --medal-edge: #d7e1ed; --medal-ink: #1e293b; }
-.dark-theme .ranking-medal--bronze { --medal-light: #e6bc98; --medal-base: #b78056; --medal-edge: #ecc5a2; --medal-ink: #39200c; }
-.ranking-medal--gold::after {
-  content: '';
-  position: absolute;
-  inset: -35%;
-  background: linear-gradient(110deg, transparent 35%, #ffffff90 50%, transparent 65%);
-  animation: ranking-medal-shine 4s ease-in-out infinite;
-  pointer-events: none;
-}
-.ranking-medal:hover { filter: brightness(1.12); }
-@keyframes ranking-medal-enter { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: scale(1); } }
-@keyframes ranking-medal-shine { 0%, 55% { transform: translateX(-100%); } 85%, 100% { transform: translateX(100%); } }
 [data-page-widget="role-workload"] > .async-feedback {
   margin: 0 1rem .5rem;
   padding: .5rem 0;
@@ -144,7 +265,3 @@
 }
 [data-page-widget="role-workload"] > .async-feedback[data-state="success"] { display: none; }
 [data-page-widget="role-workload"] > .async-feedback .async-feedback__track { height: 4px; }
-@media (prefers-reduced-motion: reduce) {
-  .ranking-medal, .ranking-medal--gold::after { animation: none; transition: none; }
-  .ranking-medal--gold::after { display: none; }
-}

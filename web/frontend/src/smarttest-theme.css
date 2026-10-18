@@ -21,8 +21,8 @@
     --success: #22C55E;
     --warning: #F59E0B;
     --danger: #EF4444;
-    --jira-current-bar: #9DD5FA;
-    --jira-previous-bar: #FFD3AE;
+    --jira-current-bar: #4C88FF;
+    --jira-previous-bar: #4BD8DC;
     --project-status-normal-bg: #00875A; --project-status-normal-fg: #FFFFFF;
     --project-status-warning-bg: #FF991F; --project-status-warning-fg: #172B4D;
     --project-status-block-bg: #BF2600; --project-status-block-fg: #FFFFFF;
@@ -54,8 +54,8 @@ body.dark-theme {
     --accent: #38BDF8;
     --accent-hover: #7DD3FC;
     --accent-light: rgba(56, 189, 248, 0.15);
-    --jira-current-bar: #789AAF;
-    --jira-previous-bar: #B99B85;
+    --jira-current-bar: #6FA2FF;
+    --jira-previous-bar: #62E5E6;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
@@ -196,6 +196,12 @@ input, select, textarea {
 .dashboard-workspace.is-editing .dashboard-widget-head [data-remove-widget] { display: inline-grid; place-items: center; }
 .page-ranking-widget > [data-widget-body] { min-height: 12rem; }
 .jira-statistics-state { display: grid; height: 100%; place-items: center; padding: 1rem; color: var(--text-secondary); }
+.jira-current-jql { display: grid; gap: .25rem; margin: .5rem 1rem; color: var(--text-secondary); font-size: .75rem; }
+.jira-current-jql-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.jira-current-jql-head button { display: inline-grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-secondary); background: var(--bg-surface); font: inherit; cursor: pointer; }
+.jira-current-jql-head button svg { width: 1rem; height: 1rem; }
+.jira-current-jql-head button:hover { color: var(--text-primary); border-color: var(--accent); }
+.jira-current-jql code { color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .dashboard-workspace.is-editing .dashboard-widget-card { outline: 1px dashed color-mix(in srgb,var(--accent) 55%,var(--border-color)); }
 .product-space-groups { display: grid; gap: 1rem; }
 .product-space-group { overflow: hidden; }

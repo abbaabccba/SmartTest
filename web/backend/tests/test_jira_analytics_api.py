@@ -102,7 +102,7 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
             time.sleep(.01)
         assert state == 'completed', api.get(f"/api/jira/cards/{card}/tasks/{started[card]['taskId']}").json()
         payload = api.get(f'/api/jira/cards/{card}/statistics').json()
-        assert sum(person['commentCount'] for line in payload['productLines'] for person in line['people']) == 2
+        assert sum(person['commentCount'] for line in payload['periods']['year']['productLines'] for person in line['people']) == 2
     assert len(queries) == initial_queries
     assert all(query.startswith('(status = Open OR project = SH) AND ((created >=') for query in queries)
     assert all(query.endswith('ORDER BY key') for query in queries)
@@ -111,8 +111,7 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
     for card in ('self-test', 'task', 'customer-feedback'):
         assert sum(card_definition(card).custom_jql in query for query in queries) == (5 if same_scope else 1 if card == 'self-test' else 2)
     assert any(query != queries[0] for query in queries)
-    api.post('/api/jira/cards/task/query',json={'period':'month','intent':'reuse'})
-    assert api.get('/api/jira/cards/customer-feedback/statistics').json()['period'] == 'year'
+    assert tuple(api.get('/api/jira/cards/customer-feedback/statistics').json()['periods']) == ('week', 'month', 'quarter', 'year')
     assert len(queries) == initial_queries
     reopened = JiraAnalyticsRepository(database_factory())
     assert reopened.state('new-session','coco',card_key='task')['activeSnapshotId']
@@ -136,8 +135,8 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
     assert state == 'completed'
     fresh = api.get('/api/jira/cards/task/statistics').json()
     old = api.get('/api/jira/cards/customer-feedback/statistics').json()
-    assert sum(p['commentCount'] for line in fresh['productLines'] for p in line['people']) == 4
-    assert sum(p['commentCount'] for line in old['productLines'] for p in line['people']) == 2
+    assert sum(p['commentCount'] for line in fresh['periods']['year']['productLines'] for p in line['people']) == 4
+    assert sum(p['commentCount'] for line in old['periods']['year']['productLines'] for p in line['people']) == 2
     assert len(queries) == initial_queries + 2
 
 
@@ -161,7 +160,7 @@ def test_each_explicit_apply_refreshes_activities_and_failure_keeps_prior_result
     failed = api.get('/api/jira/cards/self-test/statistics').json()
     assert failed['state'] == 'failed' and failed['error'] == 'RuntimeError'
     assert failed['query']['activeSnapshotId'] == first['snapshotId']
-    assert sum(p['commentCount'] for line in failed['productLines'] for p in line['people']) == 1
+    assert sum(p['commentCount'] for line in failed['periods']['year']['productLines'] for p in line['people']) == 1
     fail[0], copies[0] = False, 2
     for _ in range(2):
         started = api.post('/api/jira/cards/self-test/query',json={'period':'year'}).json()
@@ -169,8 +168,7 @@ def test_each_explicit_apply_refreshes_activities_and_failure_keeps_prior_result
     assert len(queries) == 7
     before = len(queries)
     ready = api.get('/api/jira/cards/self-test/statistics').json()
-    assert sum(p['commentCount'] for line in ready['productLines'] for p in line['people']) == 2
-    api.post('/api/jira/cards/self-test/query',json={'intent':'reuse','period':'month'})
+    assert sum(p['commentCount'] for line in ready['periods']['year']['productLines'] for p in line['people']) == 2
     assert len(queries) == before
 
 
@@ -236,8 +234,9 @@ def test_completed_current_activity_year_is_visible_while_previous_year_and_basi
         basic_release.set()
         for _ in range(100):
             payload = api.get('/api/jira/cards/self-test/statistics').json()
-            if payload.get('availability',{}).get('current',{}).get('comment'): break
+            if payload.get('periods',{}).get('year',{}).get('availability',{}).get('current',{}).get('comment'): break
             time.sleep(.01)
+        payload = payload['periods']['year']
         assert payload['availability']['current']['comment'] is True
         assert payload['availability']['current']['basic'] is True
         assert payload['availability']['previous']['comment'] is False
@@ -321,6 +320,17 @@ def test_registered_cards_share_query_task_and_snapshot_flow(
     assert expected in queries[0]
     replay = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     assert replay["state"] == "ready"
+    replay = replay['periods']['month']
+    assert set(replay["currentJqlByProductLineAndMetric"]) == {
+        "China Operator", "Smart Device", "TV", "Global Operator & STB", "Wireless Connection",
+    }
+    metrics = replay["currentJqlByProductLineAndMetric"]["TV"]
+    assert expected in metrics["bugCount"]
+    assert metrics["commentCount"] == metrics["verifyCount"] == metrics["bugCount"]
+    assert 'resolution = "Invalid"' in metrics["invalidCount"]
+    assert not {"activeJql", "activeComparisonJql", "userJql"} & replay.keys()
+    assert not any('created < "' in query for metrics in replay["currentJqlByProductLineAndMetric"].values()
+                   for query in metrics.values())
 
 
 def test_creator_group_failure_is_explicit_and_preserves_previous_snapshot(
@@ -339,7 +349,7 @@ def test_creator_group_failure_is_explicit_and_preserves_previous_snapshot(
     response = api.get("/api/jira/cards/self-test/statistics").json()
     assert response["state"] == "failed"
     assert response["error"] == "RuntimeError"
-    assert response["teamTotal"] == 0
+    assert response["periods"]["month"]["teamTotal"] == 0
 
 
 def test_old_snapshot_without_qa_creator_group_boundary_is_not_replayed_or_requeried(
@@ -403,6 +413,7 @@ def test_effective_bug_query_validation_execution_database_and_explicit_unmapped
         effective = connection.execute(
             text("SELECT jql FROM jira_analytics_snapshots WHERE card_key='self-test'")
         ).fetchone()[0]
+    statistics = statistics['periods']['year']
     displayed = sum(person['bugCount'] for line in statistics['productLines'] for person in line['people'])
     assert saved == 4
     assert statistics['teamTotal'] == 2
@@ -433,7 +444,7 @@ def test_statistics_exposes_query_terminal_state_and_retains_previous_snapshot(
     payload = api.get("/api/jira/cards/self-test/statistics").json()
     assert payload["state"] == terminal
     assert payload["error"]
-    assert ("productLines" in payload) is previous
+    assert ("periods" in payload) is previous
 
 
 def test_lost_task_is_interrupted_without_requery_and_previous_progress_does_not_finish_new_task(
@@ -444,7 +455,7 @@ def test_lost_task_is_interrupted_without_requery_and_previous_progress_does_not
     assert wait_terminal(api, first["taskId"]) == "completed"
     statistics = api.get("/api/jira/cards/self-test/statistics").json()
     assert statistics["state"] == "ready"
-    assert statistics["teamTotal"] == 0
+    assert statistics["periods"]["month"]["teamTotal"] == 0
     restored = api.get("/api/jira/cards/self-test/statistics").json()["query"]
     assert restored["activeSnapshotId"] == first["snapshotId"]
     entered, release = Event(), Event()
@@ -462,6 +473,7 @@ def test_lost_task_is_interrupted_without_requery_and_previous_progress_does_not
         assert loading["query"]["pendingSnapshotId"] == current["snapshotId"]
         assert loading["query"]["activeSnapshotId"] == first["snapshotId"]
         from core.product_lines import DASHBOARD_PRODUCT_LINES
+        loading = loading["periods"]["month"]
         assert [line["id"] for line in loading["productLines"]] == [line.name for line in DASHBOARD_PRODUCT_LINES]
         assert all(not line["people"] for line in loading["productLines"])
         assert loading["availability"]["current"] == {"basic": False, "comment": False, "verify": False}
@@ -487,7 +499,7 @@ def test_lost_task_is_interrupted_without_requery_and_previous_progress_does_not
     payload = api.get("/api/jira/cards/self-test/statistics").json()
     assert payload["state"] == "failed"
     assert payload["error"] == "query_interrupted"
-    assert "productLines" in payload
+    assert "periods" in payload
     assert api.get("/api/jira/cards/self-test/statistics").json()["query"]["pendingSnapshotId"] == ""
 
 
@@ -546,7 +558,7 @@ def test_analytics_state_is_not_visible_to_another_account(
     first.post("/api/auth/login", json={"username": "other", "password": "secret"})
 
     assert first.get("/api/jira/analytics/state").json()["conditions"] is None
-    assert first.get("/api/jira/cards/self-test/statistics").json() == {"state": "no_snapshot", "period": "month"}
+    assert first.get("/api/jira/cards/self-test/statistics").json() == {"state": "no_snapshot"}
 
 
 def test_statistics_replays_only_the_applied_jql_collection_without_extra_scope(
@@ -566,24 +578,24 @@ def test_statistics_replays_only_the_applied_jql_collection_without_extra_scope(
         }}], jql) if jql.startswith("(first)") else []
     monkeypatch.setattr(Gateway, "search_all_payloads", search)
     api = client(tmp_path, database_factory=database_factory)
-    assert api.get("/api/jira/cards/self-test/statistics").json() == {"state": "no_snapshot", "period": "month"}
+    assert api.get("/api/jira/cards/self-test/statistics").json() == {"state": "no_snapshot"}
     def apply(jql):
         task_id = query_card(api, {"mode": "advanced", "jql": jql}).json()["taskId"]
         assert wait_terminal(api, task_id) == "completed"
     apply("first")
     payload = api.get("/api/jira/cards/self-test/statistics").json()
     assert payload["state"] == "ready"
-    assert payload["teamTotal"] == 1
-    assert payload["productLines"][0]["people"] == [{"identity": "fan.xu", "displayName": "Fan Xu",
+    assert payload["periods"]["year"]["teamTotal"] == 1
+    assert payload["periods"]["year"]["productLines"][0]["people"] == [{"identity": "fan.xu", "displayName": "Fan Xu",
         "bugCount": 1, "commentCount": 0, "invalidCount": 0}]
     monkeypatch.setattr(Gateway, "user_groups", lambda _self, _account: (_ for _ in ()).throw(AssertionError("reuse queried Jira")))
-    reused = api.post("/api/jira/cards/self-test/query", json={"intent": "reuse"}).json()
+    reused = api.get("/api/jira/cards/self-test/statistics").json()
     assert reused["state"] == "ready"
     monkeypatch.setattr(Gateway, "user_groups", lambda self, account: {
         "meng.wang1": ("fae-wifi-qa",), "fan.xu": ("fae-iptv-qa",),
     }[account])
     apply("second")
-    assert api.get("/api/jira/cards/self-test/statistics").json()["teamTotal"] == 0
+    assert api.get("/api/jira/cards/self-test/statistics").json()["periods"]["year"]["teamTotal"] == 0
     fixed = self_test_jira_conditions()
     assert queries[0] == f'(first) AND ({fixed})'
     assert queries[2] == f'(second) AND ({fixed})'
@@ -646,7 +658,7 @@ def test_cards_exclude_non_qa_at_task_aggregation_and_reject_old_aggregation_sna
         assert query.endswith("ORDER BY created DESC")
     replay = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     for period in ["current", "previous"]:
-        summary = replay[period]
+        summary = replay["periods"]["year"][period]
         assert {person["identity"] for line in summary["productLines"] for person in line["people"]} == {"qa", "wifi"}
         assert summary["teamTotal"] == 2
         assert summary["productLines"][2]["people"][0]["identity"] == "qa"
@@ -662,16 +674,16 @@ def test_cards_exclude_non_qa_at_task_aggregation_and_reject_old_aggregation_sna
     assert stale["state"] == "no_snapshot"
     assert "productLines" not in stale
     assert len(executed) == 2
-    missing = api.post(f"/api/jira/cards/{card_key}/query", json={"intent": "reuse"}).json()
+    missing = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     assert missing["state"] == "no_snapshot" and "taskId" not in missing
-    replacement = api.post(f"/api/jira/cards/{card_key}/query", json={"intent": "refresh"}).json()
+    replacement = api.post(f"/api/jira/cards/{card_key}/query").json()
     assert replacement["snapshotId"] != started["snapshotId"]
     for _ in range(100):
         task = api.get(f"/api/jira/cards/{card_key}/tasks/{replacement['taskId']}").json()
         if task["state"] not in {"queued", "running"}: break
         time.sleep(.01)
     assert task["state"] == "completed"
-    reused = api.post(f"/api/jira/cards/{card_key}/query", json={"intent": "reuse"}).json()
+    reused = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     assert reused["query"]["activeSnapshotId"] == replacement["snapshotId"]
     assert len(executed) == 4
 
@@ -708,10 +720,10 @@ def test_card_bulk_query_requests_comments_and_replays_comment_authors(
     refresh_test_history(api)
     replay = api.get(f"/api/jira/cards/{card_key}/statistics").json()
     for period in ["current", "previous"]:
-        people = replay[period]["productLines"][4]["people"]
+        people = replay["periods"]["year"][period]["productLines"][4]["people"]
         verifier = next(person for person in people if person["identity"] == "meng.wang1")
         assert verifier["verifyCount"] == 1
-        commenter = next(person for person in replay[period]["productLines"][4]["people"] if person["identity"] == "meng.wang1")
+        commenter = next(person for person in replay["periods"]["year"][period]["productLines"][4]["people"] if person["identity"] == "meng.wang1")
         assert commenter["commentCount"] == 1
         assert all("p0Count" not in person for person in people)
         assert all("resolvedCount" not in person for person in people)
@@ -739,6 +751,7 @@ def test_interrupted_layers_restore_complete_active_or_keep_first_basic_preview(
     assert wait_terminal(api, started["taskId"]) == terminal
     payload = api.get("/api/jira/cards/self-test/statistics").json()
     assert payload["state"] == terminal
+    payload = payload["periods"]["year"] | {"query": payload["query"]}
     assert payload["teamTotal"] == 1
     assert payload["availability"]["current"]["basic"] is True
     assert payload["availability"]["current"]["verify"] is False
@@ -814,17 +827,16 @@ def test_comments_and_verify_share_user_annual_scope_and_personnel_lines(
     refresh_test_history(api)
     replay=api.get(f'/api/jira/cards/{card_key}/statistics').json()
     for period in ('current','previous'):
-        people=[person for line in replay[period]['productLines'] for person in line['people']]
-        assert replay[period]['teamTotal']==1
+        people=[person for line in replay['periods']['year'][period]['productLines'] for person in line['people']]
+        assert replay['periods']['year'][period]['teamTotal']==1
         assert sum(p['bugCount'] for p in people)==1
         assert sum(p['commentCount'] for p in people)==2
         assert sum(p['verifyCount'] for p in people)==1
-        actor=next(p for p in replay[period]['productLines'][4]['people'] if p['identity']=='meng.wang1')
+        actor=next(p for p in replay['periods']['year'][period]['productLines'][4]['people'] if p['identity']=='meng.wang1')
         assert actor['commentCount']==2 and actor['verifyCount']==1
         assert 'outside' not in {p['identity'] for p in people}
     for period in ('week','month','quarter'):
-        local=api.post(f'/api/jira/cards/{card_key}/query',json={'intent':'reuse','period':period}).json()
-        assert local['state']=='ready' and 'taskId' not in local
+        assert replay['periods'][period]
     assert len(basic_queries)==2 and len(activity_queries)==4
 
 
@@ -900,7 +912,7 @@ def test_comment_publication_preserves_unchanged_basic_facts_and_merges_independ
     for period in ("current", "previous"):
         people = [
             person
-            for line in payload[period]["productLines"]
+            for line in payload["periods"]["year"][period]["productLines"]
             for person in line["people"]
         ]
         assert sum(person["bugCount"] for person in people) == 1

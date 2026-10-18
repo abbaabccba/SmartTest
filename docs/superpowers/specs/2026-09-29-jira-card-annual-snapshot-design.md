@@ -49,7 +49,7 @@ Verify 遍历其独立集合中每个 issue 的最后一次 `Resolved -> Verifie
 
 ## 本地周期切分
 
-周期控件切换只保存该账号+卡片偏好，并调用本地统计读取接口。服务端从匹配的 active 年度快照读取事实，根据既有 `jira_period_ranges` 计算当前期与上一期边界，以 issue 创建时间筛选事实并重建当前统计 payload。
+GET statistics 从匹配的 active 年度快照读取事实，根据既有 `jira_period_ranges` 计算四个周期各自当前期与上一期边界，以 issue 创建时间筛选事实并一次返回完整四周期 payload。周期控件只选择该前端本地 payload，不保存账号+卡片周期偏好，也不调用接口。
 
 Comments 和 Verify 延续现有业务定义：它们归入其 issue 所在周期，不以评论创建时间或验证发生时间二次过滤。此规则保证年度事实可直接按 issue 创建时间切分，并与原有卡片统计一致。
 
@@ -57,11 +57,11 @@ Comments 和 Verify 延续现有业务定义：它们归入其 issue 所在周�
 
 ## 接口与页面
 
-`POST /api/jira/cards/{card_key}/query` 保留为唯一的卡片操作入口。`intent=refresh`、首次无年度快照的 Apply 才建立 Yearly 年度快照；携带 period 的 `intent=reuse` 只保存偏好并从现有年度快照返回本地统计，不创建任务也不访问 Jira。远端集合不再因 Week、Month 或 Quarter 改变。
+`POST /api/jira/cards/{card_key}/query` 只负责显式 Apply 的最大年度 snapshot 刷新。它不接受 period preference 或 reuse 意图。远端集合不再因 Week、Month、Quarter 或 Year 的展示选择改变。
 
-`GET /api/jira/cards/{card_key}/statistics` 和周期控件调用的本地读取接口接受/读取周期偏好，只执行 SQLite 切分与聚合。响应继续携带 `state`、当前/上一期统计、ranges、availability 和 query 元数据。
+`GET /api/jira/cards/{card_key}/statistics` 只执行 SQLite 切分与聚合，一次返回 week/month/quarter/year 四套本地视图；每套继续携带当前/上一期统计、ranges、availability，顶层携带 `state` 和 query 元数据。
 
-前端切换周期时仍复用既有 query endpoint 的 `intent=reuse` 契约，但该请求只更新周期偏好并读取本地统计。若年度快照正在加载，页面展示已完成层级的本地预览；未完成指标维持 Loading。账户切换、登出和条件变更继续清理可丢弃前端展示 payload，不删除账号的有效 SQLite 年度快照。
+前端周期切换从已取得的四周期 payload 同步更新周期、统计和 Current JQL，零 API、零数据库读取。若年度快照正在加载，页面展示已完成层级的本地预览；未完成指标维持 Loading。账户切换、登出和条件变更继续清理可丢弃前端展示 payload，不删除账号的有效 SQLite 年度快照。
 
 ## 失效、失败与取消
 

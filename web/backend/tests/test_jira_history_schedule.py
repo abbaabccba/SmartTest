@@ -96,19 +96,19 @@ def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_surv
     task = query_card(api, {'mode': 'advanced', 'jql': 'project=A'}).json()
     assert wait_terminal(api, task['taskId']) == 'completed'
     assert {metric for _, metric in calls} == {'comment'}
-    assert not api.get('/api/jira/cards/self-test/statistics').json()['availability']['current']['verify']
+    assert not api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     schedule = api.app.state.daily_refresh
     refresh_test_history(api)
-    assert api.get('/api/jira/cards/self-test/statistics').json()['availability']['current']['verify']
+    assert api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     task = api.post('/api/jira/cards/self-test/query', json={}).json()
     assert wait_terminal(api, task['taskId']) == 'completed'
     assert sum(metric == 'verify' for _, metric in calls) == 2
-    assert api.get('/api/jira/cards/self-test/statistics').json()['availability']['current']['verify']
+    assert api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     fail[0] = True
     import pytest
     with pytest.raises(Exception): refresh_test_history(api)
-    assert api.get('/api/jira/cards/self-test/statistics').json()['availability']['current']['verify']
+    assert api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     task = query_card(api, {'mode': 'advanced', 'jql': 'project=B'}).json()
     assert wait_terminal(api, task['taskId']) == 'completed'
-    assert not api.get('/api/jira/cards/self-test/statistics').json()['availability']['current']['verify']
+    assert not api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     assert schedule.repository.history_scopes('another-account') == {}

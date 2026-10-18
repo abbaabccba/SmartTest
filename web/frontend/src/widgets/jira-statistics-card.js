@@ -10,6 +10,8 @@ export const JIRA_STATISTICS_CARDS = Object.freeze({
 
 const PERIODS = [{ value: 'week', label: 'Weekly' }, { value: 'month', label: 'Monthly' },
   { value: 'quarter', label: 'Quarterly' }, { value: 'year', label: 'Yearly' }]
+const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
+const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>'
 let periodInstance = 0
 function periodMarkup() {
   const name = `jira-period-${++periodInstance}`
@@ -25,14 +27,17 @@ function metrics(firstMetricLabel) { return Object.freeze([
 
 export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {}) {
   let root = null
+  let shell = null
   let stopped = false
   let timer = null
+  let copyFeedbackTimer = null
   let displayed = false
   let displaySignature = ''
   let displayCache
   let api
   let generation = 0
-  let rankingHost, periods
+  let localPayload = null
+  let rankingHost, periods, currentJql, copyCurrentJql
   let period = 'month'
   let cardKey = 'self-test'
   let cardMetrics = metrics('Bugs')
@@ -52,17 +57,22 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
   }
 
   function render(payload) {
-    if (payload.period) period = payload.period
+    if (payload.periods && (payload.state === 'ready' || !localPayload)) {
+      localPayload = payload
+    }
     selectPeriod()
     if (payload.state === 'no_snapshot') {
+      localPayload = null
       root.prepend(periods)
       ranking.destroy(); displayed = false; displaySignature = ''
       displayCache.write(null)
+      currentJql.textContent = 'Apply a Jira query to display the current JQL.'
       message('Apply a Jira query to display statistics.')
       return false
     }
-    const hasLocalResult = Boolean(payload.productLines || payload.current?.productLines)
-    if (hasLocalResult) draw(payload)
+    const view = localPayload?.periods?.[period] ?? (payload.productLines || payload.current?.productLines ? payload : null)
+    const hasLocalResult = Boolean(view)
+    if (hasLocalResult) draw({ ...view, state: payload.state, period })
     if (payload.state === 'cancelled' && hasLocalResult) {
       message('Previous query cancelled. Showing available local data.')
       return false
@@ -74,6 +84,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       return true
     }
     root.querySelector('[data-jira-statistics-state]')?.remove()
+    if (localPayload) displayCache.write(localPayload)
     return false
   }
 
@@ -116,7 +127,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     const display = { state: payload.state, availability, period, ranges: payload.ranges, comparison, teamTotal: current.teamTotal,
       previousTeamTotal: previous?.teamTotal ?? payload.previousTeamTotal,
       unmappedCount: Number(current.unmappedCount || 0), unassignedCount: Number(current.unassignedCount || 0),
-      productLines: combinedLines,
+      productLines: combinedLines, currentJqlByProductLineAndMetric: payload.currentJqlByProductLineAndMetric,
     }
     const signature = JSON.stringify(display)
     if (displayed && signature === displaySignature) return
@@ -156,24 +167,58 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       datasetLabel: 'Current period',
       comparisonLabel: 'Previous period',
       ranges: payload.ranges,
+      onSelectionChange: ({ productLine, mode }) => {
+        const jql = display.currentJqlByProductLineAndMetric?.[productLine]?.[mode]
+        currentJql.textContent = jql ?? 'Current JQL unavailable.'
+      },
     }
     if (displayed) ranking.update(presentation)
     else ranking.mount(rankingHost, presentation)
-    root.querySelector('.report-preview-toolbar').after(periods)
+    placeDimensionControls()
     selectPeriod()
     displayed = true
     displaySignature = signature
-    if (payload.state === 'ready') displayCache.write(display)
+    if (payload.state === 'ready' && !localPayload) displayCache.write(display)
   }
 
   function selectPeriod() {
     for (const input of periods.querySelectorAll('input')) input.checked = input.value === period
   }
 
-  async function load(request = ++generation, query = false, selectedPeriod) {
+  function placeDimensionControls() {
+    const toolbar = root.querySelector('.report-preview-toolbar')
+    if (!toolbar) return
+    let controls = root.querySelector('[data-jira-dimension-controls]')
+    if (!controls) {
+      controls = document.createElement('div')
+      controls.className = 'jira-dimension-controls'
+      controls.dataset.jiraDimensionControls = ''
+      toolbar.after(controls)
+    }
+    controls.append(periods, root.querySelector('[data-mode-segments]'))
+  }
+
+  async function copyJql() {
+    try {
+      await navigator.clipboard.writeText(currentJql.textContent)
+      copyCurrentJql.setAttribute('aria-label', 'JQL copied')
+      copyCurrentJql.innerHTML = CHECK_ICON
+    } catch {
+      copyCurrentJql.setAttribute('aria-label', 'JQL copy failed')
+      copyCurrentJql.textContent = '!'
+    }
+    clearTimeout(copyFeedbackTimer)
+    copyFeedbackTimer = setTimeout(() => {
+      if (!copyCurrentJql) return
+      copyCurrentJql.setAttribute('aria-label', 'Copy current JQL')
+      copyCurrentJql.innerHTML = COPY_ICON
+    }, 1500)
+  }
+
+  async function load(request = ++generation, query = false) {
     clearTimeout(timer)
     try {
-      const payload = await (query ? api.queryStatistics(selectedPeriod, selectedPeriod ? 'reuse' : 'refresh') : api.getStatistics())
+      const payload = await (query ? api.queryStatistics() : api.getStatistics())
       if (stopped || request !== generation) return
       const again = render(payload)
       if (again && !stopped) timer = setTimeout(() => { void load() }, pollDelay)
@@ -185,25 +230,37 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
   return {
     mount(target, config = {}) {
       root = target; stopped = false
+      root.classList.add('jira-statistics-card')
+      shell = root.closest('.card')
+      shell?.classList.add('jira-statistics-shell')
       cardKey = config.cardKey ?? 'self-test'
       const metadata = JIRA_STATISTICS_CARDS[cardKey]
       if (!metadata) throw new Error(`Unknown Jira statistics card: ${cardKey}`)
       cardMetrics = metrics(metadata.firstMetricLabel)
       period = 'month'
-      root.innerHTML = `${periodMarkup()}<div data-jira-ranking></div>`
+      localPayload = null
+      root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div data-jira-ranking></div>`
       rankingHost = root.querySelector('[data-jira-ranking]')
       periods = root.querySelector('[data-jira-periods]')
+      currentJql = root.querySelector('[data-current-jql]')
+      copyCurrentJql = root.querySelector('[data-copy-current-jql]')
+      copyCurrentJql.addEventListener('click', copyJql)
       periods.addEventListener('change', event => {
         const selected = event.target.closest('[data-jira-period]')?.dataset.jiraPeriod
-        if (selected && selected !== period && api) {
-          period = selected; selectPeriod(); void load(++generation, true, period)
-        }
+        if (selected && selected !== period && localPayload?.periods?.[selected]) {
+          period = selected
+          draw({ ...localPayload.periods[selected], state: localPayload.state, period })
+        } else selectPeriod()
       })
       displayed = false
       displayCache = createDisposableDisplayCache('jiraStatistics', config.account, cardKey)
       const cached = displayCache.read()
-      if (cached?.productLines && (cardKey !== 'customer-feedback'
-        || cached.productLines.every(line => Array.isArray(line.components) && Number.isFinite(line.issueCount) && Number.isFinite(line.invalidCount)))) draw(cached)
+      if (cached?.periods?.month && (cardKey !== 'customer-feedback'
+        || Object.values(cached.periods).every(view => view.productLines.every(line => Array.isArray(line.components)
+          && Number.isFinite(line.issueCount) && Number.isFinite(line.invalidCount))))) render(cached)
+      else if (cached?.productLines && (cardKey !== 'customer-feedback'
+        || cached.productLines.every(line => Array.isArray(line.components) && Number.isFinite(line.issueCount)
+          && Number.isFinite(line.invalidCount)))) draw(cached)
       else {
         draw({ state: 'loading', productLines: [],
           availability: { current: { basic: false, activity: false }, previous: { basic: false, activity: false } } })
@@ -215,7 +272,11 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     },
     update({ query = false } = {}) { if (!stopped && api) void load(++generation, query) },
     destroy() {
-      stopped = true; clearTimeout(timer); ranking.destroy()
+      stopped = true; clearTimeout(timer); clearTimeout(copyFeedbackTimer); ranking.destroy()
+      copyCurrentJql = null
+      root?.classList.remove('jira-statistics-card')
+      shell?.classList.remove('jira-statistics-shell')
+      shell = null
       root = null; displayed = false
     },
   }

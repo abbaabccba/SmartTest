@@ -63,6 +63,19 @@ function mount(api, chartFactory = vi.fn(chartMock), account = 'coco', cardKey =
 }
 
 describe('Jira statistics card', () => {
+  it('scopes its visual treatment to the Jira card shell without replacing product-line controls', async () => {
+    document.body.innerHTML = '<section class="card"><div id="root"></div></section>'
+    const shell = document.querySelector('section')
+    const widget = createJiraStatisticsCard({ chartFactory: vi.fn(chartMock) })
+    widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => ({ state: 'ready', productLines }) }, account: 'coco' })
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-product-line-segments] button')).toHaveLength(5))
+    expect(shell.classList.contains('jira-statistics-shell')).toBe(true)
+    expect(document.querySelector('#root').classList.contains('jira-statistics-card')).toBe(true)
+    expect([...document.querySelectorAll('[data-product-line-segments] button')].map(button => button.textContent))
+      .toEqual(productLines.map(line => line.label))
+    widget.destroy()
+    expect(shell.classList.contains('jira-statistics-shell')).toBe(false)
+  })
   it('declares three cards with shared component metadata', () => {
     expect(Object.keys(JIRA_STATISTICS_CARDS)).toEqual(['self-test', 'task', 'customer-feedback'])
     expect(Object.values(JIRA_STATISTICS_CARDS).map(card => card.title)).toEqual([
@@ -73,19 +86,38 @@ describe('Jira statistics card', () => {
     expect(JIRA_STATISTICS_CARDS.task.firstMetricLabel).toBe('Tasks')
     expect(JIRA_STATISTICS_CARDS['customer-feedback'].title).toContain('Customer Feedback')
   })
-  it('restores a card period and queries only when its own period is changed', async () => {
-    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, period: 'quarter' }),
-      queryStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, period: 'week' }) }
-    const { widget } = mount(api)
-    await vi.waitFor(() => expect(document.querySelector('[data-jira-period="quarter"]').checked).toBe(true))
+  it('switches all four local period views without another API request', async () => {
+    const periodsPayload = Object.fromEntries(['week', 'month', 'quarter', 'year'].map((value, index) => [value, {
+      productLines: productLines.map((line, lineIndex) => ({ ...line,
+        people: lineIndex ? line.people : [{ ...line.people[0], bugCount: index + 1 }] })),
+      currentJqlByProductLineAndMetric: Object.fromEntries(productLines.map(line => [line.id, {
+        bugCount: `${value}:${line.id}`, commentCount: `${value}:${line.id}`, verifyCount: `${value}:${line.id}`,
+        invalidCount: `${value}:${line.id}:Invalid`,
+      }])),
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', periods: periodsPayload }),
+      queryStatistics: vi.fn() }
+    const { widget, chartFactory } = mount(api)
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]').textContent).toBe('month:China Operator'))
     const periods = document.querySelector('[data-jira-periods]')
-    expect(periods.previousElementSibling.matches('.report-preview-toolbar')).toBe(true)
+    const controls = document.querySelector('[data-jira-dimension-controls]')
+    expect([...controls.children]).toEqual([
+      periods,
+      document.querySelector('[data-mode-segments]'),
+    ])
+    expect(controls.previousElementSibling.matches('.report-preview-toolbar')).toBe(true)
     expect(periods.parentElement).not.toBe(document.querySelector('[data-product-line-segments]').parentElement)
-    document.querySelector('[data-jira-period="week"]').click()
-    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith('week', 'reuse'))
-    expect(document.querySelector('[data-jira-period="week"]').checked).toBe(true)
+    const chart = chartFactory.mock.results[0].value
+    for (const [value, count] of [['week', 1], ['quarter', 3], ['year', 4], ['month', 2]]) {
+      document.querySelector(`[data-jira-period="${value}"]`).click()
+      expect(document.querySelector(`[data-jira-period="${value}"]`).checked).toBe(true)
+      expect(document.querySelector('[data-current-jql]').textContent).toBe(`${value}:China Operator`)
+      expect(chart.data.datasets[0].data).toEqual([count])
+    }
+    expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    expect(api.queryStatistics).not.toHaveBeenCalled()
     widget.update({ query: true })
-    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith(undefined, 'refresh'))
+    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith())
     widget.destroy()
   })
   it('keeps radio identities independent across card instances and associates visible labels', () => {
@@ -101,7 +133,8 @@ describe('Jira statistics card', () => {
     expect(firstInputs[0].name).not.toBe(secondInputs[0].name)
     expect(firstInputs.map(input => input.labels[0].textContent)).toEqual(['Weekly', 'Monthly', 'Quarterly', 'Yearly'])
     firstInputs[0].labels[0].click()
-    expect(firstInputs[0].checked).toBe(true)
+    expect(firstInputs[0].checked).toBe(false)
+    expect(firstInputs[1].checked).toBe(true)
     expect(secondInputs[1].checked).toBe(true)
     first.destroy(); second.destroy()
   })
@@ -130,6 +163,48 @@ describe('Jira statistics card', () => {
     document.querySelector('[data-product-line-segments] button[data-value="TV"]').click()
     document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').click()
     expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    widget.destroy()
+  })
+  it('keeps Comments and Verify on the base JQL while Invalid selects its constrained JQL', async () => {
+    const currentJqlByProductLineAndMetric = Object.fromEntries(productLines.map(line => [line.id, {
+      bugCount: `scope = "${line.id}"`, commentCount: `scope = "${line.id}"`, verifyCount: `scope = "${line.id}"`,
+      invalidCount: `scope = "${line.id}" AND resolution = "Invalid"`,
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, currentJqlByProductLineAndMetric }) }
+    const { widget } = mount(api, undefined, 'coco', 'task')
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]')?.textContent)
+      .toBe('scope = "China Operator"'))
+    const jql = document.querySelector('[data-current-jql]')
+    expect(jql.previousElementSibling.querySelector('strong').textContent).toBe('Current JQL')
+    document.querySelector('[data-product-line-segments] button[data-value="TV"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="commentCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="invalidCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV" AND resolution = "Invalid"')
+    expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    widget.destroy()
+  })
+  it('copies the currently displayed JQL from the top-right action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const currentJqlByProductLineAndMetric = Object.fromEntries(productLines.map(line => [line.id, {
+      bugCount: `scope = "${line.id}"`, commentCount: `scope = "${line.id}"`, verifyCount: `scope = "${line.id}"`,
+      invalidCount: `scope = "${line.id}" AND resolution = "Invalid"`,
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, currentJqlByProductLineAndMetric }) }
+    const { widget } = mount(api)
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]')?.textContent)
+      .toBe('scope = "China Operator"'))
+    const copy = document.querySelector('[data-copy-current-jql]')
+    expect(copy?.closest('.jira-current-jql-head')).not.toBeNull()
+    expect(copy.querySelector('svg')).not.toBeNull()
+    expect(copy.textContent).not.toContain('⧉')
+    copy.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('scope = "China Operator"'))
+    expect(copy.getAttribute('aria-label')).toBe('JQL copied')
     widget.destroy()
   })
   beforeEach(() => { sessionStorage.clear() })
@@ -249,7 +324,7 @@ describe('Jira statistics card', () => {
     const chart = chartFactory.mock.calls.at(-1)[1]
     expect(chart.data.labels).toEqual(['Bob', 'Alice', 'Carol'])
     expect(chart.data.datasets.map(dataset => dataset.data)).toEqual([[3, 2, 0], [0, 5, 4]])
-    expect(chart.data.datasets.map(dataset => dataset.barThickness)).toEqual([12, 12])
+    expect(chart.data.datasets.map(dataset => dataset.barThickness)).toEqual([10, 10])
     expect(chart.data.datasets.every(dataset => dataset.grouped)).toBe(true)
     expect(chart.options.plugins.datalabels.labels.value.formatter(2, { dataIndex: 1, datasetIndex: 0 })).toBe('↓ 3')
     expect(chart.options.plugins.datalabels.labels.value.formatter(5, { dataIndex: 1, datasetIndex: 1 })).toBeNull()

@@ -163,14 +163,13 @@ export function createJiraAnalyticsApi({ fetchImpl = globalThis.fetch, baseUrl =
 }
 
 export function createJiraStatisticsCardApi({ fetchImpl = globalThis.fetch, baseUrl = '/api', cardKey = 'self-test' } = {}) {
-  async function request(query = false, period, intent = 'refresh') {
+  async function request(query = false) {
     const path = `/jira/cards/${encodeURIComponent(cardKey)}/${query ? 'query' : 'statistics'}`
-    const response = await fetchImpl(`${baseUrl}${path}`, { credentials: 'same-origin', ...(query ? { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ intent, ...(period ? { period } : {}) }) } : {}) })
+    const response = await fetchImpl(`${baseUrl}${path}`, { credentials: 'same-origin', ...(query ? { method: 'POST' } : {}) })
     if (!response.ok) throw new ApiUnavailableError(`Jira statistics card unavailable (${response.status}).`, { status: response.status })
     return response.json()
   }
-  return { getStatistics: () => request(), queryStatistics: (period, intent) => request(true, period, intent) }
+  return { getStatistics: () => request(), queryStatistics: () => request(true) }
 }
 
 export function createProjectFactsApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {

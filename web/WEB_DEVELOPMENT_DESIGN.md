@@ -800,9 +800,9 @@ Web SQLite 增加 Confluence 当前态存储，至少包含以下逻辑实体；
 - 各 Jira 卡片在产品线下提供 Week / Month / Quarter，默认 Month，互不影响产品线和统计维度。
 - Core `JIRA_PERIOD_CONDITIONS` 集中声明最近 7 天、30 天和 3 个月；季度使用 Jira `startOfDay("-3M")`，由 Jira 自身时区确定日起边界，不换成 90 天、不自行计算日期。
 - 用户条件与卡片固定条件/时间边界只经 `compose_jql` 生成 effective JQL，校验、执行、SQLite 保存使用同一字符串。
-- 时间选择复用账号+卡片的 SQLite 偏好 owner；Dashboard/Jira 同卡片共用接口和结果 owner。GET 只恢复，不查询远端；旧年度/其他时间范围快照按 effective JQL 判无效。
+- Dashboard/Jira 同卡片共用接口和结果 owner。GET 从同一有效年度 snapshot 一次返回四周期本地视图且不查询远端；前端不保存 period preference。
 - Customer 仍只占位，时间控件复用偏好 owner，不注册查询业务。Confluence 卡片不变。
-- 周期切换发送 reuse 意图，优先精确复用同账号+卡片+已发布用户条件的 effective JQL+roster fingerprint 对应 SQLite 有效历史快照；未命中才校验并查询远端，不新增 TTL。Search 发送 refresh 意图，强制刷新当前周期。命中路径只读已编译 userJql、Core 组合及 SQLite，不访问 fields/validate/gateway。当前选择/最后 attempt 由现 query 的 last_snapshot_id 维护，不篡改采集时间、不删失败历史，旧运行任务不得覆盖新选择。
+- 显式 Apply 调用 POST query 刷新最大年度 snapshot；周期切换只在前端已有 payload 中同步选择数据与 Current JQL，零 API、无 reuse。GET 的命中路径只读已编译 userJql、Core 组合及 SQLite，不访问 fields/validate/gateway。当前有效 snapshot/最后 attempt 仍由现 query owner 维护，不篡改采集时间、不删失败历史，旧运行任务不得覆盖新选择。
 - [x] 集中时间声明、选择恢复、共享查询、布局与耐久测试。
 - [x] 完整前后端测试、lint、build、diffcheck 验收。
 

@@ -35,6 +35,23 @@ it('keeps dimension groups independent while querying both selected values', () 
   card.destroy()
 })
 
+it('reports product and mode selection changes through one presentation callback', () => {
+  const root = document.createElement('div')
+  const onSelectionChange = vi.fn()
+  const card = createRankingCard()
+  card.mount(root, {
+    productLines: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
+    modes: [{ value: 'x', label: 'X' }, { value: 'y', label: 'Y' }],
+    rowsFor: () => [], onSelectionChange,
+  })
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'a', mode: 'x' })
+  root.querySelector('[data-value="b"]').click()
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'b', mode: 'x' })
+  root.querySelector('[data-value="y"]').click()
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'b', mode: 'y' })
+  card.destroy()
+})
+
 it('grows initially and updates the same people without restarting from zero, resetting changed identities only', () => {
   const root = document.createElement('div')
   const chartFactory = vi.fn((_canvas, config) => ({
@@ -104,7 +121,7 @@ it('sorts comparison rows and labels each period with its own share of the displ
   const chart = chartFactory.mock.calls[0][1]
   expect(chart.data.labels).toEqual(['Amy', 'Bob', 'Zed'])
   expect(chart.data.datasets.map(dataset => ({ order: dataset.order, width: dataset.barThickness }))).toEqual([
-    { order: 1, width: 12 }, { order: 2, width: 12 },
+    { order: 1, width: 10 }, { order: 2, width: 10 },
   ])
   expect(chart.data.datasets.every(dataset => dataset.grouped)).toBe(true)
   const percentage = chart.options.plugins.datalabels.labels.percentage.formatter
@@ -257,6 +274,7 @@ it('recolors Jira on theme changes without querying rows or resetting selection 
     root.querySelector('[data-value="b"]').click()
     const chart = chartFactory.mock.results[0].value
     expect(chart.data.datasets.map(dataset => dataset.backgroundColor)).toEqual([['#9DD5FA'], ['#FFD3AE']])
+    expect(chart.data.datasets.every(dataset => dataset.borderRadius === 999 && dataset.borderSkipped === false)).toBe(true)
     const previousData = chart.data.datasets.map(dataset => dataset.data)
     rowsFor.mockClear(); chart.update.mockClear()
     for (const [dark, colors] of [[true, ['#789AAF', '#B99B85']], [false, ['#9DD5FA', '#FFD3AE']]]) {
@@ -329,7 +347,7 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
   }
 })
 
-it('keeps Top3 medals aligned with real chart rows and clears them for summaries and empty data', async () => {
+it('keeps plain Top3 positions aligned with real chart rows and clears them for summaries and empty data', async () => {
   const { Chart, registerables, BasicPlatform } = await import('chart.js')
   Chart.register(...registerables)
   const root = document.createElement('div')
@@ -349,22 +367,22 @@ it('keeps Top3 medals aligned with real chart rows and clears them for summaries
   const config = { rowsFor: () => rows }
   try {
     card.mount(root, config)
-    const medals = [...root.querySelectorAll('[data-ranking-medal]')]
-    expect(medals.map(medal => medal.textContent)).toEqual(['1', '2', '3'])
-    expect(medals.map(medal => medal.getAttribute('aria-label'))).toEqual(['Rank 1: A', 'Rank 2: B', 'Rank 3: C'])
-    medals.forEach((medal, index) => expect(parseFloat(medal.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
+    const positions = [...root.querySelectorAll('[data-ranking-position]')]
+    expect(positions.map(position => position.textContent)).toEqual(['1', '2', '3'])
+    expect(positions.map(position => position.getAttribute('aria-label'))).toEqual(['Rank 1: A', 'Rank 2: B', 'Rank 3: C'])
+    positions.forEach((position, index) => expect(parseFloat(position.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
     chart.resize(800, 260)
-    medals.forEach((medal, index) => expect(parseFloat(medal.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
+    positions.forEach((position, index) => expect(parseFloat(position.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
     card.update(config)
-    expect(root.querySelector('[data-ranking-medal]')).toBe(medals[0])
+    expect(root.querySelector('[data-ranking-position]')).toBe(positions[0])
     rows = [{ name: 'B', count: 9 }]
     card.update(config)
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(1)
-    expect(root.querySelector('[data-ranking-medal]').getAttribute('aria-label')).toBe('Rank 1: B')
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(1)
+    expect(root.querySelector('[data-ranking-position]').getAttribute('aria-label')).toBe('Rank 1: B')
     card.update({ ...config, summaryRowsFor: () => [{ name: 'Total', count: 9, valueLabel: '9' }] })
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(0)
     rows = []; card.update(config)
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(0)
   } finally { card.destroy() }
   expect(root.childElementCount).toBe(0)
 })
