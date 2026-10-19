@@ -3,6 +3,8 @@ from __future__ import annotations
 from time import monotonic
 from uuid import uuid4
 
+from .analytics_refresh import JiraRefreshProgress
+
 from core.logging import smart_log
 from core.async_tasks import TaskCancelled
 from core.jira.gateway import JiraGateway
@@ -100,6 +102,7 @@ class JiraAnalyticsService:
             started = monotonic()
             outcome = "failed"
             processed = 0
+            page_report = None
             def log_stage(stage, since, *, period="both", layer="basic", page_count=0, processed=0, outcome="completed"):
                 smart_log("Jira card load stage", platform="web", domain="jira", extra={
                     "card_key": self.card_key, "snapshot_id": snapshot_id, "stage": stage, "period": period, "layer": layer,
@@ -137,14 +140,19 @@ class JiraAnalyticsService:
                             progress(processed + count, processed + total)
                         if layer == "comment":
                             from .analytics_refresh import refresh_metric
+                            page_report = JiraRefreshProgress(self.business_card_key, layer, report)
                             refresh_metric(self.repository, self.tasks.pages, self.gateway, account, self.business_card_key,
-                                activity_queries[period], self.activity_roster, "comment", token, report)
+                                activity_queries[period], self.activity_roster, "comment", token, report, log_progress=page_report)
+                            page_report = None
                             rows = []
                         else:
+                            page_report = JiraRefreshProgress(self.business_card_key, layer, report)
                             rows = self.gateway.search_all_payloads(
                                 query, fields=list(JiraGateway.CORE_FIELDS),
-                                page_size=100, progress=report,
+                                page_size=100, progress=page_report,
                             )
+                            page_report.finish('completed')
+                            page_report = None
                         processed += observed_total if layer == "comment" else len(rows)
                         log_stage("reuse" if layer == "comment" else "search", since, period=period, layer=layer,
                                   page_count=max(1, (observed_total + 99) // 100), processed=observed_total)
@@ -206,16 +214,23 @@ class JiraAnalyticsService:
                 outcome = "completed"
             except TaskCancelled:
                 outcome = "cancelled"
+                if page_report is not None and not page_report.finished:
+                    page_report.finish(outcome)
                 self.repository.finish(snapshot_id, "cancelled")
                 raise
             except Exception as error:
                 cause = error.__cause__ or error
-                smart_log("Jira card failed", platform="web", domain="jira", level="ERROR", extra={
+                failure = {
                     "card_key": self.card_key, "snapshot_id": snapshot_id, "stage": stage,
                     "period": period, "layer": layer, "outcome": "failed",
                     "cause_type": type(cause).__name__, "error_code": getattr(error, "code", type(error).__name__),
                     "http_status": getattr(getattr(cause, "response", None), "status_code", None),
-                    "duration_ms": round((monotonic() - started) * 1000, 3)})
+                    "duration_ms": round((monotonic() - started) * 1000, 3)}
+                if page_report is not None:
+                    if not page_report.finished:
+                        page_report.finish(**failure)
+                else:
+                    smart_log("Jira card failed", platform="web", domain="jira", level="ERROR", extra=failure)
                 self.repository.finish(snapshot_id, "failed", getattr(error, "code", type(error).__name__))
                 self.on_error(error)
                 raise

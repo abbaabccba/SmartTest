@@ -278,10 +278,6 @@ class JiraGateway:
         started = monotonic()
         for attempt in range(len(self._RETRY_DELAYS) + 1):
             attempt_started = monotonic()
-            smart_log("Jira gateway page request", domain="jira", source="jira_gateway",
-                emit_runtime_event=False, extra={"operation": "search_page", "outcome": "started",
-                "start_at": start, "page_size": page_size, "attempt": attempt + 1,
-                "field_count": len(fields), "expand_changelog": "changelog" in (expand or [])})
             try:
                 payload = api.jql(
                     query,
@@ -291,11 +287,6 @@ class JiraGateway:
                     expand=",".join(expand) if expand else None,
                     validate_query="strict",
                 )
-                smart_log("Jira gateway page request", domain="jira", source="jira_gateway",
-                    emit_runtime_event=False, extra={"operation": "search_page", "outcome": "completed",
-                    "start_at": start, "page_size": page_size, "attempt": attempt + 1,
-                    "duration_ms": round((monotonic() - attempt_started) * 1000, 3),
-                    "processed": len(payload.get("issues") or []) if isinstance(payload, dict) else 0})
                 return payload if isinstance(payload, dict) else {}
             except Exception as exc:
                 # Exception text/args may contain URLs, credentials, JQL or response bodies.

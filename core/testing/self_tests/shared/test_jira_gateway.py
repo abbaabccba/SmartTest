@@ -536,3 +536,15 @@ def test_search_failure_logs_safe_nested_connection_cause_without_exception_text
         secret not in str(records)
         for secret in ("private", "secret", "token", "example.test")
     )
+
+
+def test_successful_search_page_does_not_emit_per_page_logs(monkeypatch):
+    import core.jira.gateway as owner
+    from unittest.mock import Mock
+    logger = Mock()
+    monkeypatch.setattr(owner, 'smart_log', logger)
+    api = Mock()
+    api.jql.return_value = {'issues': [], 'total': 0}
+    gateway = JiraGateway('https://jira.example', '', '', api=api)
+    assert gateway._search_full_page('private query', 0, ['created'], None, 100) == api.jql.return_value
+    logger.assert_not_called()
