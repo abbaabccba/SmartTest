@@ -37,7 +37,7 @@ def test_configuration_rejects_plaintext_secrets_and_missing_or_unsupported_sour
     environment = config.storage_environment({'SMARTTEST_DB_PASSWORD': 'external-secret'},
         config_path=path, platform_name='linux')
     assert environment['SMARTTEST_DB_PASSWORD'] == 'external-secret'
-    with pytest.raises(config.ConfigurationError, match='SMARTTEST_DB_HOST'):
+    with pytest.raises(config.ConfigurationError, match='SMARTTEST_DB_USER'):
         config.ApplicationDatabaseSettings.from_environment(environment)
 
 
@@ -61,3 +61,36 @@ def test_configured_asgi_assembly_uses_mysql_redis_and_explicit_policy(monkeypat
         app.create_configured_app()
     database.close.assert_called_once()
     cache.close.assert_called_once()
+
+
+def test_storage_defaults_use_same_local_endpoints_without_host_or_port():
+    environment = {'SMARTTEST_DB_USER': 'app', 'SMARTTEST_DB_PASSWORD': 'synthetic-secret',
+                   'SMARTTEST_DB_NAME': 'smarttest_web'}
+    database = config.ApplicationDatabaseSettings.from_environment(environment)
+    cache = config.RedisCacheSettings.from_environment(environment)
+    assert (database.host, database.port) == ('127.0.0.1', 13306)
+    assert (cache.host, cache.port) == ('127.0.0.1', 16379)
+    assert config.ApplicationDatabaseSettings('localhost', 'app', 'secret', 'db').port == 13306
+    assert config.RedisCacheSettings('localhost').port == 16379
+
+
+def test_storage_explicit_file_and_environment_endpoints_keep_precedence(tmp_path):
+    path = tmp_path / 'storage.json'
+    path.write_text(json.dumps({'SMARTTEST_DB_HOST': 'file-db', 'SMARTTEST_DB_PORT': 3306,
+        'SMARTTEST_REDIS_HOST': 'file-cache', 'SMARTTEST_REDIS_PORT': 6379}), encoding='utf-8')
+    environment = config.storage_environment({'SMARTTEST_DB_USER': 'app',
+        'SMARTTEST_DB_PASSWORD': 'synthetic-secret', 'SMARTTEST_DB_NAME': 'smarttest_web',
+        'SMARTTEST_DB_HOST': 'environment-db', 'SMARTTEST_REDIS_PORT': '16380'}, config_path=path)
+    database = config.ApplicationDatabaseSettings.from_environment(environment)
+    cache = config.RedisCacheSettings.from_environment(environment)
+    assert (database.host, database.port) == ('environment-db', 3306)
+    assert (cache.host, cache.port) == ('file-cache', 16380)
+
+
+@pytest.mark.parametrize('missing', ['SMARTTEST_DB_USER', 'SMARTTEST_DB_PASSWORD', 'SMARTTEST_DB_NAME'])
+def test_local_defaults_preserve_other_required_database_settings(missing):
+    environment = {'SMARTTEST_DB_USER': 'app', 'SMARTTEST_DB_PASSWORD': 'synthetic-secret',
+                   'SMARTTEST_DB_NAME': 'smarttest_web'}
+    del environment[missing]
+    with pytest.raises(config.ConfigurationError, match=missing):
+        config.ApplicationDatabaseSettings.from_environment(environment)

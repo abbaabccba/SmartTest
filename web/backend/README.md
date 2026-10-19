@@ -17,7 +17,7 @@ Web 应用持久数据统一存入 MySQL；Redis 只保存可以从当前有效�
 
 ## 持久配置与凭据
 
-`smarttest_web/config.py:storage_environment()` 复用 `core.config.jsonTool`，读取应用数据目录下的 `web/storage.json`，显式环境变量覆盖文件配置。Windows 示例只包含非敏感值：
+`smarttest_web/config.py:storage_environment()` 复用 `core.config.jsonTool`，读取应用数据目录下的 `web/storage.json`，显式环境变量覆盖文件配置。所有 PC、Windows/macOS/Linux 共用同一缺省规则：MySQL 为 `127.0.0.1:13306`，Redis 为 `127.0.0.1:16379`。配置优先级为显式环境变量 > 本机 `web/storage.json` > 这些缺省值；数据库用户、密码和库名仍须明确配置。本机配置文件与安全凭据不会随 Git 同步，拉取代码不会安装或启动数据库，也不会修改已有配置。Windows 示例只包含非敏感值：
 
 ```json
 {

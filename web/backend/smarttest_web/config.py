@@ -64,7 +64,7 @@ class ApplicationDatabaseSettings:
     user: str
     password: str = field(repr=False)
     database: str
-    port: int = 3306
+    port: int = 13306
     pool_size: int = 5
     max_overflow: int = 0
     pool_timeout_seconds: float = 5
@@ -78,11 +78,11 @@ class ApplicationDatabaseSettings:
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] = os.environ):
-        return cls(host=_required(environment, 'SMARTTEST_DB_HOST'),
+        return cls(host=environment.get('SMARTTEST_DB_HOST', '127.0.0.1'),
             user=_required(environment, 'SMARTTEST_DB_USER'),
             password=_required(environment, 'SMARTTEST_DB_PASSWORD'),
             database=_required(environment, 'SMARTTEST_DB_NAME'),
-            port=_number(environment, 'SMARTTEST_DB_PORT', 3306, maximum=65535),
+            port=_number(environment, 'SMARTTEST_DB_PORT', 13306, maximum=65535),
             pool_size=_number(environment, 'SMARTTEST_DB_POOL_SIZE', 5),
             max_overflow=_number(environment, 'SMARTTEST_DB_MAX_OVERFLOW', 0, minimum=0),
             pool_timeout_seconds=_number(environment, 'SMARTTEST_DB_POOL_TIMEOUT_SECONDS', 5, integer=False),
@@ -92,7 +92,7 @@ class ApplicationDatabaseSettings:
 @dataclass(frozen=True)
 class RedisCacheSettings:
     host: str
-    port: int = 6379
+    port: int = 16379
     database: int = 0
     username: str | None = None
     password: str | None = field(default=None, repr=False)
@@ -102,8 +102,8 @@ class RedisCacheSettings:
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] = os.environ):
-        return cls(host=_required(environment, 'SMARTTEST_REDIS_HOST'),
-            port=_number(environment, 'SMARTTEST_REDIS_PORT', 6379, maximum=65535),
+        return cls(host=environment.get('SMARTTEST_REDIS_HOST', '127.0.0.1'),
+            port=_number(environment, 'SMARTTEST_REDIS_PORT', 16379, maximum=65535),
             database=_number(environment, 'SMARTTEST_REDIS_DB', 0, minimum=0),
             username=environment.get('SMARTTEST_REDIS_USER') or None,
             password=environment.get('SMARTTEST_REDIS_PASSWORD') or None,

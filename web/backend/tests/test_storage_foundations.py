@@ -11,11 +11,11 @@ def test_application_settings_are_separate_and_do_not_reveal_password():
     env = {'SMARTTEST_DB_HOST': 'localhost', 'SMARTTEST_DB_USER': 'app',
            'SMARTTEST_DB_PASSWORD': 'private/@secret', 'SMARTTEST_DB_NAME': 'application'}
     settings = ApplicationDatabaseSettings.from_environment(env)
-    assert settings.port == 3306 and settings.pool_size == 5
+    assert settings.port == 13306 and settings.pool_size == 5
     assert 'private/@secret' not in repr(settings)
     assert settings.url.password == env['SMARTTEST_DB_PASSWORD']
     assert settings.url.drivername == 'mysql+mysqlconnector'
-    with pytest.raises(ConfigurationError, match='SMARTTEST_DB_HOST'):
+    with pytest.raises(ConfigurationError, match='SMARTTEST_DB_USER'):
         ApplicationDatabaseSettings.from_environment({'WIFI_DB_HOST': 'other'})
 
 
