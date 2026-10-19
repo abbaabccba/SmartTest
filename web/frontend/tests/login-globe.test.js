@@ -95,4 +95,3 @@ function canvasEnvironment(reduced = false) {
     resize: entries => resize(entries), intersection: entries => intersection(entries),
     frames, frame: time => { const [id, callback] = frames.entries().next().value; frames.delete(id); callback(time) } }
 }
-
