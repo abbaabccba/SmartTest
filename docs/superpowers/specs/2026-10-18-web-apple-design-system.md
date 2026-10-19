@@ -56,7 +56,7 @@
 | 层 | 唯一职责 | 禁止事项 |
 |---|---|---|
 | `smarttest-theme.css` | token、页面壳、基础控件、卡片、表格、状态、焦点与公共交互外观 | 在文件后部不断追加同一控件的修补规则 |
-| `product-line-theme.css` 与既有产品线动画 owner | 五风格的身份色、图案、图标和专属动效 | 另造五套按钮尺寸、焦点或主题切换逻辑 |
+| `product-line-theme.css` | 五风格的纯色身份背景和图标 | 另造五套按钮尺寸、焦点或主题切换逻辑 |
 | `widgets/*.css` 与页面 CSS | 组件独有布局、图表几何和空间关系 | 用页面前缀覆盖公共按钮、输入、卡片、分段控件外观 |
 | 页面 JS | 绑定语义 class、状态与已有控件事件 | 写入颜色、阴影、圆角，复制图标素材或动画调度机制 |
 
@@ -68,17 +68,17 @@
 
 ## 4. 唯一保留的五个专属风格
 
-Coco 已确认保留以下五个产品线风格，名称与现有业务标识保持一致；同时保留第 4.1 节登记的登录背景动画，不新增产品线或公共控件皮肤。
+Coco 于 2026-10-19 最新确认：五产品线只保留纯色背景、身份图标与名称；后续已确认暗主题同步使用深色背景。Projects 产品线 summary、selected、普通按钮及 layout/card/badge/disclosure 共用对应主题的身份背景：亮主题使用浅底深色前景，暗主题使用深底近白前景；选中只消费公共边框状态，不另切背景。此前保留纹理、渐变、Logo 矩阵、设备/TV 图案、地球和 Wireless OFDM 背景动画的要求被本条明确取代；不再有产品线背景 DOM、素材加载或动画调度。公共控件的圆角、选中、焦点、disabled 与业务切换不变。
 
-| 产品线标识 | 保留的现有身份视觉 | 与公共基础的边界 |
+| 产品线标识 | 保留的身份视觉 | 背景与选中 |
 |---|---|---|
-| `China Operator` | 运营商图标、深色选中身份与运营商 Logo 矩阵动效 | 图案不覆盖文本、焦点和点击区域 |
-| `Smart Device` | 设备图标、浅蓝身份色与设备/音频 SVG 动效 | 不另写设备产品线按钮的公共几何 |
-| `TV` | 电视图标、紫色丝带/几何 SVG 动效 | 装饰按公共圆角裁切 |
-| `Global Operator & STB` | 地球图标、全球连接与地球 Canvas 动效 | 动画复用已有生命周期 |
-| `Wireless Connection` | 无线图标、青色 OFDM 波形与流动效果 | 保留身份表现，不改写公共控件状态 |
+| `China Operator` | 运营商身份图标、原专属纯色 | 复用 tone 与亮暗主题 background |
+| `Smart Device` | 设备身份图标、原浅蓝纯色 | 亮暗主题分别配色，选中复用公共边框 |
+| `TV` | 电视身份图标、原紫色身份纯色 | 复用 tone 与亮暗主题 background |
+| `Global Operator & STB` | 地球身份图标、原蓝色身份纯色 | 复用 tone 与亮暗主题 background |
+| `Wireless Connection` | 无线身份图标、原青色身份纯色 | 复用 tone 与亮暗主题 background |
 
-保留的是已有身份效果，不趁统一样式更换图案、颜色含义、随机规则和动画节奏。后续清理只消除重复机制、裁切错误及与公共可访问性状态的冲突；需要重新设计这五种效果时另由 Coco 确认。
+`src/product-line-theme.css` 是五线纯色 surface 的唯一 owner，覆盖 layout/card/button/badge/disclosure；`bindProductLine` 仍只绑定展示语义。非登录页面不注入背景初始化脚本。公共图表方案 3/4 不受此次调整影响。
 
 ### 4.1 既有登录背景动画（明确保留）
 
@@ -87,7 +87,7 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 - `LOGIN_BACKGROUNDS` 保留原 `pcb/globe` 顺序与选择规则。`smarttest.login.background` 使用 sessionStorage；有效值优先复用，否则按原 Math.random 选取，不把 PCB 猜作固定默认。
 - 生产 `login.html` 的 `[data-login-board]` 保留 `data-motion="vivid"`；PCB 原 pulse/flow/trigger 为 5s，breath 为 4.8s，主题图片为 `public/images/login-pcb-white-cutout.png` 与 `login-pcb-dark-cutout.png`。
 - PCB 按 `dark-theme` 切换图片，并通过 `theme:changed` 同步两段线路路径；`visibilitychange` 暂停隐藏页，`prefers-reduced-motion` 保持静态。销毁移除监听、图层及状态类。
-- globe 懒加载原 `product-line-motion.js`，复用 `global-globe.js` 和原 `data-globe-framing="login"`；离屏、隐藏、减少动态与销毁仍由既有生命周期处理，不修改五产品线源码或随机节奏。
+- globe 懒加载 `src/login-globe.js`，由原共享 owner 收敛保留登录所需生命周期，继续复用未改动的 `global-globe.js`、地理数据与 `framing="login"`。离屏、隐藏、减少动态、主题、resize 和销毁规则保留；不依赖产品线语义绑定，也不为非登录页启动调度。
 - `login-motion-preview.html` 与 `src/login-motion-preview.*` 是既有验收工具，保留 subtle/vivid/breath、主题与暂停操作；预览控件同样使用公共 card/form/button/分段外观。
 - 背景资源、主入口和生命周期测试是正式保留项，不得再作为“非五产品线冗余装饰”删除。调整或取消此机制必须先取得 Coco 明确授权。
 
@@ -97,8 +97,8 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 
 - 公共基础始终生效，产品线身份层是可选叠加，不整页切换为另一套控件风格。
 - 沿用现有 `dark-theme`、主题偏好 owner 与 `[data-product-line][data-product-surface]` 绑定，不由页面自己监听并重建主题。
-- 当前入口为 `theme.js` 的亮暗主题应用（现有本机键 `smarttest:theme`）、`product-line-semantics.js` 的 `bindProductLine()`、`product-line-motion.js` 的装饰生命周期；图表主题经已有 `theme:changed` 接入。继续复用现有账号偏好同步，不另建皮肤存储。
-- 同一公共 token 随亮暗主题改变；产品线身份色按其既有亮暗规则选择，普通文字服从主题，专属图案保持可读。
+- 当前入口为 `theme.js` 的亮暗主题应用（现有本机键 `smarttest:theme`）、`product-line-semantics.js` 的 `bindProductLine()`；产品线无装饰生命周期，登录地球独立使用 `login-globe.js`；图表主题经已有 `theme:changed` 接入。继续复用现有账号偏好同步，不另建皮肤存储。
+- 同一公共 token 随亮暗主题改变；产品线背景与前景使用各自亮暗主题 token，普通文字服从主题，纯色身份背景保持可读。
 - 产品线切换只改变目标元素的身份绑定和既有内容；焦点、disabled、loading、选中等公共状态完整保留。
 - 切换主题或产品线后，图标颜色、Canvas 文字与图表通过已有公共主题接入更新，不新增平行状态保存和消息通路。
 - `reduced-motion`、隐藏、离屏、disabled 与销毁沿用动画 owner 的暂停和回收规则，恢复时不重复创建调度器。
@@ -115,7 +115,7 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 - 素材来源、许可和跨 Windows/macOS/Linux 浏览器可用性应随资产记录。以 SF Symbols 为形态和行为参考，不把 Web 实现等同于已经接入 Apple 原生符号 API；未确认使用条件的素材不直接打包。
 - 装饰图标不重复朗读，独立操作图标有 `aria-label` 或等效名称，不能以 tooltip 代替键盘可达性。
 
-**当前实现：**`src/icons.js` 是公共界面图标的唯一语义入口，复用官方 `lucide@1.59.0`（ISC），统一 `currentColor`、`1em` 尺寸及 `1.75` 笔画；页面不再复制普通内联 SVG。五个产品线原图标与艺术素材保持。依赖、来源与许可记录在 `package.json`、`package-lock.json`、`public/THIRD_PARTY_NOTICES.md`。这是 Apple 风格 Web 适配，不声称使用原生 SF Symbols API 或逐像素相同。
+**当前实现：**`src/icons.js` 是公共界面图标的唯一语义入口，复用官方 `lucide@1.59.0`（ISC），统一 `currentColor`、`1em` 尺寸及 `1.75` 笔画；页面不再复制普通内联 SVG。五个产品线身份图标保持；旧背景艺术素材退出生产。依赖、来源与许可记录在 `package.json`、`package-lock.json`、`public/THIRD_PARTY_NOTICES.md`。这是 Apple 风格 Web 适配，不声称使用原生 SF Symbols API 或逐像素相同。
 
 ## 7. 动画与交互复刻
 
@@ -125,10 +125,10 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 - 公共动效定义一份，页面只触发状态；不按页面复制 keyframes、RAF、ResizeObserver 或主题监听。
 - 少量控件优先 CSS `opacity` / `transform`；不因复刻加入高频布局测量或反复全页重绘。
 - 控件选中效果必须与真实状态一致；关闭或销毁后清理动画，快速切换无残留遮罩和重复监听。
-- 五产品线持续装饰动效沿用原 owner；公共状态反馈与这些专属动效分开承担职责。
+- 五产品线背景无持续装饰动效；登录背景动画仍由第 4.1 节独立 owner 保留，公共状态反馈不受影响。
 - 普通页面额外的霓虹、持续闪烁、弹跳和复杂下载按钮特效需清理或公共化；既有登录背景动画按第 4.1 节明确保留，不据此恢复登录控件旧外观。
 
-**当前实现：**公共状态使用 `.16s` 反馈；弹层沿用已有 `hidden/aria-hidden`，用透明度、4px 位移、`@starting-style` 与离散 display 过渡完成开合；移动菜单沿用原 `active`，使用 `.22s` transform 位移。没有新增 JS 动画队列或偏好 owner。公共 `reduced-motion` 处理置于这些定义之后，取消图标、菜单、多选箭头、分段和进度动效；五产品线仍由原生命周期处理。旧公共控件常驻漂浮、霓虹与渐变扫光已清理；登录 PCB/globe 已按 Coco 纠正恢复并登记为保留机制。未引入弹簧参数；浏览器不支持离散过渡时沿原显隐状态直接开合。
+**当前实现：**公共状态使用 `.16s` 反馈；弹层沿用已有 `hidden/aria-hidden`，用透明度、4px 位移、`@starting-style` 与离散 display 过渡完成开合；移动菜单沿用原 `active`，使用 `.22s` transform 位移。没有新增 JS 动画队列或偏好 owner。公共 `reduced-motion` 处理置于这些定义之后，取消图标、菜单、多选箭头、分段和进度动效；五产品线背景现为纯色，无背景调度。旧公共控件常驻漂浮、霓虹与渐变扫光已清理；登录 PCB/globe 已按 Coco 纠正恢复并登记为保留机制。未引入弹簧参数；浏览器不支持离散过渡时沿原显隐状态直接开合。
 
 ## 8. 统一前代码清单（验收对照）
 
@@ -154,7 +154,7 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 ### 本轮之前已完成的收敛
 
 - 状态提示背景集中为一份透明定义，登录页与卡片不再各自覆盖。
-- 产品线选项使用公共圆角并裁切装饰。
+- 产品线选项使用公共圆角与对应主题的纯色背景。
 - Project/Jira 属性分段移除旧蓝描边胶囊及滑块定位，使用公共样式。
 - 删除随卡片内容高度变化的局部蓝色 `::before` 装饰。
 
@@ -171,7 +171,7 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 - [x] 清理 Jira、登录及其他页面的公共外观覆盖，保留独有布局。
 - [x] 统一公共图标语义、资产定义、尺寸、状态和可访问名称。
 - [x] 实现公共交互动效，删除冗余装饰与重复动画机制；真实录制与逐帧参考对照仍属下项验收。
-- [x] 五个身份风格源码无差异，亮暗页面图案保留；产品线与地球生命周期回归测试通过。
+- [x] 五个身份风格按最新要求改为亮暗主题纯色，保留图标与交互；登录地球生命周期回归保留。
 - [ ] 在真实 Chrome 验证各关键状态及 360/768/1280/1440px 视口，录制交互动效；Windows/macOS/Linux 的字体与图标差异如实记录。
 - [x] 运行受影响测试、前端 lint/build、业务契约验证及 `git diff --check`；删除临时探针、失败尝试与无引用 token。
 
@@ -185,7 +185,7 @@ Coco 于 2026-10-19 明确要求保留，禁止在公共样式清理时误删。
 | 页面外观 | 移除 Jira 玻璃表面、标题渐变、周期/JQL/图表专属装饰；登录页保留既有背景动画及布局，控件复用标准 card/form/button；其他页面的日期分段、危险按钮等消费公共语义变体 |
 | 图标 | `icons.js` 集中普通图标；删除静态 external-link 重复资产，多选箭头与拖拽/关闭字符也走同一入口 |
 | 动画与清理 | 公共时长与状态驱动的 CSS 动效；恢复并保留登录背景、预览入口、两张主题 PNG 与生命周期测试；未增加动画调度机制 |
-| 五专属风格 | `product-line-theme.css`、`product-line-motion.js` 与 `global-globe.js` 无差异；保留原身份图标、图案及节奏 |
+| 五专属风格 | `product-line-theme.css` 统一纯色；删除产品线背景 owner/专属素材；`global-globe.js` 与地理数据仍供登录使用，身份图标保留 |
 | 窄屏 | 产品线与属性组选项保留完整标签，在组内横滚；键盘可达最后一项，不依靠裁切隐藏内容 |
 
 自动化：完整前端 `42` 个测试文件、`313` 项通过；ESLint、Vite build、`git diff --check` 通过；受影响的后端开发启动/产品边界单测 `39` 项及边界 CLI 通过。构建保留既有大 chunk 提示。本轮未改 Core 或后端业务，未以正式数据库代替缺失的隔离测试库。
@@ -195,3 +195,14 @@ Atlas 实页：Windows Chrome 检查 Dashboard 亮暗、周期切换，Projects 
 登录动画恢复复验：生产登录页实际为 `data-login-background="pcb"`、`data-motion="vivid"`，PCB 动画层恰好一层，亮暗切换后表单与动画层均保留；预览页切换线路脉冲和暂停后状态正确。globe 分支、页面隐藏/销毁与 BFCache 重挂去重由已恢复的生命周期测试覆盖，未以静态截图替代该分支的动画性能验收。
 
 限制：未在 macOS/Linux 实机验证；未录制全套动效逐帧对照；减少动态/透明度与高对比度规则完成静态级联审查，未切换系统辅助功能设置做实页验证。因此保留第 9 节完整视觉验收项，不能将本轮代码收敛报告等同于所有环境的逐像素复刻验收。
+
+## 11. 周期对比统计图配色（2026-10-19 确认）
+
+| 方案 | 名称 | 当前周期 Current period | 上一周期 Previous period | 使用约定 |
+|---|---|---|---|---|
+| 3 | 青灰 · 克制耐看 | `#258B88` | `#C9D2D8` | 当前启用，先使用一段时间 |
+| 4 | 靛粉 · 柔和精致 | `#6267A6` | `#D8B5C4` | 备用；Coco 后续要求改用方案 4 时切换 |
+
+两套方案来自本次八组配色对比图，编号固定。不会按时间自动切换，也不新增页面配置或配色选择控件。
+
+公共颜色唯一入口为 `web/frontend/src/smarttest-theme.css` 的 `--ranking-current-bar` 和 `--ranking-previous-bar`，所有共享排行卡片直接消费这两个变量，不按业务设置配色开关。Project、Jira 及 Dashboard 中对应卡片统一使用方案 3；只有一个数据系列的 Project 使用当前周期颜色，具有两期对比的卡片分别使用两色。当前亮暗主题均使用方案 3 的原色，删除旧暗主题蓝青覆盖及 Jira 专属配色分支，页面和卡片不另设颜色。后续切到方案 4 时仅替换这两个变量并更新本文启用状态；保留方案 3 的色号记录。五个产品线专属风格不受此配色调整影响。

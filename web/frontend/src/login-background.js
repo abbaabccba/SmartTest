@@ -39,16 +39,14 @@ export function applyLoginBackground({ root = document, backgrounds = LOGIN_BACK
 function mountLoginGlobe(surface) {
   const layer = document.createElement('div')
   layer.className = 'login-globe'
-  layer.dataset.productLine = 'Global Operator & STB'
-  layer.dataset.productSurface = 'background'
   layer.dataset.globeFraming = 'login'
   layer.setAttribute('aria-hidden', 'true')
   surface.prepend(layer)
   let disposed = false
   let stop
   // Keep geography data and renderer out of the PCB's initial module graph.
-  import('./product-line-motion.js').then(({ initializeProductLineMotion }) => {
-    if (!disposed) stop = initializeProductLineMotion({ root: surface })
+  import('./login-globe.js').then(({ initializeLoginGlobe }) => {
+    if (!disposed) stop = initializeLoginGlobe({ root: surface })
   }).catch(error => {
     if (disposed) return
     layer.removeAttribute('aria-hidden')

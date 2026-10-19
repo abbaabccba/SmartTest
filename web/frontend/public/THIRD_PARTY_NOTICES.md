@@ -28,7 +28,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## Shared interface icons
 
-The public interface icon mapping in `src/icons.js` uses the official `lucide` npm package, version 1.59.0 (ISC). Existing five-product-line icon/artwork assets retain their original sources and identities. Lucide renders local SVG in Windows/macOS/Linux browsers; no Apple proprietary symbol assets or native SF Symbols API are bundled.
+The public interface icon mapping in `src/icons.js` uses the official `lucide` npm package, version 1.59.0 (ISC). Five-product-line identity icons retain their original sources; retired background artwork is no longer bundled. Lucide renders local SVG in Windows/macOS/Linux browsers; no Apple proprietary symbol assets or native SF Symbols API are bundled.
 
 Source: https://github.com/lucide-icons/lucide/tree/main/packages/lucide
 License: https://github.com/lucide-icons/lucide/blob/main/LICENSE
