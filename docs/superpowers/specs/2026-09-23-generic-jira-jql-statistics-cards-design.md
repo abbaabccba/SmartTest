@@ -116,11 +116,13 @@ SQLite 的一个卡片快照同时保存 current 与 previous 的真实 issue me
 
 ## 前端布局
 
-Jira 页面展示三张共享卡片：Self-Test、Task、Customer Feedback。每张卡片拥有独立周期选择和结果状态，但共用页面已应用的用户 JQL。标题分别为：
+Jira 页面展示三张共享卡片：Self Test、Task、Customer Feedback。每张卡片拥有独立周期选择和结果状态，但共用页面已应用的用户 JQL。标题分别为：
 
-- `Self-Test Jira Statistics by Product Line`
+- `Self Test Jira Statistics by Product Line`
 - `Task Jira Statistics by Product Line`
 - `Customer Feedback Jira Statistics by Product Line`
+
+自定义标题、标签与展示描述统一拼写为 `Self Test`；Jira 原始字段值 `"Channel of Reporter" = "Self-Test"`、字段匹配及内部标识 `self-test` 保持原样，不做展示文案替换。
 
 Dashboard 可分别引用三张卡片，引用的仍是同一组件实例类型与对应 `card_key` 数据，不建立 Dashboard 变体。既有卡片高度、滚动、产品线、指标切换和图表机制保持共享。
 

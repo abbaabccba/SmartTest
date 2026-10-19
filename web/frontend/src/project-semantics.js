@@ -7,7 +7,7 @@ export const PROJECT_STAGES = Object.freeze([
 
 const stageByName = new Map(PROJECT_STAGES.map(value => [value.toUpperCase(), value]))
 
-function projectStatus(value) {
+export function projectStatus(value) {
   return String(value ?? '').trim().match(/^(NORMAL|WARNING|BLOCK)\b/i)?.[1].toUpperCase()
 }
 

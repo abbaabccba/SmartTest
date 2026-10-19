@@ -167,18 +167,32 @@ def test_statistics_exception_or_cancellation_returns_connection_before_auth(mon
         database.close()
 
 
-def test_cache_hit_has_no_fact_reads_or_checked_out_connection():
+def test_cache_hit_reads_current_issue_fields_without_mutating_cached_contributions():
     engine = PooledReads()
     database = WebDatabase.__new__(WebDatabase)
     database._key, database._engine = object(), engine
-    saved = {"saved": True}
+    saved = {"current": {"details": [{"issueId": "1", "issueCount": 1}]}, "previous": {"details": []}}
+    status = ["Open"]
+    execute = engine.execute
+    def with_issue_fields(connection, statement):
+        if "FROM jira_issues" in str(statement):
+            assert engine.pool.checkedout() == 1
+            return [("1", "TV-1", "Summary", status[0], "https://jira/TV-1", "2026-10-19")]
+        return execute(connection, statement)
+    engine.execute = with_issue_fields
     class Cache:
         def get_or_load(self, _identity, _loader, **_kwargs):
             assert engine.pool.checkedout() == 0
             return saved
     try:
-        result = JiraAnalyticsRepository(database, statistics_cache=Cache(), statistics_cache_ttl_seconds=60).local_statistics("snapshot", "month")
-        assert result is saved and engine.fact_reads == []
+        repository = JiraAnalyticsRepository(database, statistics_cache=Cache(), statistics_cache_ttl_seconds=60)
+        first = repository.local_statistics("snapshot", "month")
+        status[0] = "Closed"
+        second = repository.local_statistics("snapshot", "month")
+        assert first["current"]["details"][0]["status"] == "Open"
+        assert second["current"]["details"][0]["status"] == "Closed"
+        assert saved["current"]["details"] == [{"issueId": "1", "issueCount": 1}]
+        assert engine.fact_reads == [] and engine.pool.checkedout() == 0
     finally:
         database.close()
 

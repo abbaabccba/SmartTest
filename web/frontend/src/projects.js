@@ -1,3 +1,4 @@
+import { createDataDetails, bindDetailsTrigger, projectColumns } from './data-details.js'
 import { icon as renderIcon } from './icons.js'
 const STATE_COPY = {
   loading: 'Loading project catalog…',
@@ -16,12 +17,22 @@ import { createDownloadButton } from './download-button.js'
 import { createDisposableDisplayCache } from './disposable-display.js'
 import { element as node } from './dom.js'
 import { createTaskController } from './task-polling.js'
-import { bindProjectStage, bindProjectStatus, bindProjectStatusText } from './project-semantics.js'
+import { bindProjectStage, bindProjectStatus, bindProjectStatusText, projectStatus } from './project-semantics.js'
 import { bindProductLine } from './product-line-semantics.js'
 
 export function createProjects({ root, api, waitForPreferences, account,
   pollDelay = ms => new Promise(resolve => setTimeout(resolve, ms)), downloadNavigate,
   enableReview = true, filterOnly = false, onSnapshot = () => {} }) {
+  const details = createDataDetails()
+  let detailsComplete = true
+  let detailsScope = 'Current applied project results'
+  const openProjects = (title, rows, trigger, value, note = '') => details.open({
+    title, scope: detailsScope, value, trigger, columns: projectColumns,
+    rows: detailsComplete ? rows.map(project => ({ ...project, url: project.page_url,
+      stage: project.stage || project.fields?.['current stage'],
+      support_mode: project.support_mode || project.fields?.['support mode'] })) : [],
+    error: detailsComplete ? '' : 'The loaded project result is incomplete. Details are unavailable.', note,
+  })
   const display = createDisposableDisplayCache('projects', account)
   const saveDisplay = payload => {
     if (['ready', 'partial_success'].includes(payload?.state)) display.write(payload)
@@ -193,10 +204,12 @@ export function createProjects({ root, api, waitForPreferences, account,
       return assignments.size
     }
     const summary = root.querySelector('[data-summary]'); summary.replaceChildren()
-    const row = (label, value, status = '') => {
+    const row = (label, value, status = '', records, note) => {
       const item = node('div', 'summary-metric-row'); item.dataset.metricRow = ''
       if (status) bindProjectStatusText(item, status)
-      item.append(node('span', '', label), node('strong', '', value))
+      const amount = node('strong', '', value)
+      if (records) bindDetailsTrigger(amount, trigger => openProjects(label, records, trigger, value, note))
+      item.append(node('span', '', label), amount)
       return item
     }
     const card = (...rows) => {
@@ -204,11 +217,19 @@ export function createProjects({ root, api, waitForPreferences, account,
       summary.append(item)
       return item
     }
-    card(row('Support Projects', projects.length)).classList.add('summary-metric-single')
-    card(row('Block Projects', blockProjectCount, 'BLOCK'), row('Warning Projects', warningProjectCount, 'WARNING'))
+    const roleRows = role => projects.flatMap(project => {
+      const seen = new Set()
+      return (project.roles?.[role] ?? []).filter(person => {
+        const key = person.identity || readableName(person)
+        if (seen.has(key)) return false
+        seen.add(key); return true
+      }).map(person => ({ ...project, role, person: readableName(person) }))
+    })
+    card(row('Support Projects', projects.length, '', projects)).classList.add('summary-metric-single')
+    card(row('Block Projects', blockProjectCount, 'BLOCK', projects.filter(p => projectStatus(p.status) === 'BLOCK')), row('Warning Projects', warningProjectCount, 'WARNING', projects.filter(p => projectStatus(p.status) === 'WARNING')))
       .classList.add('summary-metric-paired')
-    card(row('Major FAE QA Resources', roleAssignmentCount('Major FAE QA')),
-      row('FAE QA Resources', roleAssignmentCount('FAE QA'))).classList.add('summary-metric-resources')
+    card(row('Major FAE QA Resources', roleAssignmentCount('Major FAE QA'), '', roleRows('Major FAE QA')),
+      row('FAE QA Resources', roleAssignmentCount('FAE QA'), '', roleRows('FAE QA'))).classList.add('summary-metric-resources')
     const modeCounts = new Map(productSpaceDefinitions.map(({ value }) => [value, { S: 0, A: 0 }]))
     for (const project of projects) {
       const counts = modeCounts.get(project.space_key)
@@ -217,13 +238,23 @@ export function createProjects({ root, api, waitForPreferences, account,
     }
     const modeRows = productSpaceDefinitions.map(({ value, label }) => {
       const counts = modeCounts.get(value)
-      const item = row(label, `S ${counts.S} · A ${counts.A}`); item.dataset.productModeRow = ''
+      const item = row(label, ''); item.dataset.productModeRow = ''
+      const amount = item.querySelector('strong')
+      for (const mode of ['S', 'A']) {
+        if (mode === 'A') amount.append(document.createTextNode(' · '))
+        const count = node('span', '', `${mode} ${counts[mode]}`)
+        bindDetailsTrigger(count, trigger => openProjects(`${label} · Support Mode ${mode}`, projects.filter(project =>
+          project.space_key === value && String(project.support_mode || project.fields?.['support mode'] || '').trim().toUpperCase() === mode), trigger, counts[mode]))
+        amount.append(count)
+      }
       return item
     })
     const modeCard = card(...modeRows); modeCard.classList.add('summary-metric-product-modes')
     const modeTitle = node('div', 'summary-metric-title', 'Support Mode'); modeTitle.dataset.metricTitle = ''
     modeCard.prepend(modeTitle)
-    card(row('Avg assignments / person', people.size ? (assignments / people.size).toFixed(1) : '0.0'))
+    card(row('Avg assignments / person', people.size ? (assignments / people.size).toFixed(1) : '0.0', '',
+      hierarchy.flatMap(role => (role.people ?? []).flatMap(person => (person.projects ?? []).map(project => ({ ...project, role: role.role, person: readableName(person) })))),
+      `${assignments} assignments / ${people.size} distinct people`))
       .classList.add('summary-metric-average')
   }
 
@@ -323,7 +354,7 @@ export function createProjects({ root, api, waitForPreferences, account,
         const stageGroup = node('details', 'stage-group'); stageGroup.dataset.stageGroup = ''
         const stageSummary = node('summary', 'stage-summary')
         bindProjectStage(stageSummary, stage.name)
-        const stageCount = node('span', 'kanban-count', stage.projects.length); stageCount.dataset.stageProjectCount = ''
+        const stageCount = node('span', 'kanban-count', stage.projects.length); stageCount.dataset.stageProjectCount = ''; bindDetailsTrigger(stageCount, trigger => openProjects(stage.name, stage.projects, trigger, stage.projects.length))
         stageSummary.append(node('strong', '', stage.name), stageCount)
         const cards = node('div', 'project-list')
         stage.projects.sort((left, right) => comparePresentAsc(left.support_mode, right.support_mode)
@@ -363,7 +394,9 @@ export function createProjects({ root, api, waitForPreferences, account,
       for (const [status, count] of [...counts].sort(([left], [right]) => compareProjectStatus(left, right))) {
         const item = node('span', 'distribution-label'); item.dataset.projectStatusCount = ''
         bindProjectStatus(item, status)
-        item.append(node('span', '', status), node('strong', 'distribution-label-count', count))
+        const amount = node('strong', 'distribution-label-count', count)
+        bindDetailsTrigger(amount, trigger => openProjects(status, projects.filter(project => (displayValue(project.status) || 'Unspecified') === status), trigger, count))
+        item.append(node('span', '', status), amount)
         distribution.append(item)
       }
       return distribution
@@ -372,18 +405,20 @@ export function createProjects({ root, api, waitForPreferences, account,
     for (const { value: productSpaceKey, label: productSpaceLabel, projectGrouping } of productSpaceDefinitions) {
       const spaceProjects = uniqueProjects.filter(project => project.space_key === productSpaceKey)
       const group = node('section', 'product-space-group'); group.dataset.productSpaceGroup = ''
-      const summary = node('button', 'product-space-summary'); summary.type = 'button'; summary.dataset.productSpaceToggle = ''
+      const summary = node('div', 'product-space-summary')
+      const toggle = node('button', 'product-space-toggle'); toggle.type = 'button'; toggle.dataset.productSpaceToggle = ''
       bindProductLine(summary, productSpaceLabel, 'button')
-      summary.setAttribute('aria-expanded', 'true')
-      const count = node('span', 'kanban-count', spaceProjects.length); count.dataset.productCount = ''
-      summary.append(node('strong', 'kanban-title', productSpaceLabel), createProjectStatusSummary(spaceProjects), count)
+      toggle.setAttribute('aria-expanded', 'true')
+      const count = node('span', 'kanban-count', spaceProjects.length); count.dataset.productCount = ''; bindDetailsTrigger(count, trigger => openProjects(productSpaceLabel, spaceProjects, trigger, spaceProjects.length))
+      toggle.append(node('strong', 'kanban-title', productSpaceLabel))
+      summary.append(toggle, createProjectStatusSummary(spaceProjects), count)
       const stageGroups = node('div', 'stage-groups'); stageGroups.dataset.productGrid = ''
       if (spaceProjects.length) {
         if (projectGrouping === 'launch_os') {
           for (const launchOs of groupByLaunchOs(spaceProjects)) {
             const launchGroup = node('details', 'launch-os-group'); launchGroup.dataset.launchOsGroup = ''; launchGroup.open = true
             const launchSummary = node('summary', 'launch-os-summary')
-            const launchCount = node('span', 'kanban-count', launchOs.projects.length); launchCount.dataset.launchOsProjectCount = ''
+            const launchCount = node('span', 'kanban-count', launchOs.projects.length); launchCount.dataset.launchOsProjectCount = ''; bindDetailsTrigger(launchCount, trigger => openProjects(launchOs.name, launchOs.projects, trigger, launchOs.projects.length))
             launchSummary.append(node('strong', '', launchOs.name), launchCount)
             const launchStages = node('div', 'launch-os-stage-groups')
             appendStageGroups(launchStages, launchOs.projects)
@@ -394,8 +429,8 @@ export function createProjects({ root, api, waitForPreferences, account,
         }
       } else stageGroups.append(node('div', 'product-space-empty', 'No projects.'))
       summary.addEventListener('click', () => {
-        const expanded = summary.getAttribute('aria-expanded') === 'true'
-        summary.setAttribute('aria-expanded', String(!expanded)); stageGroups.hidden = expanded
+        const expanded = toggle.getAttribute('aria-expanded') === 'true'
+        toggle.setAttribute('aria-expanded', String(!expanded)); stageGroups.hidden = expanded
       })
       group.append(summary, stageGroups); projectsRoot.append(group)
     }
@@ -404,6 +439,13 @@ export function createProjects({ root, api, waitForPreferences, account,
   function present(payload, {
     updateHierarchy = true, updateFacets = true, detailRequested = false,
   } = {}) {
+    if (payload.querySnapshot) {
+      const applied = payload.querySnapshot
+      const conditions = Object.entries(applied.filters ?? {}).map(([key, values]) => `${key}: ${[].concat(values).join(', ')}`)
+      if (applied.search) conditions.push(`Search: ${applied.search}`)
+      detailsScope = conditions.length ? conditions.join(' · ') : 'All projects in the applied scope'
+    }
+    detailsComplete = !payload.pagination || (payload.pagination.page === 0 && (payload.projects?.length ?? 0) === payload.pagination.total)
     const hasCache = payload.dataState === 'ready' || ['ready', 'partial_success'].includes(payload.state)
     const hasDetailJob = detailRequested || Boolean(activeSync)
     const syncing = payload.sync?.state === 'loading'
@@ -572,7 +614,7 @@ export function createProjects({ root, api, waitForPreferences, account,
   }
   return {
     start,
-    destroy() { destroyed = true; pollGeneration += 1; syncTasks.dispose(); auditDownload?.destroy() },
+    destroy() { details.destroy(); destroyed = true; pollGeneration += 1; syncTasks.dispose(); auditDownload?.destroy() },
   }
 }
 import { enhanceMultiSelect, fillSelect, selected } from './multi-select.js'

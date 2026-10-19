@@ -1,3 +1,4 @@
+import { createDataDetails, issueColumns } from '../data-details.js'
 import { refreshFeedback } from '../async-feedback.js'
 import { icon } from '../icons.js'
 import { createRankingCard } from './ranking-card.js'
@@ -5,7 +6,7 @@ import { createDisposableDisplayCache } from '../disposable-display.js'
 
 export const JIRA_STATISTICS_CARD_LAYOUT = Object.freeze({ defaultW: 24 })
 export const JIRA_STATISTICS_CARDS = Object.freeze({
-  'self-test': Object.freeze({ title: 'Self-Test Jira Statistics by Product Line', firstMetricLabel: 'Bugs' }),
+  'self-test': Object.freeze({ title: 'Self Test Jira Statistics by Product Line', firstMetricLabel: 'Bugs' }),
   task: Object.freeze({ title: 'Task Jira Statistics by Product Line', firstMetricLabel: 'Tasks' }),
   'customer-feedback': Object.freeze({ title: 'Customer Feedback Jira Statistics by Product Line', firstMetricLabel: 'Component/s' }),
 })
@@ -43,6 +44,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
   let period = 'month'
   let cardKey = 'self-test'
   let cardMetrics = metrics('Bugs')
+  const details = createDataDetails()
   const ranking = createRankingCard({ chartFactory })
 
   function message(text, kind = '') {
@@ -67,7 +69,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     if (payload.state === 'no_snapshot' || (payload.dataState === 'none' && ['failed', 'cancelled'].includes(payload.state))) {
       localPayload = null
       root.prepend(periods)
-      ranking.destroy(); displayed = false; displaySignature = ''
+      details.destroy(); ranking.destroy(); displayed = false; displaySignature = ''
       displayCache.write(null)
       currentJql.textContent = 'Apply a Jira query to display the current JQL.'
       message(payload.error || 'Apply a Jira query to display statistics.')
@@ -118,7 +120,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
         const key = person.identity || person.displayName
         const currentPerson = currentByIdentity.get(key) ?? {}
         const prior = priorByIdentity.get(key) ?? {}
-        return { displayName: person.displayName,
+        return { identity: person.identity, displayName: person.displayName,
           ...Object.fromEntries(cardMetrics.flatMap(metric => comparison ? [
             [metric.value, Number(currentPerson[metric.value] || 0)],
             [`previous_${metric.value}`, Number(prior[metric.value] ?? person[`previous_${metric.value}`] ?? 0)],
@@ -131,12 +133,33 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       unmappedCount: Number(current.unmappedCount || 0), unassignedCount: Number(current.unassignedCount || 0),
       productLines: combinedLines, currentJqlByProductLineAndMetric: payload.currentJqlByProductLineAndMetric,
     }
-    const signature = JSON.stringify(display)
+    const signature = JSON.stringify([display, current.details, previous?.details])
     if (displayed && signature === displaySignature) return
     const byLine = new Map(combinedLines.map(line => [line.id, line]))
     const pendingLabel = ({ failed: 'Failed', cancelled: 'Unavailable' })[payload.state] ?? (payload.state === 'ready' ? 'Waiting for scheduled refresh' : 'Loading…')
     const presentation = {
-      palette: 'jira',
+      detailsEnabled: metric => !['commentCount', 'verifyCount'].includes(metric),
+      onDataClick: ({ productLine, mode, row, periodKind, trigger }) => {
+        const source = (periodKind === 'previous' ? payload.previous : current)?.details
+        const rows = (source ?? []).filter(item => item.productLine === productLine).flatMap(item => {
+          if (cardKey === 'customer-feedback') {
+            const count = mode === 'bugCount'
+              ? (item.components ?? []).find(component => component.name === row.name)?.count ?? 0
+              : row.name === 'Total' ? item.issueCount : item.invalidCount
+            return count ? [{ ...item, count }] : []
+          }
+          return (item.people ?? []).filter(person => (row.identity ? person.identity === row.identity : person.displayName === row.name) && person[mode])
+            .map(person => ({ ...item, person: person.displayName, count: person[mode] }))
+        })
+        const range = payload.ranges?.[periodKind]
+        details.open({ title: `${cardMetrics.find(metric => metric.value === mode)?.label} · ${row.name}`,
+          scope: `${JIRA_STATISTICS_CARDS[cardKey].title} · ${productLine} · ${period} · ${periodKind}${range ? ` · ${range.start} – ${range.end ?? 'now'}` : ''}`,
+          value: row.valueLabel ?? (periodKind === 'previous' ? row.previousCount : row.count),
+          rows, columns: issueColumns, trigger,
+          error: source ? '' : 'Details are unavailable for this displayed result.',
+          note: `${cardKey === 'customer-feedback' && mode === 'invalidCount' ? `Invalid ${byLine.get(productLine)?.invalidCount ?? 0} / Total ${byLine.get(productLine)?.issueCount ?? 0}. Select Total or Invalid in the chart to inspect each range. ` : ''}Contributions use the displayed statistics snapshot. Issue summary and status are current cached fields.`,
+          updatedAt: rows.map(item => item.cachedAt).filter(Boolean).sort().at(-1) })
+      },
       productLines: combinedLines.map(line => ({ value: line.id, label: line.label, productLine: line.label })),
       modes: cardMetrics.map(metric => ({ ...metric,
         disabled: !metricReady('current', metric.value),
@@ -162,7 +185,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
           }))
         }
         return (byLine.get(productLine)?.people ?? []).map(person => ({
-          name: person.displayName, count: Number(person[metric] || 0),
+          identity: person.identity, name: person.displayName, count: Number(person[metric] || 0),
           ...(comparison && metricReady('previous', metric) ? { previousCount: Number(person[`previous_${metric}`] || 0) } : {}),
         }))
       },
@@ -180,7 +203,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     selectPeriod()
     displayed = true
     displaySignature = signature
-    if (payload.state === 'ready' && !localPayload) displayCache.write(display)
+    if (payload.state === 'ready' && !localPayload) displayCache.write({ ...display, productLines: display.productLines.map(line => ({ ...line, people: line.people.map(person => Object.fromEntries(Object.entries(person).filter(([key]) => key !== 'identity'))) })) })
   }
 
   function selectPeriod() {
@@ -287,7 +310,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     },
     update({ query = false } = {}) { if (!stopped && api) void load(++generation, query) },
     destroy() {
-      stopped = true; clearTimeout(timer); clearTimeout(copyFeedbackTimer); ranking.destroy()
+      details.destroy(); stopped = true; clearTimeout(timer); clearTimeout(copyFeedbackTimer); ranking.destroy()
       copyCurrentJql = null
       root?.classList.remove('jira-statistics-card')
       root = null; displayed = false

@@ -19,7 +19,7 @@ describe('RoleWorkloadWidget', () => {
   it('uses the project resource statistics title when it owns the heading', () => {
     const widget = createRoleWorkloadWidget()
     widget.mount(document.querySelector('#root'), { productSpaces, ownerHierarchy: [] })
-    expect(document.querySelector('.workload-heading').textContent).toContain('Project Resource Statistics')
+    expect(document.querySelector('.workload-heading').textContent).toContain('Project Human Resource Statistics')
   })
 
   it('keeps the Projects workload sorting, identity cleanup, switching, and chart lifecycle', () => {
@@ -117,5 +117,21 @@ it('passes full product names as visual identities while matching internal proje
   expect([...root.querySelectorAll('[data-product-line-segments] button')].map(button => [button.dataset.value, button.dataset.productLine])).toEqual([
     ['DOPL', 'China Operator'], ['SDPL', 'Smart Device'], ['TV', 'TV'], ['OOPL', 'Global Operator & STB'],
   ])
+  widget.destroy()
+})
+
+it('opens the selected role and person assignments from existing rows', () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  let config
+  const widget = createRoleWorkloadWidget({ chartFactory: (_canvas, value) => { config = value; return { destroy() {} } } })
+  widget.mount(document.querySelector('#root'), { productSpaces, ownerHierarchy: [{ role: 'FAE QA', people: [
+    { name: 'QA', identity: 'one', projects: [{ name: 'Correct', space_key: 'DOPL', page_url: 'https://wiki.example/correct' }] },
+    { name: 'QA', identity: 'two', projects: [{ name: 'Other', space_key: 'DOPL' }] },
+  ] }] })
+  config.options.onClick({}, [{ index: 0, datasetIndex: 0 }])
+  expect(document.querySelector('dialog tbody').textContent).toContain('Correct')
+  expect(document.querySelector('dialog tbody a').href).toBe('https://wiki.example/correct')
+  expect(document.querySelector('dialog tbody').textContent).not.toContain('Other')
   widget.destroy()
 })

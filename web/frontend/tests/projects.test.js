@@ -189,8 +189,9 @@ describe('Projects', () => {
     const statusSummary = groups[0].querySelector('[data-project-status-summary]')
     expect(statusSummary.textContent).not.toContain('Current Stage')
     const stageContainer = groups[0].querySelector('.stage-groups')
-    expect(statusSummary.parentElement).toBe(toggles[0])
-    expect([...groups[0].children]).toEqual([toggles[0], stageContainer])
+    expect(statusSummary.parentElement).toBe(toggles[0].parentElement)
+    expect(toggles[0].querySelector('[role="button"]')).toBeNull()
+    expect([...groups[0].children]).toEqual([toggles[0].parentElement, stageContainer])
     expect([...statusSummary.querySelectorAll('[data-project-status-count]')].map(item => item.textContent)).toEqual([
       'BLOCK1', 'NORMAL1',
     ])
@@ -199,7 +200,7 @@ describe('Projects', () => {
     toggles[0].click()
     expect(toggles[0].getAttribute('aria-expanded')).toBe('false')
     expect(stageContainer.hidden).toBe(true)
-    expect(statusSummary.closest('[data-product-space-toggle]')).toBe(toggles[0])
+    expect(statusSummary.closest('.product-space-summary')).toBe(toggles[0].parentElement)
     expect([...groups[1].querySelectorAll('[data-project-status-count]')].map(item => item.textContent)).toEqual(['Unspecified1'])
     const statusLabels = [...document.querySelectorAll('[data-project-status-count]')]
     const normalSlots = statusLabels.filter(label => label.firstElementChild.textContent === 'NORMAL')
@@ -1063,10 +1064,10 @@ it('keeps Projects titles themed without binding data groups to product backgrou
     await page.start()
     const groups = [...root.querySelectorAll('[data-product-space-group]')]
     expect(groups.every(group => !group.hasAttribute('data-product-line') && !group.hasAttribute('data-product-surface'))).toBe(true)
-    expect(groups.map(group => group.querySelector('[data-product-space-toggle]').dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
+    expect(groups.map(group => group.querySelector('.product-space-summary').dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
     const toggle = groups[0].querySelector('[data-product-space-toggle]')
-    expect(toggle.dataset.productLine).toBe('China Operator')
-    expect(toggle.dataset.productSurface).toBe('button')
+    expect(toggle.parentElement.dataset.productLine).toBe('China Operator')
+    expect(toggle.parentElement.dataset.productSurface).toBe('button')
     expect(toggle.textContent).toContain('China Operator')
     expect(toggle.textContent).not.toContain('DOPL')
     toggle.click()
@@ -1097,4 +1098,20 @@ it('keeps project rows plain without changing hover details or stage semantics',
     expect(stage.querySelector('summary').dataset.projectStage).toBe('2 IN DEVELOPMENT')
     expect(stage.hasAttribute('data-product-surface')).toBe(false)
   } finally { page.destroy() }
+})
+
+it('opens applied project records and leaves group expansion and filters unchanged', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  const api = { getProjectFacts: vi.fn().mockResolvedValue(payload) }
+  const page = createProjects({ root: document.querySelector('#app'), api })
+  await page.start()
+  const group = document.querySelector('[data-product-space-toggle]')
+  const expanded = group.getAttribute('aria-expanded')
+  group.closest('.product-space-summary').querySelector('[data-product-count]').click()
+  expect(document.querySelector('dialog tbody').textContent).toContain('Apollo')
+  expect(group.getAttribute('aria-expanded')).toBe(expanded)
+  expect(api.getProjectFacts).toHaveBeenCalledOnce()
+  page.destroy()
+  expect(document.querySelector('dialog')).toBeNull()
 })

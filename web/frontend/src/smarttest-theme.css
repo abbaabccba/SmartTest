@@ -11,8 +11,9 @@
     --success: #22C55E;
     --warning: #F59E0B;
     --danger: #EF4444;
-    --jira-current-bar: #4C88FF;
-    --jira-previous-bar: #4BD8DC;
+    /* Approved palette 03; both themes share these chart series colors. */
+    --ranking-current-bar: #258B88;
+    --ranking-previous-bar: #C9D2D8;
     --project-status-normal-bg: #00875A;
     --project-status-normal-fg: #FFFFFF;
     --project-status-warning-bg: #FF991F;
@@ -57,6 +58,8 @@
     --st-surface-navigation: rgba(250, 250, 252, .82);
     --st-surface-selected: rgba(0, 113, 227, .1);
     --st-surface-overlay: rgba(0, 0, 0, .32);
+    --st-glass-filter: saturate(160%) blur(22px);
+    --st-overlay-filter: blur(6px);
     --st-text-primary: #1d1d1f;
     --st-text-secondary: #6e6e73;
     --st-border-subtle: rgba(60, 60, 67, .14);
@@ -98,8 +101,6 @@ body.dark-theme {
     --text-primary: var(--st-text-primary);
     --text-secondary: var(--st-text-secondary);
     --accent-light: var(--st-surface-selected);
-    --jira-current-bar: #6FA2FF;
-    --jira-previous-bar: #62E5E6;
     --shadow: var(--st-shadow-card);
     --shadow-md: var(--st-shadow-card);
     color-scheme: dark;
@@ -382,8 +383,6 @@ input, select, textarea {
     border-bottom: 1px solid var(--st-border-subtle);
     background: var(--st-surface-navigation);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .38);
-    backdrop-filter: saturate(160%) blur(22px);
-    -webkit-backdrop-filter: saturate(160%) blur(22px);
 }
 
 .nav-container {
@@ -521,9 +520,6 @@ input, select, textarea {
     inset: 0;
     z-index: 99;
     pointer-events: none;
-    background: color-mix(in srgb, var(--bg-primary) 18%, transparent);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
 }
 }
 
@@ -1496,7 +1492,6 @@ tr:hover td {
     left: 0;
     right: 0;
     bottom: 0;
-    background: var(--st-surface-overlay);
     z-index: 999;
     opacity: 0;
     visibility: hidden;
@@ -2126,13 +2121,22 @@ tr:hover td {
 .menu-item { display: block; width: 100%; padding: .5rem .75rem; border: 0; border-radius: var(--st-radius-control); background: transparent; color: var(--text-primary); font: inherit; text-align: left; transition: var(--transition); cursor: pointer; }
 .menu-item:hover:not(:disabled) { background: var(--bg-surface); }
 .menu-item:disabled { opacity: .42; cursor: not-allowed; }
-.nav-submenu, .user-dropdown, .jira-more-menu, .multi-select__dropdown, .mobile-menu {
+.nav-submenu, .user-dropdown, .jira-more-menu, .multi-select__dropdown, .mobile-menu, .dashboard-widget-picker {
     border-color: var(--st-border-subtle);
     border-radius: var(--st-radius-popover);
     background: var(--st-surface-navigation);
     box-shadow: var(--st-shadow-popover);
-    backdrop-filter: saturate(150%) blur(24px);
-    -webkit-backdrop-filter: saturate(150%) blur(24px);
+}
+/* Glass surfaces and full-page backdrops share navigation effects, with distinct owners. */
+.top-nav, .nav-submenu, .user-dropdown, .jira-more-menu, .multi-select__dropdown, .mobile-menu, .dashboard-widget-picker {
+    backdrop-filter: var(--st-glass-filter);
+    -webkit-backdrop-filter: var(--st-glass-filter);
+}
+.nav-backdrop { background: color-mix(in srgb, var(--bg-primary) 18%, transparent); }
+.mobile-menu-overlay, dialog::backdrop { background: var(--st-surface-overlay); }
+.nav-backdrop, .mobile-menu-overlay, dialog::backdrop {
+    backdrop-filter: var(--st-overlay-filter);
+    -webkit-backdrop-filter: var(--st-overlay-filter);
 }
 /* Existing hidden/aria states drive CSS entry and discrete exit; no queued JS lifecycle. */
 .user-dropdown, .jira-more-menu, .multi-select__dropdown {
@@ -2213,10 +2217,9 @@ tr:hover td {
     .report-actions .button, .filter-actions .button, .export-actions .button { width: 100%; }
 }
 @media (prefers-reduced-transparency: reduce) {
-    .top-nav, .nav-submenu, .user-dropdown, .jira-more-menu, .multi-select__dropdown, .mobile-menu {
+    :root { --st-glass-filter: none; --st-overlay-filter: none; }
+    .top-nav, .nav-submenu, .user-dropdown, .jira-more-menu, .multi-select__dropdown, .mobile-menu, .dashboard-widget-picker {
         background: var(--st-surface-content);
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
     }
 }
 @media (prefers-contrast: more) {

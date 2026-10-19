@@ -18,7 +18,7 @@ if (!window.location.pathname.startsWith('/wifi-database/')) {
   startAuthenticatedPage({ mount: (root, session) => {
     const registry = createWidgetRegistry()
     registry.register({
-      type: 'role-workload', title: 'Project Resource Statistics', ...ROLE_WORKLOAD_LAYOUT,
+      type: 'role-workload', title: 'Project Human Resource Statistics', ...ROLE_WORKLOAD_LAYOUT,
       create: () => createRoleWorkloadWidget({ chartFactory: (canvas, config) => new Chart(canvas, config) }),
     })
     for (const [cardKey, metadata] of Object.entries(JIRA_STATISTICS_CARDS)) {

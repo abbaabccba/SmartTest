@@ -1,3 +1,5 @@
+import { downloadExcel } from './excel-download.js'
+
 const DIRECTIONS = ['uplink', 'downlink']
 
 function directionOf(row, dataType) {
@@ -198,15 +200,6 @@ function polarConfig(groups) {
   }
 }
 
-function downloadExcel(buffer, filename) {
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 
 export async function exportPerformanceExcel(rows, { Workbook, saveFile = downloadExcel, now = new Date() }) {
   if (!rows?.length) throw new Error('No data available to export.')

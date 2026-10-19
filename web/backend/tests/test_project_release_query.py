@@ -541,3 +541,20 @@ def test_dashboard_drilldown_scope_keeps_open_count_and_snapshotted_current_rele
     )
     assert stale["state"] == "no_snapshot"
     assert stale["pagination"]["total"] == 0
+
+
+def test_release_details_are_the_same_issue_rows_used_by_counts(monkeypatch):
+    service = ProjectReleaseQueryService(None, today=lambda: date(2026, 10, 19))
+    monkeypatch.setattr(service, '_metadata_ready', lambda: True)
+    project = ('c1', 'P1', 'Project', 'R1', '2027-01-01', '', '', '', '', '',
+               'TV', 'NORMAL', 'DVT', 'https://wiki/P1', 'r1', '2026-10-19', 'r1', '2026-10-19', 'Owner', 'QA')
+    def issue(identity, priority, resolution, release):
+        return (identity, f'TV-{identity}', f'https://jira/TV-{identity}', 'Summary', 'Open', resolution,
+                priority, 'qa', 'QA', '2026-10-01', '2026-10-19', release, '', '', '', '', '',
+                '2026-10-19', 'r1', 'P1', 'TV', 'Bug', ('Audio',), ())
+    result = service._release_payload(project, [issue('1', 'P0', '', 'R1'), issue('2', 'P1', 'Fixed', 'R0')])
+    assert len(result['issues']) == 2
+    assert result['issueCounts']['open'] == sum(not row['resolution'] for row in result['issues'])
+    assert result['issueCounts']['p0'] == sum(not row['resolution'] and row['priority'] == 'P0' for row in result['issues'])
+    assert result['issueCounts']['versionPending'] == sum(row['releaseAssociation'] == 'version_pending' for row in result['issues'])
+    assert all(not any(key.startswith('_') for key in row) for row in result['issues'])

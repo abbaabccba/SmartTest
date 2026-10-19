@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select, or_, text, update, delete, func
 from ..database import upsert
 
-from .schema import jira_analytics_facts, jira_analytics_queries, jira_analytics_snapshot_issues, jira_analytics_snapshots, jira_history_scopes
+from .schema import jira_analytics_facts, jira_analytics_queries, jira_analytics_snapshot_issues, jira_analytics_snapshots, jira_history_scopes, jira_issues
 
 import json
 import time
@@ -389,10 +389,25 @@ class JiraAnalyticsRepository:
                     merge_annual_activity_facts(facts, contributions)
                 else:
                     merge_annual_activity_facts(facts, contributions, metrics=metrics)
-            return aggregate_annual_facts(facts, metadata, period, today=today)
+            return aggregate_annual_facts(facts, metadata, period, today=today, include_details=True)
+
+        def presentation_fields(result):
+            from copy import deepcopy
+            result = deepcopy(result)
+            issue_ids = tuple({item["issueId"] for kind in ("current", "previous") for item in result[kind]["details"]})
+            with self.database.connect() as connection:
+                fields = {row[0]: {"key": row[1], "summary": row[2], "status": row[3], "webUrl": row[4],
+                                   "cachedAt": str(row[5] or "")}
+                          for row in connection.execute(select(jira_issues.c.issue_id, jira_issues.c.issue_key,
+                              jira_issues.c.summary, jira_issues.c.status_name, jira_issues.c.web_url, jira_issues.c.cached_at)
+                              .where(jira_issues.c.issue_id.in_(issue_ids)))} if issue_ids else {}
+            for kind in ("current", "previous"):
+                for item in result[kind]["details"]:
+                    item.update(fields.get(item["issueId"], {}))
+            return result
 
         if not cacheable:
-            return aggregate(raw_facts)
+            return presentation_fields(aggregate(raw_facts))
 
         def load():
             identities = {snapshot_id, *(identity for identity, _metrics in sources if identity)}
@@ -408,12 +423,12 @@ class JiraAnalyticsRepository:
             return aggregate(raw)
 
         dependencies = json.dumps([snapshot_id, sources, row[3], roster], sort_keys=True, separators=(',', ':'))
-        identity = CacheIdentity(format_version=1, namespace='jira-annual-statistics',
+        identity = CacheIdentity(format_version=2, namespace='jira-annual-statistics',
             scope=json.dumps([row[1], row[2]], separators=(',', ':')),
             dependency_revision=sha256(dependencies.encode()).hexdigest(),
             dimensions=(('period', str(period)),), time_boundary=today.isoformat())
-        return self._statistics_cache.get_or_load(identity, load,
-            ttl_seconds=self._statistics_cache_ttl_seconds)
+        return presentation_fields(self._statistics_cache.get_or_load(identity, load,
+            ttl_seconds=self._statistics_cache_ttl_seconds))
 
     def annual_source(self, account, source_key, revision):
         state = self.state("", account, card_key=source_key)

@@ -50,11 +50,10 @@ export function createRankingCard({ chartFactory } = {}) {
   }
 
   function applyPalette(datasets) {
-    if (config.palette !== 'jira') return
     const styles = getComputedStyle(root)
     // Indexable colors avoid Chart.js retaining shared bar options on update('none').
-    datasets[0].backgroundColor = [styles.getPropertyValue('--jira-current-bar').trim()]
-    if (datasets[1]) datasets[1].backgroundColor = [styles.getPropertyValue('--jira-previous-bar').trim()]
+    datasets[0].backgroundColor = [styles.getPropertyValue('--ranking-current-bar').trim()]
+    if (datasets[1]) datasets[1].backgroundColor = [styles.getPropertyValue('--ranking-previous-bar').trim()]
   }
 
   function render() {
@@ -75,6 +74,21 @@ export function createRankingCard({ chartFactory } = {}) {
       .sort((left, right) => right.count - left.count
         || Number(right.previousCount || 0) - Number(left.previousCount || 0)
         || left.name.localeCompare(right.name))
+    const openRow = (index, datasetIndex, trigger) => config.onDataClick?.({
+      productLine: activeProductLine, mode: activeMode, row: rows[index],
+      periodKind: datasetIndex === 1 ? 'previous' : 'current', trigger,
+    })
+    const access = root.querySelector('[data-ranking-details]')
+    access.replaceChildren()
+    if (config.onDataClick && config.detailsEnabled?.(activeMode) !== false) {
+      rows.forEach((row, index) => {
+        for (const datasetIndex of Object.hasOwn(row, 'previousCount') ? [0, 1] : [0]) {
+          const button = element('button', 'button button-secondary', `${row.name} · ${datasetIndex ? 'Previous' : 'Current'}: ${datasetIndex ? row.previousCount : row.count}`)
+          button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog')
+          button.addEventListener('click', () => openRow(index, datasetIndex, button)); access.append(button)
+        }
+      })
+    }
     const total = rows.reduce((sum, row) => sum + row.count, 0)
     const previousTotal = rows.reduce((sum, row) => sum + (row.previousCount || 0), 0)
     const surface = root.querySelector('.workload-chart-surface')
@@ -136,6 +150,12 @@ export function createRankingCard({ chartFactory } = {}) {
       type: 'bar', data: { labels: rows.map(row => row.name), datasets },
       plugins: [positionLayout],
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        onHover: (_event, elements) => { canvas.style.cursor = config.onDataClick && config.detailsEnabled?.(activeMode) !== false && elements.length ? 'pointer' : '' },
+        onClick: (_event, elements) => {
+          if (!config.onDataClick || config.detailsEnabled?.(activeMode) === false || !elements.length) return
+          if (document.querySelector('dialog.data-details')) return
+          const hit = elements[0]; canvas.focus(); openRow(hit.index, hit.datasetIndex, canvas)
+        },
         animation: reducedMotion ? false : { duration: 500, easing: 'easeOutQuart',
           delay: context => context.type === 'data' ? Math.min(context.dataIndex * 40, 400) : 0 },
         transitions: { resize: { animation: { duration: reducedMotion ? 0 : 500 } } },
@@ -153,6 +173,14 @@ export function createRankingCard({ chartFactory } = {}) {
             return `Current: ${rangeText(config.ranges?.current)} · ${row.count}\nPrevious: ${rangeText(config.ranges?.previous)} · ${row.previousCount}\nChange: ${comparisonText(row.count, row.previousCount)}`
           },
         } }, datalabels: {
+          listeners: {
+            click: context => {
+              if (!config.onDataClick || config.detailsEnabled?.(activeMode) === false || document.querySelector('dialog.data-details')) return
+              canvas.focus(); openRow(context.dataIndex, context.datasetIndex, canvas)
+            },
+            enter: () => { if (config.onDataClick && config.detailsEnabled?.(activeMode) !== false) canvas.style.cursor = 'pointer' },
+            leave: () => { canvas.style.cursor = '' },
+          },
           color: () => getComputedStyle(root).getPropertyValue('--text-primary').trim(),
           font: context => context.chart.options.font,
           labels: {
@@ -188,7 +216,7 @@ export function createRankingCard({ chartFactory } = {}) {
     mount(target, value) {
       root = target; config = value
       positionSignature = ''
-      root.innerHTML = `<div class="segmented-ranking"><header class="report-preview-toolbar"><div class="workload-heading">${config.headingHtml || ''}<div class="product-line-segments" data-product-line-segments></div></div><div class="role-segments" data-mode-segments></div></header><div class="workload-chart-scroll"><div class="workload-chart-surface"><canvas data-ranked-chart></canvas><div data-ranking-positions></div><div class="product-space-empty" data-ranked-empty data-workload-empty hidden></div></div></div></div>`
+      root.innerHTML = `<div class="segmented-ranking"><header class="report-preview-toolbar"><div class="workload-heading">${config.headingHtml || ''}<div class="product-line-segments" data-product-line-segments></div></div><div class="role-segments" data-mode-segments></div></header><div class="workload-chart-scroll"><div class="workload-chart-surface"><canvas data-ranked-chart tabindex="0" aria-label="Statistics chart"></canvas><div class="ranking-detail-access" data-ranking-details></div><div data-ranking-positions></div><div class="product-space-empty" data-ranked-empty data-workload-empty hidden></div></div></div></div>`
       render()
     },
     update(value) { config = value; if (root) render() },

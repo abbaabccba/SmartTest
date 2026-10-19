@@ -25,9 +25,9 @@ describe('Dashboard page', () => {
   it('mounts the account dashboard with shared widget and existing APIs', async () => {
     await import('../src/dashboard-main.js')
     state.authenticated.mount(document.querySelector('main'), { username: 'coco' })
-    expect(state.dashboard.registry.get('role-workload').title).toBe('Project Resource Statistics')
+    expect(state.dashboard.registry.get('role-workload').title).toBe('Project Human Resource Statistics')
     expect(state.dashboard.registry.get('role-workload')).not.toHaveProperty('defaultH')
-    expect(state.dashboard.registry.get('jira-statistics-self-test').title).toBe('Self-Test Jira Statistics by Product Line')
+    expect(state.dashboard.registry.get('jira-statistics-self-test').title).toBe('Self Test Jira Statistics by Product Line')
     expect(state.dashboard.registry.get('jira-statistics-task').title).toBe('Task Jira Statistics by Product Line')
     expect(state.dashboard.registry.get('jira-statistics-customer-feedback').title).toBe('Customer Feedback Jira Statistics by Product Line')
     expect(state.dashboard.preferenceApi).toMatchObject({ get: expect.any(Function), put: expect.any(Function), reset: expect.any(Function) })

@@ -76,7 +76,7 @@ describe('Jira statistics card', () => {
   it('declares three cards with shared component metadata', () => {
     expect(Object.keys(JIRA_STATISTICS_CARDS)).toEqual(['self-test', 'task', 'customer-feedback'])
     expect(Object.values(JIRA_STATISTICS_CARDS).map(card => card.title)).toEqual([
-      'Self-Test Jira Statistics by Product Line',
+      'Self Test Jira Statistics by Product Line',
       'Task Jira Statistics by Product Line',
       'Customer Feedback Jira Statistics by Product Line',
     ])
@@ -601,5 +601,34 @@ it('does not display an intentional abort as a request failure', async () => {
   await vi.waitFor(() => expect(getStatistics).toHaveBeenCalledOnce())
   await new Promise(resolve => setTimeout(resolve, 0))
   expect(document.querySelector('.inline-status-error')).toBeNull()
+  widget.destroy()
+})
+
+it('opens the clicked Jira period and excludes Comments and Verify without another request', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  document.body.innerHTML = '<div id="root"></div>'
+  const detail = key => ({ issueId: key, key, summary: 'Database issue', productLine: 'China Operator',
+    people: [{ identity: 'a', displayName: 'Alice', bugCount: 2, invalidCount: 0 }] })
+  const data = { state: 'ready', current: { productLines, details: [detail('CURRENT-1')] },
+    previous: { productLines, details: [detail('PREVIOUS-1')] } }
+  const getStatistics = vi.fn(async () => data)
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ chartFactory })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics }, account: 'details' })
+  await vi.waitFor(() => expect(chartFactory).toHaveBeenCalled())
+  const config = chartFactory.mock.calls.at(-1)[1]
+  const index = config.data.labels.indexOf('Alice')
+  config.options.onClick({}, [{ index, datasetIndex: 1 }])
+  expect(document.querySelector('dialog tbody').textContent).toContain('PREVIOUS-1')
+  expect(document.querySelector('dialog tbody').textContent).not.toContain('CURRENT-1')
+  expect(getStatistics).toHaveBeenCalledOnce()
+  document.querySelector('[data-details-close]').click()
+  for (const metric of ['commentCount', 'verifyCount']) {
+    document.querySelector(`[data-value="${metric}"]`).click()
+    chartFactory.mock.calls.at(-1)[1].options.onClick({}, [{ index: 0, datasetIndex: 0 }])
+    expect(document.querySelector('dialog')).toBeNull()
+    expect(document.querySelector('[data-ranking-details]').childElementCount).toBe(0)
+  }
   widget.destroy()
 })

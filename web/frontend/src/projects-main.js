@@ -13,7 +13,7 @@ Chart.register(...registerables, ChartDataLabels)
 initializeChartTheme(Chart)
 startAuthenticatedPage({
   mount: (root, session) => {
-    root.innerHTML = `<section class="card page-ranking-widget" data-page-widget="role-workload"><header class="dashboard-widget-head"><strong>Project Resource Statistics</strong></header><div data-widget-body></div></section><div data-page-primary></div>`
+    root.innerHTML = `<section class="card page-ranking-widget" data-page-widget="role-workload"><header class="dashboard-widget-head"><strong>Project Human Resource Statistics</strong></header><div data-widget-body></div></section><div data-page-primary></div>`
     const workload = createRoleWorkloadWidget({ chartFactory: (canvas, config) => new Chart(canvas, config) })
     workload.mount(root.querySelector('[data-widget-body]'), { shellTitle: true })
     const projects = createProjects({

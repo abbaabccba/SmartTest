@@ -487,3 +487,23 @@ def test_customer_scope_and_fingerprint_do_not_depend_on_creator_groups(monkeypa
     assert service.card_definition("customer-feedback").fingerprint == before["customer-feedback"]
     for key in ("self-test", "task"):
         assert service.card_definition(key).fingerprint != before[key]
+
+def test_card_details_preserve_period_person_component_and_invalid_contributions():
+    from datetime import date
+    row = issue(creator={'name': 'qa'}, resolution='Invalid')
+    row['id'] = 'one'
+    row['fields']['created'] = '2026-10-01'
+    row['fields']['components'] = [{'name': 'Audio'}, {'name': 'Video'}]
+    class Gateway:
+        def user_groups(self, _): return ('fae-tv-qa',)
+    metadata = service.build_annual_facts(Gateway(), [row], [], card_key='self-test')
+    facts = metadata.pop('_facts')
+    metadata['availability'] = {key: {'basic': True, 'verify': True} for key in ('current', 'previous')}
+    result = service.aggregate_annual_facts(facts, metadata, 'month', date(2026, 10, 19), include_details=True)
+    detail = next(item for item in result['current']['details'] if item['productLine'] == 'TV')
+    assert detail['issueId'] == 'one'
+    assert detail['people'][0]['bugCount'] == 1
+    assert detail['people'][0]['invalidCount'] == 1
+    assert {c['name'] for c in detail['components']} == {'Audio', 'Video'}
+    assert all('commentCount' not in p and 'verifyCount' not in p for p in detail['people'])
+    assert result['previous']['details'] == []

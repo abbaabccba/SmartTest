@@ -185,12 +185,14 @@ it('animates finite horizontal bar geometry with real Chart.js, including resize
     }
   })
   try {
-    card.mount(document.createElement('div'), {
+    const root = document.createElement('div')
+    root.style.setProperty('--ranking-current-bar', '#258B88')
+    card.mount(root, {
       productLines: [{ value: 'a', label: 'A' }], modes: [{ value: 'x', label: 'X' }],
       rowsFor: () => [{ name: 'Alice', count: 4 }, { name: 'Bob', count: 4 }],
     })
     const bars = chart.getDatasetMeta(0).data
-    expect(bars[0].options.backgroundColor).toBe('rgba(54, 162, 235, 0.5)')
+    expect(bars[0].options.backgroundColor).toBe('#258B88')
     vi.setSystemTime(1200); frame()
     expect(bars.every(bar => Number.isFinite(bar.x) && Number.isFinite(bar.width))).toBe(true)
     expect(bars[0].width).toBeGreaterThan(bars[1].width)
@@ -264,10 +266,10 @@ it('recolors Jira on theme changes without querying rows or resetting selection 
   })
   const card = createRankingCard({ chartFactory })
   const rowsFor = vi.fn(() => [{ name: 'Alice', count: 3, previousCount: 2 }])
-  root.style.setProperty('--jira-current-bar', '#9DD5FA')
-  root.style.setProperty('--jira-previous-bar', '#FFD3AE')
+  root.style.setProperty('--ranking-current-bar', '#9DD5FA')
+  root.style.setProperty('--ranking-previous-bar', '#FFD3AE')
   try {
-    card.mount(root, { palette: 'jira', rowsFor,
+    card.mount(root, { rowsFor,
       productLines: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
       modes: [{ value: 'x', label: 'X' }],
     })
@@ -278,8 +280,8 @@ it('recolors Jira on theme changes without querying rows or resetting selection 
     const previousData = chart.data.datasets.map(dataset => dataset.data)
     rowsFor.mockClear(); chart.update.mockClear()
     for (const [dark, colors] of [[true, ['#789AAF', '#B99B85']], [false, ['#9DD5FA', '#FFD3AE']]]) {
-      root.style.setProperty('--jira-current-bar', colors[0])
-      root.style.setProperty('--jira-previous-bar', colors[1])
+      root.style.setProperty('--ranking-current-bar', colors[0])
+      root.style.setProperty('--ranking-previous-bar', colors[1])
       globalThis.SmartTestTheme.apply(dark ? 'dark' : 'light')
       await Promise.resolve()
       expect(chart.data.datasets.map(dataset => dataset.backgroundColor)).toEqual(colors.map(color => [color]))
@@ -322,17 +324,17 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
   } })
   try {
     root.style.setProperty('--text-primary', '#1E293B')
-    root.style.setProperty('--jira-current-bar', '#9DD5FA')
-    root.style.setProperty('--jira-previous-bar', '#FFD3AE')
-    card.mount(root, { palette: 'jira', rowsFor: () => [{ name: 'Alice', count: 3, previousCount: 2 }],
+    root.style.setProperty('--ranking-current-bar', '#9DD5FA')
+    root.style.setProperty('--ranking-previous-bar', '#FFD3AE')
+    card.mount(root, { rowsFor: () => [{ name: 'Alice', count: 3, previousCount: 2 }],
       productLines: [{ value: 'a', label: 'A' }], modes: [{ value: 'x', label: 'X' }],
     })
     expect(chart.getDatasetMeta(0).data[0].options.backgroundColor).toBe('#9DD5FA')
     expect(textDraws).toContainEqual({ text: '100%（3/3）', color: '#1E293B' })
     const bar = chart.getDatasetMeta(0).data[0]
     const geometry = { x: bar.x, y: bar.y, width: bar.width, height: bar.height }
-    root.style.setProperty('--jira-current-bar', '#789AAF')
-    root.style.setProperty('--jira-previous-bar', '#B99B85')
+    root.style.setProperty('--ranking-current-bar', '#789AAF')
+    root.style.setProperty('--ranking-previous-bar', '#B99B85')
     root.style.setProperty('--text-primary', '#F5F5F5')
     textDraws.length = 0
     globalThis.SmartTestTheme.apply('dark')

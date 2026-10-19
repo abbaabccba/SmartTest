@@ -99,3 +99,41 @@ describe('shared Web design system behavior', () => {
     }
   })
 })
+
+it('keeps modal details viewport centered despite the global reset and card cascade', () => {
+  const detailsStyle = document.createElement('style')
+  detailsStyle.textContent = readFileSync(resolve(import.meta.dirname, '../src/data-details.css'), 'utf8')
+  mountTheme('<dialog class="data-details" open></dialog>')
+  document.head.append(detailsStyle)
+  const dialog = getComputedStyle(document.querySelector('dialog'))
+  expect(dialog.position).toBe('fixed')
+  expect(dialog.inset).toBe('0')
+  expect(dialog.marginTop).toBe('auto')
+  expect(dialog.marginRight).toBe('auto')
+  expect(dialog.marginBottom).toBe('auto')
+  expect(dialog.marginLeft).toBe('auto')
+})
+
+it('shares navigation glass across popup surfaces and navigation blur across backdrop surfaces', () => {
+  mountTheme(`<nav class="top-nav"></nav><div class="nav-submenu"></div><div class="user-dropdown"></div>
+    <div class="jira-more-menu"></div><div class="multi-select__dropdown"></div><div class="mobile-menu"></div>
+    <div class="dashboard-widget-picker"></div><div class="nav-backdrop"></div><div class="mobile-menu-overlay"></div>`)
+  const glass = token('--st-glass-filter')
+  const overlay = token('--st-overlay-filter')
+  expect(glass).toBe('saturate(160%) blur(22px)')
+  expect(overlay).toBe('blur(6px)')
+  const filter = element => {
+    let value = ''
+    for (const sheet of document.styleSheets) for (const rule of sheet.cssRules) {
+      const declared = rule.style?.getPropertyValue('backdrop-filter')
+      if (declared && rule.selectorText.split(',').filter(selector => !selector.includes('::')).some(selector => element.matches(selector))) value = declared
+    }
+    return value.startsWith('var(') ? token(value.slice(4, -1)) : value
+  }
+  for (const selector of ['.top-nav', '.nav-submenu', '.user-dropdown', '.jira-more-menu', '.multi-select__dropdown', '.mobile-menu', '.dashboard-widget-picker']) {
+    expect(filter(document.querySelector(selector))).toBe(glass)
+  }
+  for (const selector of ['.nav-backdrop', '.mobile-menu-overlay']) {
+    expect(filter(document.querySelector(selector))).toBe(overlay)
+  }
+})

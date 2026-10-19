@@ -388,7 +388,7 @@ def merge_annual_activity_facts(facts, activity_facts, *, metrics=("commentCount
                     people.append(person)
 
 
-def aggregate_annual_facts(facts, metadata, period, today=None):
+def aggregate_annual_facts(facts, metadata, period, today=None, *, include_details=False):
     today = today or date.today()
     ranges = jira_period_ranges(period, today)
     output = {}
@@ -409,6 +409,8 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
         by_line = {line["id"]: {} for line in summary["productLines"]}
         summaries = {line["id"]: line for line in summary["productLines"]}
         components = defaultdict(lambda: defaultdict(int))
+        if include_details:
+            summary["details"] = []
         for fact in facts:
             created = fact["createdAt"][:10]
             if not created or created < start or (end is not None and created >= end):
@@ -420,6 +422,15 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
             for count in ("teamTotal", "unassignedCount", "unmappedCount"):
                 summary[count] += contribution[count]
             for line in contribution["productLines"]:
+                if include_details:
+                    summary["details"].append({
+                        "issueId": fact["issueId"], "createdAt": fact["createdAt"],
+                        "productLine": line["id"], "issueCount": line.get("issueCount", 0),
+                        "invalidCount": line.get("invalidCount", 0),
+                        "components": line.get("components", []),
+                        "people": [{key: person[key] for key in ("identity", "displayName", "bugCount", "invalidCount")}
+                                   for person in line["people"]],
+                    })
                 for count in ("issueCount", "invalidCount"):
                     if count in line:
                         summaries[line["id"]][count] += line[count]

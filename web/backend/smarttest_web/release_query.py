@@ -210,6 +210,7 @@ class ProjectReleaseQueryService:
             "productLine": row[10] or "", "projectStatus": row[11] or "",
             "currentStage": row[12] or "", "confluenceUrl": row[13] or "",
             "projectOwners": row[18] or "", "majorFaeQa": row[19] or "",
+            "issues": [self._public_issue(item) for item in issue_payloads],
             "issueCounts": {"open": len(open_issues), "p0": len(p0), "p1": len(p1),
                             "exact": len(issue_payloads) - len(pending), "versionPending": len(pending)},
             "health": {"state": state, "reasons": reasons, "dataIncomplete": bool(incomplete)},
