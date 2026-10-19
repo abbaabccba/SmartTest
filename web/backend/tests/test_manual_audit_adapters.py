@@ -34,6 +34,45 @@ from smarttest_web.jira.cache_service import JiraIssueCacheService
 from smarttest_web.jira.issue_repository import JiraIssueRepository
 
 
+def test_confluence_child_metadata_grants_reuse_parent_scope_and_version_reader():
+    calls = []
+    class Access:
+        def __init__(self): self.grants = {('page', 'parent', 'metadata', 'P1:evidence')}
+        def require_active(self): pass
+        def require(self, kind, key, capability):
+            assert any(row[:3] == (kind, key, capability) for row in self.grants)
+        def scopes(self, kind, key, capability):
+            return {row[3] for row in self.grants if row[:3] == (kind, key, capability)}
+        def publish(self, grants, write):
+            self.grants.update(grants)
+            write()
+    class Gateway:
+        def get_page_children(self, page_id):
+            calls.append(('children', page_id))
+            return [ConfluencePage('child', 'Child', 'https://c/child', version=2)]
+        def get_page(self, page_id):
+            calls.append(('current', page_id))
+            return ConfluencePage('child', 'Child', 'https://c/child', body='<p>new</p>', version=2,
+                                  updated_at=datetime(2026, 8, 20, tzinfo=ZoneInfo('Asia/Shanghai')))
+        def get_page_version(self, page_id, version):
+            calls.append(('version', page_id, version))
+            return ConfluencePage('child', 'Child', 'https://c/child', body='<p>old</p>', version=1,
+                                  updated_at=datetime(2026, 8, 10, tzinfo=ZoneInfo('Asia/Shanghai')))
+    from core.confluence.audit.models import AuditPeriod
+    access = Access()
+    owner = WebConfluenceAuditOwner(None, None, Gateway(), access=access)
+    token = type('Token', (), {'raise_if_cancelled': lambda self: None})()
+    children = owner.load_child_pages('parent', token)
+    assert children == (ConfluencePageRef('child', 'Child', 'https://c/child', 2),)
+    assert ('page', 'child', 'metadata', 'P1:evidence') in access.grants
+    current = owner.load_current_page('child', token)
+    period = AuditPeriod(datetime(2026, 8, 17, tzinfo=ZoneInfo('Asia/Shanghai')),
+                         datetime(2026, 8, 24, tzinfo=ZoneInfo('Asia/Shanghai')))
+    assert [page.version for page in owner.load_page_versions('child', period, current, token)] == [1, 2]
+    assert ('page', 'child', 'body', 'P1:evidence') in access.grants
+    assert calls == [('children', 'parent'), ('current', 'child'), ('version', 'child', 1)]
+
+
 def test_fixed_confluence_scope_excludes_stage_four_and_out_of_year(
     tmp_path, *, database_factory
 ):

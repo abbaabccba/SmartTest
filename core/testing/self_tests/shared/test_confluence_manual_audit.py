@@ -64,6 +64,62 @@ def _document(page_id, version, when, body):
     return ConfluencePageDocument(page_id, page_id, f"https://c/{page_id}", body, body, version, when)
 
 
+@pytest.mark.parametrize('line,parent_body,child_when,child_body,expected', [
+    ('China Operator', None, datetime(2026, 8, 20, tzinfo=TZ), 'new', AuditStatus.UPDATED),
+    ('DOPL', '', datetime(2026, 8, 20, tzinfo=TZ), 'new', AuditStatus.UPDATED),
+    ('China Operator', None, datetime(2026, 8, 20, tzinfo=TZ), 'old', AuditStatus.NOT_UPDATED),
+    ('China Operator', None, datetime(2026, 8, 16, tzinfo=TZ), 'new', AuditStatus.NOT_UPDATED),
+    ('China Operator', None, datetime(2026, 8, 24, tzinfo=TZ), 'new', AuditStatus.NOT_UPDATED),
+    ('TV', None, datetime(2026, 8, 20, tzinfo=TZ), 'new', AuditStatus.NOT_UPDATED),
+])
+def test_china_environment_accepts_direct_child_changes_only_in_period(line, parent_body, child_when, child_body, expected):
+    project = _project(line=line)
+    period = AuditPeriod(datetime(2026, 8, 17, tzinfo=TZ), datetime(2026, 8, 24, tzinfo=TZ))
+    child_calls = []
+    class Source:
+        def load_project_details(self, *_args): return project
+        def load_child_pages(self, page_id, _token):
+            child_calls.append(page_id)
+            return (ConfluencePageRef('unchanged', 'Unchanged', 'https://c/unchanged'),
+                    ConfluencePageRef('child', 'Child', 'https://c/child'))
+        def load_current_page(self, page_id, _token):
+            if page_id == 'child': return _document(page_id, 2, child_when, f'<p>{child_body}</p>')
+            if page_id == 'unchanged': return _document(page_id, 2, datetime(2026, 8, 10, tzinfo=TZ), '<p>old</p>')
+            return _document(page_id, 2, datetime(2026, 8, 10, tzinfo=TZ),
+                             parent_body if page_id == '12' and parent_body is not None else _body(page_id, 'same'))
+        def load_page_versions(self, page_id, _period, current, _token):
+            if page_id == 'child':
+                return (_document(page_id, 1, datetime(2026, 8, 10, tzinfo=TZ), '<p>old</p>'), current)
+            return (current,)
+    findings = ConfluenceWeeklyAuditUseCase(Source()).run((project,), period).projects[0].findings
+    assert next(item for item in findings if item.rule_id == 'environment.setup').status is expected
+    assert all(item.status is AuditStatus.NOT_UPDATED for item in findings if item.rule_id != 'environment.setup')
+    assert child_calls == ([] if line == 'TV' else ['12'])
+
+
+@pytest.mark.parametrize('failure_stage', ['children', 'current', 'versions', 'parent_current', 'parent_versions'])
+def test_china_environment_child_read_failures_remain_failed(failure_stage):
+    project = _project()
+    period = AuditPeriod(datetime(2026, 8, 17, tzinfo=TZ), datetime(2026, 8, 24, tzinfo=TZ))
+    class Source:
+        def load_project_details(self, *_args): return project
+        def load_child_pages(self, *_args):
+            assert not failure_stage.startswith('parent_')
+            if failure_stage == 'children': raise RuntimeError('remote_unavailable')
+            return (ConfluencePageRef('child'),)
+        def load_current_page(self, page_id, _token):
+            if page_id == '12' and failure_stage == 'parent_current': raise RuntimeError('remote_unavailable')
+            if page_id == 'child' and failure_stage == 'current': raise RuntimeError('remote_unavailable')
+            return _document(page_id, 2, datetime(2026, 8, 10, tzinfo=TZ), _body(page_id, 'same'))
+        def load_page_versions(self, page_id, _period, current, _token):
+            if page_id == '12' and failure_stage == 'parent_versions': raise RuntimeError('remote_unavailable')
+            if page_id == 'child' and failure_stage == 'versions': raise RuntimeError('remote_unavailable')
+            return (current,)
+    findings = ConfluenceWeeklyAuditUseCase(Source()).run((project,), period).projects[0].findings
+    assert next(item for item in findings if item.rule_id == 'environment.setup').status is AuditStatus.FAILED
+    assert len(findings) == 8
+
+
 def test_previous_business_week_and_manual_period_use_exclusive_end() -> None:
     period = previous_business_week(datetime(2026, 8, 29, 12, tzinfo=TZ))
 

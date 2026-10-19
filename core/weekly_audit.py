@@ -4,14 +4,10 @@ from datetime import datetime, time, timedelta
 import re
 from zoneinfo import ZoneInfo
 from core.product_lines import PRODUCT_LINES
+from core.confluence.audit.product_line_rules import PRODUCT_LINE_AUDIT_RULES
 
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
-_CHINA_OPERATOR_MANUAL_PROJECT_URLS = (
-    "https://confluence.amlogic.com/display/DOPL/3.+Yak918-Test+Information",
-    "https://confluence.amlogic.com/display/DOPL/3.+Turtle128-Test+Information",
-    "https://confluence.amlogic.com/display/DOPL/3.+Owl422-Test+Information",
-)
 _JIRA_SCOPE = "project in ({},RK) AND issuetype in (Bug, Sub-bug)".format(
     ", ".join(project for line in PRODUCT_LINES for project in line.jira_project_keys),
 )
@@ -39,16 +35,19 @@ def fixed_weekly_audit_scope(trigger_at: datetime) -> dict:
             "jql": f'{_JIRA_SCOPE} AND created >= "{jira_start}" AND created < "{jira_end}" order by updated DESC',
         },
         "confluence": {
-            "manualProjectUrls": list(_CHINA_OPERATOR_MANUAL_PROJECT_URLS),
+            "manualProjectUrls": [url for rules in PRODUCT_LINE_AUDIT_RULES.values()
+                                  for url in rules.get('manual_project_urls', ())],
             "filters": {
-                "product space": [line.confluence_space_key for line in PRODUCT_LINES[1:]],
+                "product space": [line.confluence_space_key for line in PRODUCT_LINES
+                                  if not PRODUCT_LINE_AUDIT_RULES.get(line.name, {}).get('manual_project_urls')],
                 "date of commercial approval": [str(trigger.year - 1), str(trigger.year)],
                 "support mode": ["A", "B"],
                 "project status": ["NORMAL"],
             },
             "search": "",
             "excludeCurrentStageAtOrAbove": 4,
-            "excludeSupportModeBProductLines": [PRODUCT_LINES[1].confluence_space_key],
+            "excludeSupportModeBProductLines": [line.confluence_space_key for line in PRODUCT_LINES
+                                                if PRODUCT_LINE_AUDIT_RULES.get(line.name, {}).get('exclude_support_mode_b')],
         },
     }
 

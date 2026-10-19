@@ -13,13 +13,14 @@ from core.confluence.audit import (
     export_audit_xlsx_by_product_line,
 )
 from core.confluence.project import (
+    ConfluencePageRef,
     ProjectDetails,
     ProjectQuery,
 )
 from core.domain.detail import DetailState
 from core.logging import smart_log
 from core.weekly_audit import weekly_audit_project_in_scope
-from core.product_lines import PRODUCT_LINES
+from core.confluence.audit.product_line_rules import manual_project_product_line
 
 from ..task_manager import WEB_TASKS
 from ..resource_access import remote_status
@@ -72,7 +73,7 @@ class WebConfluenceAuditOwner:
                 payload.get("excludeSupportModeBProductLines") or (),
             ))
             projects += tuple(
-                self._cache.resolve_project_url(url, PRODUCT_LINES[0])
+                self._cache.resolve_project_url(url, manual_project_product_line(url))
                 for url in payload.get("manualProjectUrls") or ()
             )
         if not projects:
@@ -139,6 +140,16 @@ class WebConfluenceAuditOwner:
         result = tuple(reversed(pages))
         _timing("review.page.versions", started, page_id=str(page_id), version_count=len(result))
         return result
+
+    def load_child_pages(self, page_id, cancellation):
+        cancellation.raise_if_cancelled()
+        self._access.require('page', page_id, 'metadata')
+        children = self._gateway.get_page_children(page_id)
+        cancellation.raise_if_cancelled()
+        scopes = self._access.scopes('page', page_id, 'metadata')
+        self._access.publish((('page', child.id, 'metadata', scope)
+                              for child in children for scope in scopes), lambda: None)
+        return tuple(ConfluencePageRef(child.id, child.title, child.url, child.version) for child in children)
 
     def _read_page(self, page_id, version=None):
         self._access.require_active()
