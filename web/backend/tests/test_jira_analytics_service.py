@@ -1,3 +1,4 @@
+import pytest
 from concurrent.futures import Future
 from threading import Event
 import time
@@ -252,12 +253,57 @@ def test_card_load_logs_safe_basic_stage_timings(monkeypatch):
     tasks.runner(type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
     assert all(request["page_size"] == 100 for request in requests)
     assert [request.get("expand") for request in requests] == [None, None]
-    stages = {kwargs["extra"]["stage"] for _, kwargs in logs}
-    assert stages == {"queue", "search", "persist", "aggregate", "complete"}
-    search_logs = [kwargs["extra"] for _, kwargs in logs if kwargs["extra"]["stage"] == "search" and kwargs["extra"]["outcome"] == "completed"]
+    stages = {kwargs["extra"]["stage"] for _, kwargs in logs if "stage" in kwargs.get("extra", {})}
+    assert stages == {"queue", "search", "persist", "aggregate", "activate", "complete"}
+    stage_records = [(message, kwargs) for message, kwargs in logs if "stage" in kwargs.get("extra", {})]
+    search_logs = [kwargs["extra"] for _, kwargs in stage_records if kwargs["extra"]["stage"] == "search" and kwargs["extra"]["outcome"] == "completed"]
     assert [item["period"] for item in search_logs] == ["current", "previous"]
     assert [item["layer"] for item in search_logs] == ["basic", "basic"]
     assert all(item["page_count"] == 1 and item["processed"] == 1 for item in search_logs)
-    assert all(kwargs["extra"]["duration_ms"] >= 0 and kwargs["extra"]["card_key"] == "task" for _, kwargs in logs)
+    assert all(kwargs["extra"]["duration_ms"] >= 0 and kwargs["extra"]["card_key"] == "task" for _, kwargs in stage_records)
+    assert any("stage=activate" in message and "outcome=completed" in message for message, _ in stage_records)
     assert all(kwargs["platform"] == "web" and kwargs["domain"] == "jira" for _, kwargs in logs)
     assert not any(value in str(logs) for value in ["session-secret", "account-secret", "private-query", "private-content"])
+
+
+@pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
+def test_runtime_basic_and_activity_queries_share_their_current_jql_owners(monkeypatch, card_key):
+    from core.async_tasks import CancellationToken
+    from core.jira.jql import customer_feedback_jql, product_line_jql
+    from core.jira.services.jql_statistics_cards import (
+        current_card_jql_by_product_line_and_metric, effective_card_jql_pair, activity_card_jql_pair, card_definition,
+    )
+    from core.product_lines import DASHBOARD_PRODUCT_LINES
+    from smarttest_web.jira.analytics_service import card_analytics_service
+    from smarttest_web.jira import analytics_refresh
+    requests, activities = [], []
+    class RecordingGateway(Gateway):
+        def search_all_payloads(self, jql, **kwargs):
+            requests.append(jql)
+            return []
+    class Repository(Repo):
+        def register_history_scope(self, *_args): pass
+        def statistics_preview(self, *_args, **_kwargs): return None
+        def update_statistics(self, *_args, **_kwargs): return True
+    def refresh_metric(_repository, _pages, _gateway, _account, _card, query, *_args, **_kwargs):
+        activities.append(query)
+        return "source"
+    monkeypatch.setattr(analytics_refresh, 'refresh_metric', refresh_metric)
+    repo, tasks = Repository(), Tasks()
+    tasks.pages = object()
+    service = card_analytics_service(Filter(), RecordingGateway(), repo, tasks, card_key)
+    service.statistics_builder = lambda *_args, **_kwargs: {}
+    service.search('session', 'test', 0, {'mode': 'advanced', 'jql': 'status = Open'})
+    tasks.runner(CancellationToken(), lambda *_: None)
+    actual = effective_card_jql_pair(card_key, 'status = Open', 'year')
+    activity = activity_card_jql_pair(card_key, 'status = Open')
+    assert requests == [actual[period]['jql'] for period in ('current', 'previous')]
+    assert activities == [activity[period]['jql'] for period in ('current', 'previous')]
+    display = current_card_jql_by_product_line_and_metric(card_key, 'status = Open', 'year')
+    for line in DASHBOARD_PRODUCT_LINES:
+        source = customer_feedback_jql(line) if card_key == 'customer-feedback' else card_definition(card_key).custom_jql
+        branch = f'({product_line_jql(line, card_key=card_key)}) AND ({source})'
+        assert all(branch in query for query in requests)
+        assert source in display[line.name]['bugCount']
+        assert display[line.name]['commentCount'] == display[line.name]['verifyCount'] == activities[0]
+    assert all('labels NOT IN' not in query for query in requests)

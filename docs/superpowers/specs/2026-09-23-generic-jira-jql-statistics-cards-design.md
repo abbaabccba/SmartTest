@@ -56,16 +56,16 @@ GET 只重放 SQLite，不访问 Jira。Refresh 才执行远端查询。Reuse �
 
 - `issuetype = Bug`。
 - `"Channel of Reporter" = "Self-Test"`。
-- creator 必须属于五个批准的 FAE QA Group 之一。
-- `fae-wifi-qa` 命中时归入 Wireless Connection；否则按 Jira Project `IPTV/SH/TV/OTT` 映射四个业务产品线。
+- Bugs/Invalid 使用下述统一的创建人组与项目交集；Comments/Verify保留原活动来源和作者统计。
+- 基础问题归属按公共scope与原优先级选择实际命中的产品线，不再使用外层五组 OR 或非无线 creator NOT 排除。
 - 指标为 `Bugs / Resolved / P0 / Invalid`。
 - 保持当前结果口径、项目映射、人员维度和未归类计数，不因通用化改变现有 Self-Test 数据。
 
 ### Task
 
 - `issuetype = Task`。
-- creator 使用与 Self-Test 相同的五个 `membersOf(...)` Group 边界。
-- Wireless Group 优先；否则按 Jira Project 映射四个业务产品线。
+- 基础问题/Invalid使用与Self-Test相同的创建人组+项目边界；活动指标保持原机制。
+- 多组创建人保留原先级，但候选产品线必须同时满足该线creator/project及卡片来源。
 - 不增加 Channel、resolution、labels 或额外项目排除。
 - 指标为 `Tasks / Resolved / P0 / Invalid`。
 
@@ -73,7 +73,7 @@ GET 只重放 SQLite，不访问 Jira。Refresh 才执行远端查询。Reuse �
 
 - `issuetype = Bug`。
 - `"Channel of Reporter" = "Customer-Feedback"`。
-- 四个业务产品线按 Jira Project `IPTV/SH/TV/OTT` 映射。
+- China Operator、Smart Device、TV、Global Operator & STB 的来源条件仅为 `"Channel of Reporter" = "Customer-Feedback"`，不追加无线 labels 或反向 labels 排除；`issuetype = Bug`、既有授权及时间段条件保持；基础问题不限定创建人，各普通线使用对应项目。
 - Wireless Connection 使用以下 labels，按 Jira 实际 label 值生成 `IN` 条件：
   - `Customer_W1`
   - `Customer_W1U`
@@ -85,7 +85,9 @@ GET 只重放 SQLite，不访问 Jira。Refresh 才执行远端查询。Reuse �
   - `customer_w1d`
 - Wireless 分支排除 resolution：`Invalid Case`、`Cannot Reproduce`、`HW Fix`、`Won't Fix`、`Won't Do`；`resolution is EMPTY` 保留。
 - Wireless 分支排除项目 `RD SW Platform`、`Wireless Project`。
-- 命中 Wireless label 的 issue 只归入 Wireless Connection，普通产品线分支显式排除同一 label 集合，不重复统计。
+- Customer 基础问题与 Invalid 不限定 creator：四普通线按各自 project + Bug + Channel，Wireless 保留四项目及上述 labels/resolution/项目排除。符合 Wireless 来源者优先归 Wireless，否则按 project 归普通线；保留真实 creator 人员行，即使不属 QA，也不额外查询其用户组。Self-Test/Task 继续公共 creator-group + project 范围。
+- Coco于2026-10-19明确保留Comments/Verify原机制，不套本次基础产品线范围。活动全集继续不限定issue creator；Customer仍为Bug+Channel AND（原无线labels/resolution/项目排除分支 OR 项目IPTV/SH/TV/OTT），不可简化为全项目Bug+Channel。作者及既有作者产品线计数、布局不改。
+- `core/jira/jql.py:customer_feedback_jql()` 是来源 owner；原 definition fingerprint 随业务 JQL 变化，既有 API 同时核对 JQL/fingerprint，旧年度快照不能作为新口径有效结果；本次不强制远端刷新、不迁移或删除数据。
 - 指标为 `Bugs / Resolved / P0 / Invalid`。
 
 上述 JQL 由字段、值、互斥分支和周期声明确定性拼接。用户提供的示例仅作为业务条件来源，不作为可直接执行的原始字符串保存。
@@ -150,3 +152,21 @@ Dashboard 可分别引用三张卡片，引用的仍是同一组件实例类型�
 - 不修改 Jira 原生数据、创建 Issue 或写回字段。
 - 不为 Dashboard 增加独立 Apply、Refresh 或远端查询入口。
 - 不新增第三方依赖，不改变认证与凭据生命周期。
+
+## 2026-10-19 基础范围与活动指标的最终区别
+
+`core/jira/jql.py::JIRA_PRODUCT_LINE_SCOPES` 为三类卡片基础范围的唯一声明，`product_line_jql/card_product_jql/creator_product_line`共同消费它：
+
+| 产品线 | Self-Test/Task 创建人组（Customer 不限定） | 项目 |
+|---|---|---|
+| China Operator | fae-iptv-qa | IPTV |
+| Smart Device | fae-SH-qa | SH |
+| TV | fae-tv-qa | TV |
+| Global Operator & STB | fae-stb-qa | OTT |
+| Wireless Connection | fae-wifi-qa | IPTV、TV、SH、OTT |
+
+Self-Test/Task 基础远端全集是五个“creator组 AND project AND 卡片来源”分支的OR；Customer 为五个“project AND 卡片来源”分支的OR，不含 creator 条件，不再追加外层五组全集或creator NOT条件。Invalid在对应基础范围追加resolution=Invalid。各卡issue type、Channel、用户条件与ORDER BY保留。Self-Test/Task 多组创建人仍遵循既有优先顺序；Customer 按实际来源及 project 归属，Wireless 优先。基础 fingerprint 包含生成后的 productScope，本次 Customer 范围变化自然使旧基础快照失配，不强制刷新或迁移；活动来源及作者归属不变。
+
+Current JQL按指标区分：Bugs/Tasks/Components与Invalid显示对应产品线、当前展示周期的基础范围；Comments/Verify显示实际执行的年度活动来源查询，各产品线相同，切换周/月/季不会伪造一条未执行的活动查询。既有`aggregate_annual_facts`按issue.createdAt将年度facts选入展示周期，不按comment/verify事件发生时间重新筛选；此聚合规则未改。
+
+基础definition fingerprint纳入完整productScope；既有API仍同时校验fingerprint和两期真实JQL，旧基础快照自然失效，不改schema、不强刷、不删数据。活动范围和作者归属未改，comment/verify metric_source_key继续按原card+query+roster+metric生成，可复用匹配旧活动facts；不人为升级活动版本。

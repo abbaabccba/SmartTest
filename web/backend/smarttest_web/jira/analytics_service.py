@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import monotonic
+from hashlib import sha256
 from uuid import uuid4
 
 from .analytics_refresh import JiraRefreshProgress
@@ -70,6 +71,9 @@ class JiraAnalyticsService:
             comparison_validation = self.filters.validate(query)
             if not comparison_validation.get("valid"):
                 validation = comparison_validation
+        smart_log(f"Jira card validation card={self.card_key} valid={bool(validation.get('valid'))} "
+                  f"scheduled={scheduled} queryDigest={sha256(jql.encode()).hexdigest()[:12]} "
+                  f"definition={self.roster_fingerprint}", platform="web", domain="jira")
         current = self.repository.state(session_hash, account, card_key=self.card_key)
         if not validation.get("valid"):
             return {"validation": validation, "taskId": "", "state": current}
@@ -87,6 +91,8 @@ class JiraAnalyticsService:
             published_revision=payload.get("queryRevision", ""),
             expected_user_jql=user_jql if scheduled and self.card_key == self.business_card_key else None,
         )
+        smart_log(f"Jira card snapshot created card={self.card_key} snapshotId={snapshot_id} "
+                  f"scheduled={scheduled} reuseBasicFacts={self.reuse_basic_facts}", platform="web", domain="jira")
         activity_sources = activity_queries
         source_scopes = {}
         if activity_queries:
@@ -104,7 +110,9 @@ class JiraAnalyticsService:
             processed = 0
             page_report = None
             def log_stage(stage, since, *, period="both", layer="basic", page_count=0, processed=0, outcome="completed"):
-                smart_log("Jira card load stage", platform="web", domain="jira", extra={
+                smart_log(f"Jira card stage card={self.card_key} snapshotId={snapshot_id} stage={stage} "
+                          f"period={period} metric={layer} outcome={outcome} processed={processed} "
+                          f"durationMs={round((monotonic() - since) * 1000, 3)}", platform="web", domain="jira", extra={
                     "card_key": self.card_key, "snapshot_id": snapshot_id, "stage": stage, "period": period, "layer": layer,
                     "duration_ms": round((monotonic() - since) * 1000, 3),
                     "page_count": page_count, "processed": processed, "outcome": outcome,
@@ -125,7 +133,10 @@ class JiraAnalyticsService:
                 from ..daily_refresh import manual_metric_allowed
                 layers = ['basic', *(['comment'] if activity_sources else [])] if layered else ['basic']
                 for layer in layers:
-                    if not scheduled and not manual_metric_allowed(self.business_card_key, layer):
+                    allowed = scheduled or manual_metric_allowed(self.business_card_key, layer)
+                    smart_log(f"Jira card refresh decision card={self.card_key} snapshotId={snapshot_id} "
+                              f"metric={layer} scheduled={scheduled} remoteAllowed={allowed}", platform="web", domain="jira")
+                    if not allowed:
                         continue
                     for period, query in queries.items():
                         token.raise_if_cancelled()
@@ -154,7 +165,7 @@ class JiraAnalyticsService:
                             page_report.finish('completed')
                             page_report = None
                         processed += observed_total if layer == "comment" else len(rows)
-                        log_stage("reuse" if layer == "comment" else "search", since, period=period, layer=layer,
+                        log_stage("search", since, period=period, layer=layer,
                                   page_count=max(1, (observed_total + 99) // 100), processed=observed_total)
                         token.raise_if_cancelled()
                         since = monotonic()
@@ -209,8 +220,11 @@ class JiraAnalyticsService:
                     statistics = self.statistics_builder(rows_by_period["current"]) if self.statistics_builder else None
                 token.raise_if_cancelled()
                 stage = "activate"
+                since = monotonic()
+                log_stage(stage, since, processed=processed, outcome="started")
                 if not self.repository.activate(snapshot_id, statistics):
                     raise TaskCancelled('snapshot_superseded')
+                log_stage(stage, since, processed=processed)
                 outcome = "completed"
             except TaskCancelled:
                 outcome = "cancelled"
@@ -230,7 +244,7 @@ class JiraAnalyticsService:
                     if not page_report.finished:
                         page_report.finish(**failure)
                 else:
-                    smart_log("Jira card failed", platform="web", domain="jira", level="ERROR", extra=failure)
+                    smart_log("Jira card failed " + " ".join(f"{key}={value}" for key, value in failure.items()), platform="web", domain="jira", level="ERROR", extra=failure)
                 self.repository.finish(snapshot_id, "failed", getattr(error, "code", type(error).__name__))
                 self.on_error(error)
                 raise
@@ -242,6 +256,8 @@ class JiraAnalyticsService:
             return {"validation": validation, "snapshotId": snapshot_id}
         task_id = self.tasks.submit(session_hash, run, card_key=self.card_key)
         self.repository.set_task(snapshot_id, task_id, session_hash=session_hash)
+        smart_log(f"Jira card task submitted card={self.card_key} snapshotId={snapshot_id} taskId={task_id}",
+                  platform="web", domain="jira")
         return {"validation": validation, "taskId": task_id, "snapshotId": snapshot_id,
                 "state": self.repository.state(session_hash, account, card_key=self.card_key)}
 
@@ -267,5 +283,5 @@ def card_analytics_service(filters, gateway, repository, tasks, card_key, *, sto
         roster_fingerprint=f'{definition.fingerprint}:annual-metrics-v5' if definition else '',
         reuse_basic_facts=bool(definition),
         statistics_builder=(lambda current, previous, **kwargs: build_annual_facts(
-            gateway, current, previous, groups_cache=groups, activity_roster=roster, **kwargs)) if definition else None,
+            gateway, current, previous, groups_cache=groups, activity_roster=roster, card_key=card_key, **kwargs)) if definition else None,
         on_error=on_error)
