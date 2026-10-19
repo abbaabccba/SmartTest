@@ -278,7 +278,7 @@ input, select, textarea {
 .jira-statistics-state { display: grid; height: 100%; place-items: center; padding: 1rem; color: var(--text-secondary); }
 .jira-current-jql { display: grid; gap: .25rem; margin: .5rem 1rem; color: var(--text-secondary); font-size: .75rem; }
 .jira-current-jql-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-.jira-current-jql code { color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.jira-current-jql code { font: inherit; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .dashboard-workspace.is-editing .dashboard-widget-card { outline: 1px dashed color-mix(in srgb,var(--accent) 55%,var(--border-color)); }
 .product-space-groups { display: grid; gap: 1rem; }
 .product-space-group {
