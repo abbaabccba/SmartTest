@@ -17,10 +17,6 @@ export function createRankingCard({ chartFactory } = {}) {
       })
     },
   }
-  const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
-    if (root) positionModeBackground(root.querySelector('[data-mode-segments]'))
-  }) : null
-
   function segments(target, options, active, setActive, className) {
     const buttons = [...target.children]
     if (buttons.length !== options.length || buttons.some((button, index) => button.dataset.value !== String(options[index].value))) {
@@ -51,14 +47,6 @@ export function createRankingCard({ chartFactory } = {}) {
       button.classList.toggle('active', selected)
       button.setAttribute('aria-pressed', String(selected))
     }
-    if (target.matches('[data-mode-segments]')) positionModeBackground(target)
-  }
-
-  function positionModeBackground(target) {
-    const selected = target.querySelector('.active')
-    if (!selected) return
-    target.style.setProperty('--segment-left', `${selected.offsetLeft}px`)
-    target.style.setProperty('--segment-width', `${selected.offsetWidth}px`)
   }
 
   function applyPalette(datasets) {
@@ -202,9 +190,8 @@ export function createRankingCard({ chartFactory } = {}) {
       positionSignature = ''
       root.innerHTML = `<div class="segmented-ranking"><header class="report-preview-toolbar"><div class="workload-heading">${config.headingHtml || ''}<div class="product-line-segments" data-product-line-segments></div></div><div class="role-segments" data-mode-segments></div></header><div class="workload-chart-scroll"><div class="workload-chart-surface"><canvas data-ranked-chart></canvas><div data-ranking-positions></div><div class="product-space-empty" data-ranked-empty data-workload-empty hidden></div></div></div></div>`
       render()
-      resizeObserver?.observe(root.querySelector('[data-mode-segments]'))
     },
     update(value) { config = value; if (root) render() },
-    destroy() { resizeObserver?.disconnect(); chart?.destroy(); chart = null; root?.replaceChildren(); root = null },
+    destroy() { chart?.destroy(); chart = null; root?.replaceChildren(); root = null },
   }
 }

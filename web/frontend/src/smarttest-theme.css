@@ -147,11 +147,11 @@ input, select, textarea {
 .form-check-input:checked { border-color: var(--accent); background: var(--accent); }
 .form-check-input:checked::before { transform: rotate(-45deg) scale(1); }
 .form-check-input:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-light); }
-.report-state { margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-secondary); background: var(--bg-primary); }
+.report-state { margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-secondary); }
 .report-state-ready { display: none; }
 .report-state-unauthorized,.report-state-external_failure { color: var(--danger); }
 .report-state-partial_success,.report-state-config_missing { color: var(--warning); }
-.async-feedback { margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-primary); }
+.async-feedback { margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: .5rem; }
 .async-feedback__head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .5rem; color: var(--text-secondary); font-size: .8125rem; }
 .async-feedback__track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-surface); }
 .async-feedback__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--accent-hover),var(--accent),color-mix(in srgb,var(--accent) 45%,white),var(--accent)); background-size: 220% 100%; transition: width .25s ease; }
@@ -2558,7 +2558,7 @@ tbody tr:hover, .report-table tbody tr:hover { background: rgba(120, 120, 128, .
 .report-state, .async-feedback, .inline-status {
     border-color: transparent;
     border-radius: var(--st-radius-control);
-    background: var(--bg-surface);
+    background: transparent;
 }
 .project-card-facts,
 .release-facts > div, .jira-filter-panel details { border-color: var(--st-border-subtle); }
