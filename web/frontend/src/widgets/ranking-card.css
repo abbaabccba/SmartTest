@@ -1,160 +1,26 @@
 .workload-card { margin-bottom: 1.125rem; overflow: hidden; }
-.workload-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem 1rem; }
-/* From Uiverse.io by spj2401Dev; scoped to Jira period radios. */
-.jira-period-fieldset { display: flex; flex-wrap: wrap; margin: .5rem 1rem; padding: 0; border: 0; align-self: flex-start; }
+.workload-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem 1rem; min-width: 0; max-width: 100%; }
 .jira-period-button-group { position: relative; }
 .jira-period-button-group input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.jira-period-button-group label {
-  display: inline-block; padding: 10px 20px; border: 1px solid var(--accent);
-  border-radius: 15px; transition: all .2s ease; text-align: center;
-  width: 90px; font-size: 13px; margin: 5px; cursor: pointer;
-  box-shadow: 0 0 50px -15px var(--accent); background: var(--bg-primary); color: var(--accent);
-}
-.jira-period-button-group input:checked + label { background: var(--accent); color: white; }
-.jira-period-button-group input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .jira-period-button-group label { transition: none; } }
-.product-line-segments { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .375rem; }
-.product-line-segment { font-size: .75rem; border-radius: var(--st-radius-control); overflow: hidden; }
+.product-line-segments { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: .375rem; min-width: 0; max-width: 100%; overflow-x: auto; }
 
 .role-segments { display: flex; flex-wrap: wrap; gap: .375rem; }
-.role-segment { padding: .4rem .7rem; color: var(--text-secondary); background: transparent; font-size: .75rem; font-weight: 500; }
-/* 排名卡片选项保持单行；放不下时开发人员应缩短文案，不以换行兜底。 */
+/* Keep full labels on one scrollable line; narrow screens retain every option. */
 .ranking-card-summary { padding: .6875rem 1.125rem; margin: 0; white-space: nowrap; flex-shrink: 0; }
 .segmented-ranking .workload-heading,
 .segmented-ranking .product-line-segments,
 .segmented-ranking .role-segments { flex-wrap: nowrap; }
-.segmented-ranking .role-segments { flex-shrink: 0; }
+.segmented-ranking .role-segments { flex-shrink: 0; max-width: 100%; overflow-x: auto; }
 .segmented-ranking .product-line-segment,
 .segmented-ranking .role-segment { white-space: nowrap; flex-shrink: 0; }
 .workload-chart-scroll { max-height: min(32rem,60vh); padding: 1rem; overflow-y: auto; }
 [data-jira-ranking] .workload-chart-scroll { min-height: 12rem; }
 .workload-chart-surface { position: relative; width: 100%; }
 
-/* Spatial glass treatment is scoped to Jira statistics cards; product-line controls retain their existing owner and styling. */
-.card.jira-statistics-shell {
-  --jira-glass-surface: rgb(248 252 255 / 86%);
-  --jira-glass-inner: rgb(255 255 255 / 62%);
-  --jira-glass-border: rgb(72 125 180 / 18%);
-  --jira-glass-muted: #60728d;
-  --jira-glass-track: rgb(74 112 153 / 12%);
-  --jira-current-bar: #4c88ff;
-  --jira-previous-bar: #4bd8dc;
-  position: relative;
-  isolation: isolate;
-  border-color: var(--jira-glass-border);
-  border-radius: 1.25rem;
-  background: var(--jira-glass-surface);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), 0 1.125rem 3rem rgb(37 79 128 / 14%);
-  backdrop-filter: blur(1.125rem) saturate(1.15);
-}
-.dark-theme .card.jira-statistics-shell {
-  --jira-glass-surface: rgb(12 21 35 / 86%);
-  --jira-glass-inner: rgb(7 16 29 / 54%);
-  --jira-glass-border: rgb(126 181 255 / 20%);
-  --jira-glass-muted: #9fb2cc;
-  --jira-glass-track: rgb(128 164 207 / 16%);
-  --jira-current-bar: #6fa2ff;
-  --jira-previous-bar: #62e5e6;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), 0 1.125rem 3rem rgb(0 0 0 / 36%);
-}
-.jira-statistics-shell > .dashboard-widget-head {
-  min-height: 3.5rem;
-  padding: .875rem 1.25rem;
-  border-bottom: 0;
-  background: linear-gradient(90deg, rgb(76 136 255 / 8%), transparent 42%);
-}
-.jira-statistics-shell > .dashboard-widget-head strong { font-size: 1.0625rem; letter-spacing: -.012em; }
-.jira-statistics-card .jira-dimension-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: .875rem 1.25rem .625rem;
-}
-.jira-statistics-card .jira-period-fieldset {
-  gap: .25rem;
-  flex: 0 0 auto;
-  margin: 0;
-  padding: .3125rem;
-  border: 1px solid var(--jira-glass-border);
-  border-radius: .75rem;
-  background: var(--jira-glass-track);
-}
-.jira-statistics-card .jira-period-button-group label {
-  width: auto;
-  min-width: 5.25rem;
-  margin: 0;
-  padding: .5rem .875rem;
-  border: 0;
-  border-radius: .5rem;
-  background: transparent;
-  box-shadow: none;
-  color: var(--jira-glass-muted);
-  font-weight: 500;
-}
-.jira-statistics-card .jira-period-button-group input:checked + label {
-  background: var(--jira-glass-inner);
-  color: var(--text-primary);
-  box-shadow: 0 .1875rem .75rem rgb(36 86 143 / 13%);
-}
-.jira-statistics-card .jira-current-jql {
-  gap: .4375rem;
-  margin: .625rem 1.25rem 0;
-  padding: .75rem .875rem;
-  border: 1px solid var(--jira-glass-border);
-  border-radius: .75rem;
-  background: var(--jira-glass-inner);
-  color: var(--jira-glass-muted);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 42%);
-}
-.dark-theme .jira-statistics-card .jira-current-jql { box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%); }
-.jira-statistics-card .jira-current-jql-head button {
-  border-color: transparent;
-  background: transparent;
-}
-.jira-statistics-card .jira-current-jql-head button:hover {
-  border-color: var(--jira-glass-border);
-  background: var(--jira-glass-track);
-}
-.jira-statistics-card .workload-chart-scroll {
-  margin: .75rem 1.25rem 1.25rem;
-  padding: 1rem;
-  border: 0;
-  border-radius: .875rem;
-  background: var(--jira-glass-inner);
-}
-.jira-statistics-card .report-preview-toolbar { border-bottom: 0; }
-@media (prefers-reduced-transparency: reduce) {
-  .card.jira-statistics-shell { background: var(--bg-surface); backdrop-filter: none; }
-  .jira-statistics-card .jira-current-jql,
-  .jira-statistics-card .workload-chart-scroll { background: var(--bg-primary); }
-}
-@media (max-width: 900px) {
-  .jira-statistics-card .jira-dimension-controls { align-items: stretch; flex-direction: column; }
-  .jira-statistics-card .segmented-ranking .role-segments,
-  .jira-statistics-card .jira-period-fieldset { align-self: flex-start; }
-}
-/* From Uiverse.io by 00Kubi; scoped to ranking-card product dimensions. */ 
-.segmented-ranking .product-line-segments {
-  position: relative;
-  display: flex;
-  flex-wrap: nowrap;
-  border-radius: 1rem;
-  background: linear-gradient(145deg, var(--bg-surface), var(--bg-primary));
-  box-sizing: border-box;
-  box-shadow:
-    5px 5px 15px rgba(0, 0, 0, 0.15),
-    -5px -5px 15px rgba(255, 255, 255, 0.8);
-  padding: 0.5rem;
-  width: auto;
-  font-size: 14px;
-  gap: 0.5rem;
-}
-
-.segmented-ranking .product-line-segment {
-  display: flex; align-items: center; justify-content: center;
-  padding: .7rem .8rem; font-weight: 500; font-family: inherit;
-}
+/* Ranking controls consume the public card and segmented styles. */
+.jira-dimension-controls { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem 1rem; }
+.jira-period-fieldset { margin: 0; align-self: flex-start; }
+@media (max-width: 900px) { .jira-dimension-controls { align-items: flex-start; flex-direction: column; } }
 /* Plain ordinal positions use Chart.js row coordinates; data and period colors remain on the canvas. */
 .ranking-position {
   position: absolute;
@@ -178,3 +44,5 @@
 }
 [data-page-widget="role-workload"] > .async-feedback[data-state="success"] { display: none; }
 [data-page-widget="role-workload"] > .async-feedback .async-feedback__track { height: 4px; }
+
+@media (max-width: 768px) { .segmented-ranking .report-preview-toolbar { flex-wrap: wrap; } .segmented-ranking .workload-heading { width: 100%; } }

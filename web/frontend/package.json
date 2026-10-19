@@ -16,7 +16,8 @@
     "d3-geo": "^3.1.1",
     "exceljs": "^4.4.0",
     "gridstack": "13.3.0",
-    "jspdf": "^4.2.1"
+    "jspdf": "^4.2.1",
+    "lucide": "1.59.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

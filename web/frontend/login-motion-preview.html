@@ -11,27 +11,27 @@
   <header class="login-brand">__SMARTTEST_WEB_BRAND__</header>
   <main class="login-page motion-preview" data-login-background="pcb" data-motion="subtle">
     <section class="login-container" aria-label="登录布局参照">
-      <div class="login-card">
+      <div class="card login-card">
         <div class="login-header"><h1 class="login-title">Welcome back</h1><p class="login-subtitle">Sign in to your account to continue</p></div>
         <div class="login-form">
-          <div class="form-group"><span class="form-label">Account name</span><div class="form-input">Your account</div></div>
-          <div class="form-group"><span class="form-label">Password</span><div class="form-input">••••••••</div></div>
-          <div class="inline-status"></div><button class="btn btn-primary login-sign-in" type="button" disabled>Sign in</button>
+          <div class="form-group"><span class="form-label">Account name</span><div class="form-control">Your account</div></div>
+          <div class="form-group"><span class="form-label">Password</span><div class="form-control">••••••••</div></div>
+          <div class="inline-status"></div><button class="button button-primary login-sign-in" type="button" disabled>Sign in</button>
         </div>
         <footer class="login-footer">设计预览 · 登录控件仅作布局参照</footer>
       </div>
     </section>
   </main>
-  <nav class="motion-controls" aria-label="动画设计方案">
+  <nav class="card motion-controls" aria-label="动画设计方案">
     <strong>动画设计预览</strong>
-    <div class="motion-options">
-      <button type="button" data-effect="subtle" aria-pressed="true">克制线路流光</button>
-      <button type="button" data-effect="vivid" aria-pressed="false">线路脉冲</button>
-      <button type="button" data-effect="breath" aria-pressed="false">芯片呼吸光</button>
+    <div class="motion-options role-segments">
+      <button class="button" type="button" data-effect="subtle" aria-pressed="true">克制线路流光</button>
+      <button class="button" type="button" data-effect="vivid" aria-pressed="false">线路脉冲</button>
+      <button class="button" type="button" data-effect="breath" aria-pressed="false">芯片呼吸光</button>
     </div>
-    <button type="button" data-preview-theme>切换明暗</button>
-    <button type="button" data-preview-pause aria-pressed="false">暂停</button>
-    <a href="/login.html">返回登录页</a>
+    <button class="button button-secondary" type="button" data-preview-theme>切换明暗</button>
+    <button class="button button-secondary" type="button" data-preview-pause aria-pressed="false">暂停</button>
+    <a class="button button-ghost" href="/login.html">返回登录页</a>
   </nav>
   <script type="module" src="/src/login-motion-preview.js"></script>
 </body>

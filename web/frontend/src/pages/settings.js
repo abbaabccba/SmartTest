@@ -14,13 +14,13 @@ export function mount(root) {
                             <h2 class="settings-title">Account Information</h2>
                             <p class="settings-desc">Update your personal information</p>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                                <div class="form-group" style="margin-bottom: 0;"><label class="form-label">First Name</label><input type="text" class="form-input" value=""></div>
-                                <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Last Name</label><input type="text" class="form-input" value="Johnson"></div>
+                                <div class="form-group" style="margin-bottom: 0;"><label class="form-label">First Name</label><input type="text" class="form-control" value=""></div>
+                                <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Last Name</label><input type="text" class="form-control" value="Johnson"></div>
                             </div>
-                            <div class="form-group"><label class="form-label">Email Address</label><input type="email" class="form-input" value="alex.johnson@company.com"></div>
-                            <div class="form-group"><label class="form-label">Job Title</label><input type="text" class="form-input" value="Product Manager"></div>
-                            <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Bio</label><textarea class="form-input" style="min-height: 80px; resize: vertical;">Product manager with 5+ years of experience in SaaS.</textarea></div>
-                            <div style="margin-top: 1.25rem;"><button class="btn btn-primary">Save Changes</button></div>
+                            <div class="form-group"><label class="form-label">Email Address</label><input type="email" class="form-control" value="alex.johnson@company.com"></div>
+                            <div class="form-group"><label class="form-label">Job Title</label><input type="text" class="form-control" value="Product Manager"></div>
+                            <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Bio</label><textarea class="form-control" style="min-height: 80px; resize: vertical;">Product manager with 5+ years of experience in SaaS.</textarea></div>
+                            <div style="margin-top: 1.25rem;"><button class="button button-primary">Save Changes</button></div>
                         </div>
                     </section>
 
@@ -58,16 +58,16 @@ export function mount(root) {
                             <p class="settings-desc">Manage account security</p>
                             <div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Two-Factor Authentication</div><div class="settings-row-desc">Extra layer of security</div></div><label class="toggle"><input type="checkbox" id="two-factor"><span class="toggle-slider"></span></label></div>
                             <div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Login Alerts</div><div class="settings-row-desc">Notified of new logins</div></div><label class="toggle"><input type="checkbox" id="login-alerts" checked=""><span class="toggle-slider"></span></label></div>
-                            <div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Session Timeout</div><div class="settings-row-desc">Auto logout after inactivity</div></div><select class="form-input" style="width: auto; min-width: 130px;"><option>15 minutes</option><option selected="">30 minutes</option><option>1 hour</option><option>Never</option></select></div>
+                            <div class="settings-row"><div class="settings-row-info"><div class="settings-row-label">Session Timeout</div><div class="settings-row-desc">Auto logout after inactivity</div></div><select class="form-control" style="width: auto; min-width: 130px;"><option>15 minutes</option><option selected="">30 minutes</option><option>1 hour</option><option>Never</option></select></div>
                             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                                 <h3 style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1rem;">Change Password</h3>
-                                <div class="form-group"><label class="form-label">Current Password</label><input type="password" class="form-input" placeholder="Current password"></div>
-                                <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-input" placeholder="New password"></div>
-                                <button class="btn btn-primary">Update Password</button>
+                                <div class="form-group"><label class="form-label">Current Password</label><input type="password" class="form-control" placeholder="Current password"></div>
+                                <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-control" placeholder="New password"></div>
+                                <button class="button button-primary">Update Password</button>
                             </div>
                             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
                                 <h3 style="font-size: 0.9375rem; font-weight: 600; color: var(--danger); margin-bottom: 0.5rem;">Danger Zone</h3>
-                                <button class="btn" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid var(--danger);">Delete Account</button>
+                                <button class="button button-danger">Delete Account</button>
                             </div>
                         </div>
                     </section>

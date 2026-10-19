@@ -1,7 +1,5 @@
-.motion-controls { position: fixed; z-index: 3; left: 50%; bottom: 1rem; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .5rem; width: max-content; max-width: calc(100vw - 2rem); padding: .75rem 1rem; border: 1px solid var(--login-edge); border-radius: 12px; background: var(--login-panel); }
+.motion-controls { position: fixed; z-index: 3; left: 50%; bottom: 1rem; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .5rem; width: max-content; max-width: calc(100vw - 2rem); padding: .75rem 1rem;  }
 .motion-options { display: flex; flex-wrap: wrap; gap: .4rem; }
-.motion-controls button { padding: .5rem .75rem; border: 1px solid var(--login-edge); border-radius: 7px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
-.motion-controls button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
 .motion-controls a { padding: .5rem; color: var(--text-primary); }
 .motion-preview .form-label { display: block; margin-bottom: .5rem; }
 .motion-preview .login-container { padding-bottom: 7rem; }

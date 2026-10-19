@@ -63,18 +63,15 @@ function mount(api, chartFactory = vi.fn(chartMock), account = 'coco', cardKey =
 }
 
 describe('Jira statistics card', () => {
-  it('scopes its visual treatment to the Jira card shell without replacing product-line controls', async () => {
+  it('preserves product-line controls in the shared card shell', async () => {
     document.body.innerHTML = '<section class="card"><div id="root"></div></section>'
-    const shell = document.querySelector('section')
     const widget = createJiraStatisticsCard({ chartFactory: vi.fn(chartMock) })
     widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => ({ state: 'ready', productLines }) }, account: 'coco' })
     await vi.waitFor(() => expect(document.querySelectorAll('[data-product-line-segments] button')).toHaveLength(5))
-    expect(shell.classList.contains('jira-statistics-shell')).toBe(true)
     expect(document.querySelector('#root').classList.contains('jira-statistics-card')).toBe(true)
     expect([...document.querySelectorAll('[data-product-line-segments] button')].map(button => button.textContent))
       .toEqual(productLines.map(line => line.label))
     widget.destroy()
-    expect(shell.classList.contains('jira-statistics-shell')).toBe(false)
   })
   it('declares three cards with shared component metadata', () => {
     expect(Object.keys(JIRA_STATISTICS_CARDS)).toEqual(['self-test', 'task', 'customer-feedback'])

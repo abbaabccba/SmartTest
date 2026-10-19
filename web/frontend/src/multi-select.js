@@ -1,3 +1,5 @@
+import { icon } from './icons.js'
+
 export function fillSelect(select, values) {
   select.replaceChildren()
   for (const raw of values) {
@@ -15,7 +17,7 @@ export function enhanceMultiSelect(select, { emptyLabel = 'Select options', comp
   select.classList.add('d-none')
   const container = document.createElement('div'); container.className = 'multi-select'
   container.innerHTML = `<button type="button" class="multi-select__control form-select" aria-haspopup="listbox" aria-expanded="false">
-      <span class="multi-select__summary">Select options</span><span class="multi-select__tags" hidden></span></button>
+      <span class="multi-select__summary">Select options</span><span class="multi-select__tags" hidden></span>${icon('chevron-down', { class: 'st-icon multi-select__chevron' })}</button>
     <div class="multi-select__dropdown card shadow-lg" role="listbox" aria-multiselectable="true" aria-hidden="true">
       ${searchable ? '<div class="multi-select__search"><input class="form-control" type="search" data-preference="off" placeholder="Search options" aria-label="Search options"></div>' : ''}
       <div class="multi-select__options"></div><div class="multi-select__empty">No options available</div>

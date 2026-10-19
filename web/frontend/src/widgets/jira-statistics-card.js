@@ -1,3 +1,4 @@
+import { icon } from '../icons.js'
 import { createRankingCard } from './ranking-card.js'
 import { createDisposableDisplayCache } from '../disposable-display.js'
 
@@ -10,8 +11,8 @@ export const JIRA_STATISTICS_CARDS = Object.freeze({
 
 const PERIODS = [{ value: 'week', label: 'Weekly' }, { value: 'month', label: 'Monthly' },
   { value: 'quarter', label: 'Quarterly' }, { value: 'year', label: 'Yearly' }]
-const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
-const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+const COPY_ICON = icon('copy')
+const CHECK_ICON = icon('check')
 let periodInstance = 0
 function periodMarkup() {
   const name = `jira-period-${++periodInstance}`
@@ -27,7 +28,6 @@ function metrics(firstMetricLabel) { return Object.freeze([
 
 export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {}) {
   let root = null
-  let shell = null
   let stopped = false
   let timer = null
   let copyFeedbackTimer = null
@@ -231,15 +231,13 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     mount(target, config = {}) {
       root = target; stopped = false
       root.classList.add('jira-statistics-card')
-      shell = root.closest('.card')
-      shell?.classList.add('jira-statistics-shell')
       cardKey = config.cardKey ?? 'self-test'
       const metadata = JIRA_STATISTICS_CARDS[cardKey]
       if (!metadata) throw new Error(`Unknown Jira statistics card: ${cardKey}`)
       cardMetrics = metrics(metadata.firstMetricLabel)
       period = 'month'
       localPayload = null
-      root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div data-jira-ranking></div>`
+      root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" class="icon-button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div data-jira-ranking></div>`
       rankingHost = root.querySelector('[data-jira-ranking]')
       periods = root.querySelector('[data-jira-periods]')
       currentJql = root.querySelector('[data-current-jql]')
@@ -275,8 +273,6 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       stopped = true; clearTimeout(timer); clearTimeout(copyFeedbackTimer); ranking.destroy()
       copyCurrentJql = null
       root?.classList.remove('jira-statistics-card')
-      shell?.classList.remove('jira-statistics-shell')
-      shell = null
       root = null; displayed = false
     },
   }

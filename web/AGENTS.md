@@ -68,8 +68,10 @@ web/frontend -> web/backend -> core
 
 ## 7. 前端规则
 
-- 视觉体系接近 Fluent UI；最终模板由 Coco 确认。
-- 复用 `smarttest-theme.css` 的导航、主题、卡片、表单和状态能力，避免并存两套视觉语言。
+- Web 唯一公共视觉体系为 Apple 风格，遵循 `docs/superpowers/specs/2026-10-18-web-apple-design-system.md`，包含外观、图标、动画及风格复合/切换；旧模板不再作为视觉基线。
+- `smarttest-theme.css` 统一拥有公共控件外观；页面和组件不得复制或覆盖公共按钮、输入、卡片、分段控件等外观，只保留自身布局和业务状态绑定。
+- 保留 China Operator、Smart Device、TV、Global Operator & STB、Wireless Connection 五个产品线专属风格，以及既有登录 PCB/globe 背景动画（不是第六产品线皮肤）；由产品线视觉与动画 owner 复用，不按页面另建特例，不改变公共控件结构、焦点和状态规则。
+- 登录动画由 `src/login-background.js` / `src/login-motion.css` 及原生命周期统一拥有，主题 PNG、生产入口、预览与必要测试均须保留；不得因公共控件统一而删除。登录 card/form/button 仍遵循公共 Apple owner。详细边界见 Apple 规范第 4.1 节。
 - 公共布局、导航、筛选、表格、状态、图表、空状态和错误状态保持一致。
 - 页面必须处理加载、无数据、无权限、配置缺失、部分成功和失败。
 - 列表数据量可能增长时使用服务端分页、筛选和排序。

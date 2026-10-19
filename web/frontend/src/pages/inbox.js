@@ -1,3 +1,4 @@
+import { icon } from '../icons.js'
 export function mount(root) {
   root.innerHTML = `
             <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -5,7 +6,7 @@ export function mount(root) {
                     <h1 class="greeting">Inbox</h1>
                     <p class="greeting-sub">You have 3 unread messages</p>
                 </div>
-                <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Compose</button>
+                <button class="button button-primary">${icon('add')}Compose</button>
             </div>
 
             <!-- Inbox Split Pane -->
@@ -14,8 +15,8 @@ export function mount(root) {
                 <div class="inbox-list">
                     <div class="inbox-header">
                         <div class="inbox-search" data-preference-region="">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                            <input type="text" name="messageSearch" placeholder="Search messages...">
+                            ${icon('search')}
+                            <input class="form-control" type="text" name="messageSearch" placeholder="Search messages...">
                         </div>
                     </div>
                     <div class="message-list">
@@ -91,10 +92,10 @@ export function mount(root) {
                         <p>Best regards,<br>Sarah</p>
                     </div>
                     <div class="message-view-reply">
-                        <textarea class="reply-input" placeholder="Type your reply..."></textarea>
+                        <textarea class="form-control reply-input" placeholder="Type your reply..."></textarea>
                         <div class="reply-actions">
-                            <button class="btn btn-secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>Attach</button>
-                            <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>Send Reply</button>
+                            <button class="button button-secondary">${icon('attach')}Attach</button>
+                            <button class="button button-primary">${icon('send')}Send Reply</button>
                         </div>
                     </div>
                 </div>

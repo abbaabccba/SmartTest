@@ -1,3 +1,4 @@
+import { icon as renderIcon } from './icons.js'
 const STATE_COPY = {
   loading: 'Loading project catalog…',
   ready: '',
@@ -276,9 +277,8 @@ export function createProjects({ root, api, waitForPreferences, account,
         heading.href = pageUrl
         heading.target = '_blank'
         heading.rel = 'noopener noreferrer'
-        const icon = node('img', 'project-card-link-icon')
-        icon.src = '/icons/external-link.svg'
-        icon.alt = ''
+        const icon = node('span', 'project-card-link-icon')
+        icon.innerHTML = renderIcon('external-link')
         icon.setAttribute('aria-hidden', 'true')
         heading.append(icon, document.createTextNode(projectName))
       }

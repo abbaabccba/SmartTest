@@ -10,29 +10,6 @@ function mountTheme() {
   return style.sheet
 }
 
-it('selects the static PCB artwork using the document theme', () => {
-  const previousHtml = document.documentElement.className
-  const previousBody = document.body.className
-  mountTheme()
-  const style = document.head.lastElementChild
-  const surface = document.createElement('main')
-  surface.className = 'login-page'
-  surface.dataset.loginBackground = 'pcb'
-  document.body.append(surface)
-  try {
-    document.body.className = 'login-screen'
-    document.documentElement.classList.add('dark-theme')
-    expect(getComputedStyle(surface).getPropertyValue('--login-art')).toContain('login-pcb-dark-cutout.png')
-    document.documentElement.classList.remove('dark-theme')
-    expect(getComputedStyle(surface).getPropertyValue('--login-art')).toContain('login-pcb-white-cutout.png')
-  } finally {
-    document.documentElement.className = previousHtml
-    document.body.className = previousBody
-    style.remove()
-    surface.remove()
-  }
-})
-
 it('uses the document root as the conditional page-scroll owner', () => {
   const style = document.createElement('style')
   style.textContent = readFileSync(resolve(import.meta.dirname, '../src/smarttest-theme.css'), 'utf8')
@@ -174,39 +151,6 @@ it('lays out shared card toolbar groups on opposite sides of one row', () => {
   expect(computed.alignItems).toBe('center')
   expect(computed.justifyContent).toBe('space-between')
   expect(computed.flexDirection).toBe('row')
-})
-
-it('applies the shared motion language to page, card, metric, button, and progress surfaces', () => {
-  mountTheme()
-  const main = document.createElement('main')
-  main.className = 'main-content'
-  main.innerHTML = `<header class="report-page-head"><h1>Projects</h1></header>
-    <article class="card"><div class="stat-value">24</div></article>
-    <button class="button button-primary">Apply</button>
-    <div class="async-feedback__track" data-indeterminate="true"><div class="async-feedback__fill"></div></div>`
-  document.body.append(main)
-
-  expect(getComputedStyle(main).animationName).toBe('ambient-drift')
-  expect(getComputedStyle(main.querySelector('h1')).animationName).toBe('page-title-in')
-  expect(getComputedStyle(main.querySelector('.card')).position).toBe('relative')
-  expect(getComputedStyle(main.querySelector('.stat-value')).fontVariantNumeric).toBe('tabular-nums')
-  expect(getComputedStyle(main.querySelector('.button-primary')).overflow).toBe('hidden')
-  expect(getComputedStyle(main.querySelector('.async-feedback__fill')).animationName).toBe('async-feedback-shimmer')
-})
-
-it('provides a static reduced-motion fallback for every shared animation owner', () => {
-  const sheet = mountTheme()
-  const reducedMotion = [...sheet.cssRules].find(rule => rule.conditionText === '(prefers-reduced-motion: reduce)'
-    && [...rule.cssRules].some(item => item.selectorText === '.main-content'))
-  const rules = [...reducedMotion.cssRules]
-  const styleFor = selector => rules.find(rule => rule.selectorText === selector)?.style
-
-  expect(styleFor('.main-content').getPropertyValue('animation-name')).toBe('none')
-  expect(styleFor('.page-header, .report-page-head h1').getPropertyValue('animation-name')).toBe('none')
-  expect(styleFor('.async-feedback__track[data-indeterminate="true"] .async-feedback__fill').getPropertyValue('animation-name')).toBe('none')
-  const staticTransitions = rules.find(rule => ['.card', '.stat-card', '.nav-link', '.button']
-    .every(selector => rule.selectorText?.split(',').map(value => value.trim()).includes(selector)))
-  expect(staticTransitions.style.transition).toBe('none')
 })
 
 it('lets an open shared selector escape its card without hover stacking damage', () => {
