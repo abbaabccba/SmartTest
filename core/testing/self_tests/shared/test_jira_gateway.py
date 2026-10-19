@@ -295,11 +295,12 @@ def test_concurrent_full_searches_share_one_four_request_gateway_limit() -> None
     assert 1 < peak <= 4
 
 
-def test_full_search_retries_only_502_with_fixed_backoff(monkeypatch) -> None:
+def test_full_search_uses_shared_four_attempt_budget(monkeypatch) -> None:
     import core.jira.gateway as gateway_module
 
     delays = []
-    monkeypatch.setattr(gateway_module, "sleep", delays.append)
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", delays.append)
 
     class Response:
         status_code = 502
@@ -320,17 +321,18 @@ def test_full_search_retries_only_502_with_fixed_backoff(monkeypatch) -> None:
 
     assert gateway.search_all_payloads("project = SH") == []
     assert RetryingApi.attempts == 4
-    assert delays == [0.25, 0.5, 1.0]
+    assert delays == [1, 2, 4]
 
 
-def test_full_search_does_not_retry_non_502(monkeypatch) -> None:
+def test_full_search_does_not_retry_permission_error(monkeypatch) -> None:
     import core.jira.gateway as gateway_module
 
     delays = []
-    monkeypatch.setattr(gateway_module, "sleep", delays.append)
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", delays.append)
 
     class Response:
-        status_code = 503
+        status_code = 403
 
     class Failure(Exception):
         response = Response()
@@ -382,6 +384,8 @@ def test_search_failure_logs_safe_page_context_and_preserves_cause(monkeypatch, 
     from requests.exceptions import ReadTimeout
     records = []
     monkeypatch.setattr(owner, "smart_log", lambda message, **kwargs: records.append(kwargs))
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", lambda _: None)
     error = ReadTimeout('secret password and raw response')
     error.response = SimpleNamespace(status_code=status)
     class Api:
@@ -394,7 +398,7 @@ def test_search_failure_logs_safe_page_context_and_preserves_cause(monkeypatch, 
     extra = records[-1]['extra']
     assert extra['http_status'] == status and extra['cause_type'] == 'ReadTimeout'
     assert extra['start_at'] == 2000 and extra['page_size'] == 1000
-    assert extra['attempt'] == 1 and extra['duration_ms'] >= 0
+    assert extra['duration_ms'] >= 0
     assert 'private' not in str(records) and 'secret' not in str(records)
 
 
@@ -505,6 +509,8 @@ def test_search_failure_logs_safe_nested_connection_cause_without_exception_text
     from requests.exceptions import ConnectionError
     import core.jira.gateway as owner
 
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", lambda _: None)
     records = []
     root = ConnectionResetError(
         10054, "secret URL https://private:token@example.test?jql=private"
@@ -531,7 +537,7 @@ def test_search_failure_logs_safe_nested_connection_cause_without_exception_text
     ]
     assert extra["phase"] == "search_page"
     assert extra["field_count"] == 2 and extra["expand_changelog"] is False
-    assert extra["attempt"] == 1 and extra["start_at"] == 2300
+    assert extra["start_at"] == 2300
     assert all(
         secret not in str(records)
         for secret in ("private", "secret", "token", "example.test")

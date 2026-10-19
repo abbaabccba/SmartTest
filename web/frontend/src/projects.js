@@ -91,8 +91,8 @@ export function createProjects({ root, api, waitForPreferences, account,
     if (sync?.state === 'loading') feedback.update({ state: task ? taskState(task.state) : 'running',
       message: childMessage('Syncing project details…', task),
       processed: task?.progress?.processed ?? sync.completed, total: task?.progress?.total ?? sync.total })
-    else if (sync?.state === 'failed') feedback.update({ state: 'failed', message: 'Project detail sync failed.' })
-    else if (sync?.state === 'cancelled') feedback.update({ state: 'cancelled' })
+    else if (sync?.state === 'failed') feedback.update({ state: 'failed', message: 'Project detail sync failed.', dataState: sync.dataState })
+    else if (sync?.state === 'cancelled') feedback.update({ state: 'cancelled', dataState: sync?.dataState })
     else if (sync?.state === 'ready' && feedback.state === 'running') feedback.update({ state: 'success' })
   }
 
@@ -404,7 +404,7 @@ export function createProjects({ root, api, waitForPreferences, account,
   function present(payload, {
     updateHierarchy = true, updateFacets = true, detailRequested = false,
   } = {}) {
-    const hasCache = ['ready', 'partial_success'].includes(payload.state)
+    const hasCache = payload.dataState === 'ready' || ['ready', 'partial_success'].includes(payload.state)
     const hasDetailJob = detailRequested || Boolean(activeSync)
     const syncing = payload.sync?.state === 'loading'
     if (!snapshotRestored && payload.querySnapshot) {
@@ -462,7 +462,7 @@ export function createProjects({ root, api, waitForPreferences, account,
       if (destroyed || generation !== pollGeneration || !root.isConnected) return
       const contextUnchanged = !activeSync || contextToken(currentFilters()) === activeSync.token
       if (!activeSync || contextUnchanged) present(payload)
-      updateFeedback(sync)
+      updateFeedback({ ...sync, dataState: contextUnchanged ? payload.dataState : undefined })
       activeSync = null
       setBusinessControlsEnabled(cacheReady, { applyEnabled: sync.state !== 'loading' })
     } catch {

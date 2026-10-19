@@ -1,3 +1,4 @@
+import { refreshFeedback } from '../async-feedback.js'
 import { icon } from '../icons.js'
 import { createRankingCard } from './ranking-card.js'
 import { createDisposableDisplayCache } from '../disposable-display.js'
@@ -37,6 +38,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
   let api
   let generation = 0
   let localPayload = null
+  let serverPayload = null
   let rankingHost, periods, currentJql, copyCurrentJql
   let period = 'month'
   let cardKey = 'self-test'
@@ -57,27 +59,27 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
   }
 
   function render(payload) {
-    if (payload.periods && (payload.state === 'ready' || !localPayload)) {
+    if (payload.dataState === 'none') localPayload = null
+    if (payload.periods && (['ready', 'partial'].includes(payload.dataState) || payload.state === 'ready' || !localPayload)) {
       localPayload = payload
     }
     selectPeriod()
-    if (payload.state === 'no_snapshot') {
+    if (payload.state === 'no_snapshot' || (payload.dataState === 'none' && ['failed', 'cancelled'].includes(payload.state))) {
       localPayload = null
       root.prepend(periods)
       ranking.destroy(); displayed = false; displaySignature = ''
       displayCache.write(null)
       currentJql.textContent = 'Apply a Jira query to display the current JQL.'
-      message('Apply a Jira query to display statistics.')
+      message(payload.error || 'Apply a Jira query to display statistics.')
       return false
     }
     const view = localPayload?.periods?.[period] ?? (payload.productLines || payload.current?.productLines ? payload : null)
     const hasLocalResult = Boolean(view)
-    if (hasLocalResult) draw({ ...view, state: payload.state, period })
-    if (payload.state === 'cancelled' && hasLocalResult) {
-      message('Previous query cancelled. Showing available local data.')
+    if (hasLocalResult) draw({ ...view, state: payload.dataState === 'ready' ? 'ready' : payload.state, period })
+    if (['failed', 'cancelled'].includes(payload.state)) {
+      message(refreshFeedback({ ...payload, error: payload.error || 'Jira query did not complete.' }).message, 'inline-status-error')
       return false
     }
-    if (['failed', 'cancelled'].includes(payload.state)) { message(payload.error || 'Jira query did not complete.', 'inline-status-error'); return false }
     if (payload.state !== 'ready') {
       const progress = payload.task?.progress
       message(progress?.total ? `Loading Jira issues… ${progress.processed}/${progress.total}` : 'Loading Jira issues…')
@@ -220,10 +222,24 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     try {
       const payload = await (query ? api.queryStatistics() : api.getStatistics())
       if (stopped || request !== generation) return
+      if (payload.dataState === 'none' || payload.state === 'no_snapshot') serverPayload = null
+      else if (payload.periods || payload.productLines || payload.current?.productLines) serverPayload = payload
       const again = render(payload)
       if (again && !stopped) timer = setTimeout(() => { void load() }, pollDelay)
     } catch (error) {
-      if (!stopped && request === generation) message(error.message || 'Jira statistics card could not be loaded.', 'inline-status-error')
+      if (stopped || request !== generation || error.name === 'AbortError') return
+      const failure = error.message || 'Jira statistics card could not be loaded.'
+      if (serverPayload) {
+        if (localPayload) localPayload = { ...localPayload, state: 'failed' }
+        draw({ ...(serverPayload.periods?.[period] ?? serverPayload), state: 'failed', period })
+        message(refreshFeedback({ state: 'failed', dataState: serverPayload.dataState, error: failure }).message, 'inline-status-error')
+      } else {
+        localPayload = null
+        currentJql.textContent = 'Current JQL unavailable.'
+        draw({ state: 'failed', productLines: [],
+          availability: { current: { basic: false, activity: false }, previous: { basic: false, activity: false } } })
+        message(`No results available. ${failure}`, 'inline-status-error')
+      }
     }
   }
 
@@ -237,6 +253,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       cardMetrics = metrics(metadata.firstMetricLabel)
       period = 'month'
       localPayload = null
+      serverPayload = null
       root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" class="icon-button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div data-jira-ranking></div>`
       rankingHost = root.querySelector('[data-jira-ranking]')
       periods = root.querySelector('[data-jira-periods]')

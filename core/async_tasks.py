@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
+from contextvars import ContextVar
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Event, RLock
 from time import monotonic
 import os
 from uuid import uuid4
+
+
+_CURRENT_TOKEN = ContextVar("async-task-token", default=None)
+
+
+def current_cancellation():
+    return _CURRENT_TOKEN.get()
+
+
+def check_cancellation():
+    token = current_cancellation()
+    if token is not None:
+        token.raise_if_cancelled()
+
+
+@contextmanager
+def cancellation_context(token):
+    context = _CURRENT_TOKEN.set(token)
+    try:
+        yield
+    finally:
+        _CURRENT_TOKEN.reset(context)
 
 
 class TaskCancelled(RuntimeError):
@@ -20,6 +44,10 @@ class CancellationToken:
 
     def cancel(self) -> None:
         self._event.set()
+
+    def wait(self, seconds):
+        if self._event.wait(seconds):
+            self.raise_if_cancelled()
 
     def raise_if_cancelled(self) -> None:
         if self._event.is_set():
@@ -192,7 +220,8 @@ class AsyncTaskManager:
             self._publish(task)
         try:
             task.token.raise_if_cancelled()
-            result = runner(task.token, lambda completed, total: self._progress(task, completed, total))
+            with cancellation_context(task.token):
+                result = runner(task.token, lambda completed, total: self._progress(task, completed, total))
             task.token.raise_if_cancelled()
         except TaskCancelled:
             with self._lock:

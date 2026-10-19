@@ -2,7 +2,7 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Condition, Thread
 
-from core.async_tasks import TaskCancelled
+from core.async_tasks import TaskCancelled, cancellation_context
 from core.jira.gateway import JiraGatewayError
 
 
@@ -67,16 +67,17 @@ class JiraMetricPages:
     def _page(self, job, offset):
         try:
             job['token'].raise_if_cancelled()
-            page = job['gateway'].search_metric_page(job['query'], offset, job['metric'])
-            rows, total = page.get('issues') or [], int(page.get('total') or 0)
-            if len(rows) < min(100, max(0, total - offset)):
-                raise JiraGatewayError('jira_incomplete_page')
-            job['token'].raise_if_cancelled()
-            job['consume'](rows)
-            with self._condition:
-                job['total'] = max(job['total'] or 0, total)
-                job['processed'] += len(rows)
-                job['progress'](job['processed'], job['total'])
+            with cancellation_context(job['token']):
+                page = job['gateway'].search_metric_page(job['query'], offset, job['metric'])
+                rows, total = page.get('issues') or [], int(page.get('total') or 0)
+                if len(rows) < min(100, max(0, total - offset)):
+                    raise JiraGatewayError('jira_incomplete_page')
+                job['token'].raise_if_cancelled()
+                job['consume'](rows)
+                with self._condition:
+                    job['total'] = max(job['total'] or 0, total)
+                    job['processed'] += len(rows)
+                    job['progress'](job['processed'], job['total'])
         except Exception as error:
             with self._condition:
                 job['error'] = job['error'] or error

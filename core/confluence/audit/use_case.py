@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled
+
 from concurrent.futures import as_completed
 from datetime import datetime, timezone
 from typing import Protocol
@@ -99,6 +101,8 @@ class ConfluenceWeeklyAuditUseCase:
                 project.identity.project_id, ProjectDetails(roles=True, evidence=True), token,
             )
             result = self._audit_project(loaded, period, token, progress)
+        except TaskCancelled:
+            raise
         except Exception as error:
             token.raise_if_cancelled()
             reason = "remote_unavailable" if str(error) == "remote_unavailable" else "audit_failed"
@@ -139,6 +143,8 @@ class ConfluenceWeeklyAuditUseCase:
                     )
                     token.raise_if_cancelled()
                     page_material[page.page_id] = (current, versions or (current,))
+                except TaskCancelled:
+                    raise
                 except Exception:
                     token.raise_if_cancelled()
                     page_material[page.page_id] = None

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled
+
 import re
 from urllib.parse import parse_qs, urlsplit
 
@@ -31,6 +33,8 @@ def resolve_role_display_names(client, roles, resolved_names):
             elif identity not in resolved_names:
                 attempted += 1
                 try: display_name = client.get_user_display_name(identity)
+                except TaskCancelled:
+                    raise
                 except Exception: display_name = ""  # noqa: BLE001
                 resolved_names[identity] = display_name or identity
                 resolved += bool(display_name)

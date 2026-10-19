@@ -87,13 +87,13 @@ export function createReleaseDashboard({ root, api }) {
       }
       if (!disposed) {
         render(payload)
-        const message = payload.syncState === 'invalid_credentials'
-          ? 'Sync credentials were rejected; cached data is still shown.'
-          : (payload.syncState === 'failed' ? 'Sync failed; cached data is still shown.' : '')
-        setBusy(false, message)
+        setBusy(false)
+        if (['failed', 'cancelled', 'invalid_credentials'].includes(payload.syncState)) {
+          feedback.update({ state: payload.syncState, dataState: payload.dataState })
+        }
       }
     }
-    catch { if (!disposed) setBusy(false, 'Release sync failed; cached data is still shown.') }
+    catch { if (!disposed) setBusy(false, 'Release sync failed.') }
   })
   return { start: () => load(), destroy() { disposed = true; tasks.dispose() } }
 }

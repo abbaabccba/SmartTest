@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import wraps
+from time import monotonic
+
+from sqlalchemy.exc import SQLAlchemyError
+from core.logging import smart_log
 
 from fastapi import APIRouter
 from fastapi import Body, Depends, HTTPException, Request
@@ -30,6 +35,58 @@ from .jira.analytics_tasks import JIRA_ANALYTICS_TASKS
 from .jira_filter_snapshot_repository import JIRA_FILTER_FIELDS
 from .jira_http import issue_payload as _issue_payload
 from .resource_access import remote_credentials_rejected
+
+
+def _trace_analytics(operation):
+    """Record request decisions and safe failures without serializing query data."""
+    def decorate(handler):
+        @wraps(handler)
+        def traced(*args, **kwargs):
+            request = kwargs.get("request") or next((arg for arg in args if isinstance(arg, Request)), None)
+            card = kwargs.get("card_key", args[0] if args and isinstance(args[0], str) else "")
+            context = {"operation": operation, "card": card}
+            started = monotonic()
+            if operation != "statistics":
+                smart_log(f"Jira analytics started operation={operation} card={card}",
+                          platform="web", domain="jira", extra=context)
+            try:
+                result = handler(*args, **kwargs)
+            except Exception as error:
+                cause = error
+                database_error = None
+                while cause is not None:
+                    if isinstance(cause, SQLAlchemyError):
+                        database_error = cause
+                    following = cause.__cause__ or cause.__context__
+                    if following is None:
+                        break
+                    cause = following
+                database = database_error is not None
+                original = getattr(database_error, "orig", None)
+                code = original.args[0] if original is not None and original.args and isinstance(original.args[0], int) else None
+                failure = {
+                    **context, "stage": getattr(request.state, "jira_stage", "request") if request else "request",
+                    "failureKind": "database_connection" if database and code in {2002, 2003, 2006, 2013} else "database" if database else "request",
+                    "databaseErrorCode": code, "errorType": type(error).__name__,
+                    "causeType": type(cause).__name__,
+                    "durationMs": round((monotonic() - started) * 1000, 3),
+                }
+                smart_log("Jira analytics failed " + " ".join(f"{key}={value}" for key, value in failure.items()),
+                          platform="web", domain="jira", level="ERROR", extra=failure)
+                raise
+            if operation != "statistics":
+                decision = {
+                    **context, "applied": result.get("applied"), "state": result.get("state") if isinstance(result.get("state"), str) else "",
+                    "valid": (result.get("validation") or {}).get("valid"),
+                    "taskId": result.get("taskId", ""), "snapshotId": result.get("snapshotId", ""),
+                    "remoteTaskSubmitted": bool(result.get("taskId")),
+                    "durationMs": round((monotonic() - started) * 1000, 3),
+                }
+                smart_log("Jira analytics decision " + " ".join(f"{key}={value}" for key, value in decision.items()),
+                          platform="web", domain="jira", extra=decision)
+            return result
+        return traced
+    return decorate
 
 
 def create_router(authenticated_session, sessions, cache_database, jira_cache_owner, jira_analytics,
@@ -128,9 +185,11 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         return {"conditions": conditions, "userJql": conditions.get("userJql", "") if conditions else ""}
 
     @router.get("/api/jira/cards/{card_key}/statistics")
+    @_trace_analytics("statistics")
     def jira_analytics_statistics(card_key: str, request: Request, value=Depends(authenticated_session)):
         require_jira_card(card_key)
         session_hash = audit_session(request)
+        request.state.jira_stage = "read_snapshot"
         query, task = analytics_query_state(session_hash, value.username, card_key)
         conditions = jira_analytics.published_conditions(session_hash, value.username)
         applied_jql = (conditions or {}).get("userJql")
@@ -164,19 +223,33 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
         state = ("loading" if query["pendingSnapshotId"] and preview_matches else query["latestState"]
                  if preview_matches and query["latestState"] in {"failed", "cancelled"} else "ready"
                  if active_matches else "no_snapshot")
-        payload = {"state": state}
+        if state == "no_snapshot" and request.method == "POST":
+            mismatch = {
+                "card": card_key, "operation": "statistics", "state": state,
+                "hasConditions": conditions is not None, "hasActiveSnapshot": bool(query["activeSnapshotId"]),
+                "conditionsMatch": query["userJql"] is not None and query["userJql"] == applied_jql,
+                "currentDefinitionMatch": query["rosterFingerprint"] == fingerprint,
+                "currentQueryMatch": query["activeJql"] == expected["current"]["jql"],
+                "previousQueryMatch": query["activeComparisonJql"] == expected["previous"]["jql"],
+                "hasPeriodViews": summaries is not None, "pendingSnapshotId": query["pendingSnapshotId"],
+                "taskId": query["taskId"], "remoteTaskSubmitted": False,
+            }
+            smart_log("Jira analytics snapshot unavailable " + " ".join(f"{key}={value}" for key, value in mismatch.items()),
+                      platform="web", domain="jira", extra=mismatch)
+        payload = {"state": state, "dataState": "ready" if active_matches else "none"}
         if query["activeSnapshotId"] or query["pendingSnapshotId"] or query["latestState"]:
             payload["query"] = card_query_payload(query)
         if state == "loading":
             payload["task"] = task
         if state in {"failed", "cancelled"}:
             payload["error"] = query["error"] or ("query_cancelled" if state == "cancelled" else "query_failed")
-        if preview_matches and preview["statistics"] and (state == "loading" or not active_matches):
+        if active_matches:
+            payload["periods"] = summaries
+        elif preview_matches and preview["statistics"] and state == "loading":
             partial = period_views(preview["snapshotId"])
             if partial is not None:
                 payload["periods"] = partial
-        elif active_matches:
-            payload["periods"] = summaries
+                payload["dataState"] = "partial"
         if state == "loading" and "periods" not in payload:
             empty = {"productLines": [{"id": line.name, "label": line.name, "people": []}
                                       for line in DASHBOARD_PRODUCT_LINES],
@@ -223,11 +296,14 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
             raise_downstream_error(value, error)
 
     @router.post("/api/jira/analytics/search")
+    @_trace_analytics("publish_conditions")
     def jira_analytics_search(request: Request, payload: dict = Body(...), value=Depends(authenticated_session)):
         try:
+            request.state.jira_stage = "validate_conditions"
             preview = resolve_jira_analytics(value).preview(payload)
             validation = {key: item for key, item in preview.items() if key not in {"jql", "userJql"}}
             if validation.get("valid"):
+                request.state.jira_stage = "publish_conditions"
                 jira_analytics.publish_conditions(audit_session(request), value.username,
                                                   {**payload, "userJql": preview["userJql"]},
                                                   expires_at=value.expires_at)
@@ -238,13 +314,17 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
             raise_downstream_error(value, error)
 
     @router.post("/api/jira/cards/{card_key}/query")
+    @_trace_analytics("query_card")
     def query_jira_card(card_key: str, request: Request, value=Depends(authenticated_session)):
         require_jira_card(card_key)
+        request.state.jira_stage = "read_conditions"
         conditions = jira_analytics.published_conditions(audit_session(request), value.username)
         if conditions is None:
             return {"state": "no_snapshot"}
+        request.state.jira_stage = "resolve_card_service"
         service = resolve_jira_analytics(value, card_key=card_key)
         try:
+            request.state.jira_stage = "start_card_task"
             started = service.search(
                 audit_session(request), value.username, value.expires_at, conditions)
         except (TypeError, ValueError) as error:

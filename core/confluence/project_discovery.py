@@ -1,3 +1,4 @@
+from core.async_tasks import TaskCancelled
 from dataclasses import dataclass
 from datetime import datetime
 import re
@@ -112,6 +113,8 @@ def discover_project_pages(client, project: ProjectLocation, *, return_errors=Fa
     if not resolved_root_page_id and canonical_page_kind(home.title) == "status":
         try:
             graph_root = client.get_parent_page(home.id) or home
+        except TaskCancelled:
+            raise
         except Exception as exc:
             errors["branch:project_root"] = _issue(
                 type(exc).__name__,
@@ -138,6 +141,8 @@ def discover_project_pages(client, project: ProjectLocation, *, return_errors=Fa
             continue
         try:
             children = client.get_page_children(page.id)
+        except TaskCancelled:
+            raise
         except Exception as exc:
             error_kind = kind or f"branch:{page_id}"
             errors[error_kind] = _issue(

@@ -1,8 +1,56 @@
 export class ApiUnavailableError extends Error {
-  constructor(message, { status, cause } = {}) {
+  constructor(message, { status, cause, code, requestId, kind } = {}) {
     super(message, { cause })
     this.name = 'ApiUnavailableError'
     this.status = status
+    this.code = code
+    this.requestId = requestId
+    this.kind = kind
+  }
+}
+
+function safeCode(value) {
+  return typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(value) ? value : ''
+}
+
+function safeDetail(value) {
+  if (typeof value !== 'string' || value.length > 180) return ''
+  // Never echo transport bodies, query/SQL text or credential-bearing diagnostics.
+  if (/https?:|[\r\n<>@]|password|token|secret|authorization|cookie|\b(select|insert|update|delete|from|where|jql|sql|traceback)\b/i.test(value)) return ''
+  return /^[\p{L}\p{N} _.,!()'-]+$/u.test(value) ? value : ''
+}
+
+async function requestJson(fetchImpl, url, options) {
+  const method = options?.method || 'GET'
+  const path = new URL(url, 'http://local').pathname
+  const context = `${method} ${path}`
+  let response
+  try { response = await fetchImpl(url, options) } catch (cause) {
+    if (cause?.name === 'AbortError') throw cause
+    throw new ApiUnavailableError(`${context}: Network request failed; no HTTP response received.`,
+      { kind: 'network', code: 'network_error', cause })
+  }
+  const rawRequestId = response.headers?.get('x-request-id')
+  const requestId = typeof rawRequestId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(rawRequestId) ? rawRequestId : ''
+  if (!response.ok) {
+    let body
+    try { body = await response.json() } catch (cause) {
+      if (cause?.name === 'AbortError') throw cause
+      // A non-JSON error body must not replace the HTTP failure or expose its contents.
+    }
+    const detail = body?.detail
+    const code = safeCode(body?.code) || safeCode(detail?.code) || safeCode(detail?.state)
+      || safeCode(body?.error) || safeCode(detail)
+    const descriptions = Array.isArray(detail) ? detail.map(item => safeCode(item?.type)).filter(Boolean)
+      : [safeDetail(typeof detail === 'object' ? detail?.message : detail)].filter(Boolean)
+    const reason = code || descriptions.slice(0, 3).join(', ')
+    throw new ApiUnavailableError(`${context}: HTTP ${response.status}${reason ? ` (${reason})` : ''}${requestId ? ` [requestId=${requestId}]` : ''}.`,
+      { kind: 'http', status: response.status, code, requestId })
+  }
+  try { return await response.json() } catch (cause) {
+    if (cause?.name === 'AbortError') throw cause
+    throw new ApiUnavailableError(`${context}: Invalid JSON response${requestId ? ` [requestId=${requestId}]` : ''}.`,
+      { kind: 'response', status: response.status, code: 'invalid_json_response', requestId, cause })
   }
 }
 
@@ -22,12 +70,7 @@ export function createAuthApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' }
     return result
   }
   async function request(path, options = {}) {
-    let response
-    try { response = await fetchImpl(`${baseUrl}${path}`, { credentials: 'same-origin', ...options }) } catch (cause) {
-      throw new ApiUnavailableError('Authentication service unavailable.', { cause })
-    }
-    if (!response.ok) throw new ApiUnavailableError(`Authentication failed (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}${path}`, { credentials: 'same-origin', ...options })
   }
   return {
     session: () => request('/auth/session'),
@@ -40,15 +83,10 @@ export function createAuthApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' }
 
 export function createPreferenceApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {
   async function request(scope, method, body) {
-    let response
     const path = `${baseUrl}/preferences/${encodeURIComponent(scope.replace(/^\/+/, ''))}`
     const options = { method, credentials: 'same-origin' }
     if (body) { options.headers = { 'content-type': 'application/json' }; options.body = JSON.stringify(body) }
-    try { response = await fetchImpl(path, options) } catch (cause) {
-      throw new ApiUnavailableError('Preference service unavailable.', { cause })
-    }
-    if (!response.ok) throw new ApiUnavailableError(`Preference service unavailable (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, path, options)
   }
   return {
     get: scope => request(scope, 'GET'),
@@ -87,19 +125,7 @@ export function createWifiDatabaseApi({ fetchImpl = globalThis.fetch, baseUrl = 
   async function getJson(path, filters) {
     const query = buildQuery(filters)
     const url = `${baseUrl}${path}?${query}`
-    let response
-    try {
-      response = await fetchImpl(url)
-    } catch (cause) {
-      throw new ApiUnavailableError('Wi-Fi Database API unavailable.', { cause })
-    }
-    if (!response.ok) {
-      const detail = (await response.text()).trim()
-      throw new ApiUnavailableError(detail || `Wi-Fi Database API unavailable (${response.status}).`, {
-        status: response.status
-      })
-    }
-    return response.json()
+    return requestJson(fetchImpl, url)
   }
 
   return {
@@ -115,12 +141,7 @@ export function createManualAuditApi({ fetchImpl = globalThis.fetch, baseUrl = '
       options.headers = { 'content-type': 'application/json' }
       options.body = JSON.stringify(body)
     }
-    let response
-    try { response = await fetchImpl(`${baseUrl}${path}`, options) } catch (cause) {
-      throw new ApiUnavailableError('Manual audit API unavailable.', { cause })
-    }
-    if (!response.ok) throw new ApiUnavailableError(`Manual audit API unavailable (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}${path}`, options)
   }
   const encode = encodeURIComponent
   const post = (path, body) => request(path, { method: 'POST', body })
@@ -139,12 +160,10 @@ export function createManualAuditApi({ fetchImpl = globalThis.fetch, baseUrl = '
 
 export function createJiraFilterApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {
   async function request(method = 'GET', body) {
-    const response = await fetchImpl(`${baseUrl}/jira/filter-snapshot`, {
+    return requestJson(fetchImpl, `${baseUrl}/jira/filter-snapshot`, {
       method, credentials: 'same-origin',
       ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     })
-    if (!response.ok) throw new ApiUnavailableError(`Jira filter API unavailable (${response.status}).`, { status: response.status })
-    return response.json()
   }
   return {
     getJiraFilterSnapshot: () => request(),
@@ -155,9 +174,7 @@ export function createJiraFilterApi({ fetchImpl = globalThis.fetch, baseUrl = '/
 
 export function createJiraAnalyticsApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {
   async function request(path, method = 'GET', body) {
-    const response = await fetchImpl(`${baseUrl}/jira/analytics${path}`, { method, credentials: 'same-origin', ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) })
-    if (!response.ok) throw new ApiUnavailableError(`Jira Analytics API unavailable (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}/jira/analytics${path}`, { method, credentials: 'same-origin', ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) })
   }
   return { getJiraAnalyticsState: () => request('/state'), getJiraAnalyticsFields: () => request('/fields'), getJiraAnalyticsSuggestions: (fieldName, query = '') => request(`/suggestions?fieldName=${encodeURIComponent(fieldName)}&query=${encodeURIComponent(query)}`), getJiraAnalyticsSavedFilters: () => request('/saved-filters'), getJiraAnalyticsSavedFilter: id => request(`/saved-filters/${encodeURIComponent(id)}`), validateJiraAnalytics: body => request('/validate', 'POST', body), searchJiraAnalytics: body => request('/search', 'POST', body) }
 }
@@ -165,31 +182,25 @@ export function createJiraAnalyticsApi({ fetchImpl = globalThis.fetch, baseUrl =
 export function createJiraStatisticsCardApi({ fetchImpl = globalThis.fetch, baseUrl = '/api', cardKey = 'self-test' } = {}) {
   async function request(query = false) {
     const path = `/jira/cards/${encodeURIComponent(cardKey)}/${query ? 'query' : 'statistics'}`
-    const response = await fetchImpl(`${baseUrl}${path}`, { credentials: 'same-origin', ...(query ? { method: 'POST' } : {}) })
-    if (!response.ok) throw new ApiUnavailableError(`Jira statistics card unavailable (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}${path}`, { credentials: 'same-origin', ...(query ? { method: 'POST' } : {}) })
   }
   return { getStatistics: () => request(), queryStatistics: () => request(true) }
 }
 
 export function createProjectFactsApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {
   async function changeFilter(method, filters = {}) {
-    const response = await fetchImpl(`${baseUrl}/confluence/filter-snapshot`, {
+    return requestJson(fetchImpl, `${baseUrl}/confluence/filter-snapshot`, {
       method, credentials: 'same-origin',
       ...(method === 'PUT' ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify({
         filters: filters.fields ?? {}, search: filters.search ?? '',
       }) } : {}),
     })
-    if (!response.ok) throw new ApiUnavailableError(`Project filter API unavailable (${response.status}).`, { status: response.status })
-    return response.json()
   }
   return {
     applyConfluenceFilterSnapshot: filters => changeFilter('PUT', filters),
     resetConfluenceFilterSnapshot: () => changeFilter('DELETE'),
     async getProjectFactsStatus() {
-      const response = await fetchImpl(`${baseUrl}/confluence/project-facts/status`, { credentials: 'same-origin' })
-      if (!response.ok) throw new ApiUnavailableError(`Project facts status unavailable (${response.status}).`, { status: response.status })
-      return response.json()
+      return requestJson(fetchImpl, `${baseUrl}/confluence/project-facts/status`, { credentials: 'same-origin' })
     },
     async getProjectFacts(filters = {}, { snapshot = false, reset = false } = {}) {
       const query = new URLSearchParams()
@@ -199,32 +210,20 @@ export function createProjectFactsApi({ fetchImpl = globalThis.fetch, baseUrl = 
       if (filters.search) query.set('search', filters.search)
       if (snapshot) query.set('snapshot', '1')
       if (reset) query.set('reset', '1')
-      let response
-      try { response = await fetchImpl(`${baseUrl}/confluence/project-facts${query.size ? `?${query}` : ''}`) } catch (cause) {
-        throw new ApiUnavailableError('Project facts API unavailable.', { cause })
-      }
-      if (!response.ok) throw new ApiUnavailableError(`Project facts API unavailable (${response.status}).`, { status: response.status })
-      return response.json()
+      return requestJson(fetchImpl, `${baseUrl}/confluence/project-facts${query.size ? `?${query}` : ''}`)
     },
     async cancelProjectSync() {
-      const response = await fetchImpl(`${baseUrl}/confluence/project-facts/cancel`, {
+      return requestJson(fetchImpl, `${baseUrl}/confluence/project-facts/cancel`, {
         method: 'POST', credentials: 'same-origin'
       })
-      if (!response.ok) throw new ApiUnavailableError(`Project sync cancellation failed (${response.status}).`, { status: response.status })
-      return response.json()
     },
   }
 }
 
 export function createAuditEmailApi({ fetchImpl = globalThis.fetch, baseUrl = '/api/audit-email' } = {}) {
   async function request(path, method = 'GET', body) {
-    let response
-    try { response = await fetchImpl(`${baseUrl}${path}`, { method, credentials: 'same-origin',
-      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) }) } catch (cause) {
-      throw new ApiUnavailableError('审查报告服务不可用。', { cause })
-    }
-    if (!response.ok) throw new ApiUnavailableError(`审查报告请求失败（${response.status}）。`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}${path}`, { method, credentials: 'same-origin',
+      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) })
   }
     return { list: (offset = 0) => request(`/runs?offset=${offset}`), get: id => request(`/runs/${encodeURIComponent(id)}`), trigger: () => request('/runs', 'POST'),
     history: (kind, options = {}) => {
@@ -246,16 +245,9 @@ export function createReleaseApi({ fetchImpl = globalThis.fetch, baseUrl = '/api
     if (options.page !== undefined) query.set('page', options.page)
     if (options.pageSize !== undefined) query.set('pageSize', options.pageSize)
     if (options.projectId) query.set('projectId', options.projectId)
-    let response
-    try {
-      response = await fetchImpl(`${baseUrl}${path}${query.size ? `?${query}` : ''}`, {
-        method, credentials: 'same-origin'
-      })
-    } catch (cause) {
-      throw new ApiUnavailableError('Release API unavailable.', { cause })
-    }
-    if (!response.ok) throw new ApiUnavailableError(`Release API unavailable (${response.status}).`, { status: response.status })
-    return response.json()
+    return requestJson(fetchImpl, `${baseUrl}${path}${query.size ? `?${query}` : ''}`, {
+      method, credentials: 'same-origin'
+    })
   }
   return {
     getDashboardReleases: (filters = {}, options = {}) => request('/dashboard/releases', { filters, options }),

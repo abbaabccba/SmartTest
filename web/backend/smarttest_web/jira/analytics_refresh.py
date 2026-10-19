@@ -20,8 +20,9 @@ class JiraRefreshProgress:
         self._log('started')
 
     def _log(self, outcome, **extra):
+        details = ' '.join(f'{key}={extra[key]}' for key in ('snapshot_id', 'stage', 'period', 'error_code', 'cause_type', 'http_status') if key in extra)
         smart_log(f'Jira refresh card={self.card} metric={self.metric} '
-                  f'{outcome} progress={self.processed}/{self.total}',
+                  f'{outcome} progress={self.processed}/{self.total} {details}',
                   platform='web', domain='jira', source='jira_refresh',
                   level='ERROR' if outcome == 'failed' else 'INFO',
                   extra={'card_key': self.card, 'metric': self.metric, 'outcome': outcome,

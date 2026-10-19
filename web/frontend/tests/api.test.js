@@ -168,3 +168,52 @@ describe('Release Dashboard and Jira workbench API contract', () => {
     expect(jira.searchParams.get('pageSize')).toBe('25')
   })
 })
+
+
+describe('shared JSON request failures', () => {
+  it('classifies native fetch rejection without exposing origin or query', async () => {
+    const api = createJiraAnalyticsApi({ baseUrl: 'unsupported://private-host/api', fetchImpl: globalThis.fetch })
+    try { await api.getJiraAnalyticsSuggestions('private-field', 'private-query'); expect.fail('must reject') } catch (error) {
+      expect(error).toMatchObject({ kind: 'network', code: 'network_error', cause: expect.any(TypeError) })
+      expect(error.message).toContain('GET /api/jira/analytics/suggestions: Network request failed')
+      expect(error.message).not.toMatch(/private-host|private-field|private-query/)
+    }
+  })
+  it.each([
+    [{ detail: { state: 'query_snapshot_unavailable', sql: 'SELECT private' } }, 'query_snapshot_unavailable'],
+    [{ detail: 'Invalid input' }, 'Invalid input'],
+    [{ detail: [{ type: 'missing', msg: 'Field required', input: 'private-value' }] }, 'missing'],
+    [{ detail: 'SELECT password FROM private WHERE token=secret' }, 'HTTP 500.'],
+  ])('keeps safe HTTP diagnostics and request identity', async (body, expected) => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 500, headers: { 'x-request-id': '123-test' } }))
+    const error = await createJiraStatisticsCardApi({ fetchImpl }).queryStatistics().catch(error => error)
+    expect(error).toMatchObject({ kind: 'http', status: 500, requestId: '123-test' })
+    expect(error.message).toContain('POST /api/jira/cards/self-test/query: HTTP 500')
+    expect(error.message).toContain(expected.replace('.', ''))
+    expect(error.message).not.toMatch(/SELECT|private|password|token=|secret/)
+  })
+  it('does not expose non-JSON HTTP response bodies', async () => {
+    const api = createReleaseApi({ fetchImpl: async () => new Response('<html>private response</html>', { status: 502 }) })
+    await expect(api.getDashboardReleases()).rejects.toMatchObject({ kind: 'http', status: 502 })
+  })
+  it('distinguishes malformed successful JSON, retaining cause and safe request id', async () => {
+    const api = createPreferenceApi({ fetchImpl: async () => new Response('broken private', { status: 200, headers: { 'x-request-id': '123-parse' } }) })
+    await expect(api.get('scope')).rejects.toMatchObject({ kind: 'response', status: 200, code: 'invalid_json_response',
+      requestId: '123-parse', cause: expect.any(SyntaxError) })
+  })
+  it.each(['fetch', 'body'])('does not turn %s cancellation into a failure', async phase => {
+    const cause = new DOMException('Cancelled', 'AbortError')
+    const fetchImpl = async () => {
+      if (phase === 'fetch') throw cause
+      return { ok: true, json: async () => { throw cause } }
+    }
+    await expect(createJiraStatisticsCardApi({ fetchImpl }).getStatistics()).rejects.toBe(cause)
+  })
+  it('rejects unsafe request identity without echoing it', async () => {
+    const api = createJiraStatisticsCardApi({ fetchImpl: async () => ({ ok: false, status: 500,
+      headers: { get: () => 'private/unsafe?token=value' }, json: async () => ({ detail: 'query_failed' }) }) })
+    const error = await api.getStatistics().catch(error => error)
+    expect(error.requestId).toBe('')
+    expect(error.message).not.toMatch(/private|unsafe|token=value/)
+  })
+})

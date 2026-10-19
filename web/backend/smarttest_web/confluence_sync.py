@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import as_completed
 
 from core.confluence.project import ProjectDetails
+from core.async_tasks import TaskCancelled
 from .task_manager import WEB_TASKS
 
 
@@ -36,6 +37,8 @@ class ConfluenceProjectSyncCoordinator:
                     from core.domain.detail import DetailState
                     if any(getattr(project, section).state is not DetailState.LOADED for section in details.sections()):
                         return 'failed'
+            except TaskCancelled:
+                raise
             except Exception:
                 return "failed"
             return "updated"

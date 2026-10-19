@@ -1,4 +1,4 @@
-
+from core.async_tasks import TaskCancelled
 from sqlalchemy import select, update, text
 
 from .database import upsert
@@ -96,6 +96,8 @@ class DailyFactsRefresh:
                 token.raise_if_cancelled()
                 try:
                     self.handlers[item['handler']](item, account, password, session, token, progress)
+                except TaskCancelled:
+                    raise
                 except Exception as exc:
                     errors.append(getattr(exc, 'code', type(exc).__name__))
                     smart_log('Daily source refresh failed', platform='web', domain='framework', level='ERROR',
@@ -137,6 +139,8 @@ class DailyFactsRefresh:
                     for period in item['year_periods']:
                         refresh_metric(self.repository, self.tasks.pages, gateway, account, card,
                             compose_jql(user_jql, windows[period]['jql']), roster, 'verify', token, progress)
+                except TaskCancelled:
+                    raise
                 except Exception as exc:
                     errors.append(getattr(exc, 'code', type(exc).__name__))
                     smart_log('Daily Jira scope refresh failed', platform='web', domain='jira', level='ERROR',

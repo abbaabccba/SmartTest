@@ -46,6 +46,16 @@ const fixedFacets = [
 describe('Projects', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="app"></div>'; localStorage.clear(); sessionStorage.clear() })
 
+  it('keeps matching database projects usable after refresh failure', async () => {
+    const page = createProjects({ root: document.querySelector('#app'), api: {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, state: 'failed', dataState: 'ready', sync: { state: 'failed' } }),
+    } })
+    await page.start()
+    expect(document.querySelector('[data-projects]').textContent).toContain('Apollo')
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
+    page.destroy()
+  })
+
   it('does not render Role workload on the Projects page', async () => {
     await createProjects({ root: document.querySelector('#app'), api: {
       getProjectFacts: vi.fn().mockResolvedValue(payload),

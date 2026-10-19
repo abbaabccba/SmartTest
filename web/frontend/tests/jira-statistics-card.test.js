@@ -504,19 +504,19 @@ it('binds the five Jira visual identities using full names', async () => {
 
 
 it('rereads available local data after a cancelled task without refreshing Jira', async () => {
-  const payload = { state: 'cancelled', error: 'query_cancelled', current: { productLines }, previous: { productLines: [] },
+  const payload = { state: 'cancelled', dataState: 'ready', error: 'query_cancelled', current: { productLines }, previous: { productLines: [] },
     availability: { current: { basic: true, comment: true, verify: false },
       previous: { basic: true, comment: false, verify: false } } }
   const api = { getStatistics: vi.fn().mockResolvedValue(payload), queryStatistics: vi.fn() }
   const { widget, chartFactory } = mount(api)
   await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent)
-    .toBe('Previous query cancelled. Showing available local data.'))
+    .toBe('Refresh cancelled. Showing saved data.'))
   const comments = document.querySelector('button[data-value="commentCount"]')
   expect(comments.disabled).toBe(false)
-  expect(comments.textContent).toBe('Comments (Previous: Unavailable)')
+  expect(comments.textContent).toBe('Comments (Previous: Waiting for scheduled refresh)')
   const verify = document.querySelector('button[data-value="verifyCount"]')
   expect(verify.disabled).toBe(true)
-  expect(verify.textContent).toBe('Verify (Unavailable)')
+  expect(verify.textContent).toBe('Verify (Waiting for scheduled refresh)')
   comments.click()
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([1])
   widget.update()
@@ -533,5 +533,73 @@ it('retains the cancellation error when there is no local result body', async ()
   await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent).toBe('query_cancelled'))
   expect(document.body.textContent).not.toContain('Showing available local data')
   expect(api.queryStatistics).not.toHaveBeenCalled()
+  widget.destroy()
+})
+
+
+it('replaces a disposable old scope with the server partial view when no active result matches', async () => {
+  document.body.innerHTML = '<div id="scope-root"></div>'
+  const old = { state: 'ready', periods: { month: { productLines } } }
+  sessionStorage.setItem('smarttest:jira-statistics-display:scope-regression:self-test', JSON.stringify(old))
+  let resolve
+  const api = { getStatistics: vi.fn(() => new Promise(done => { resolve = done })) }
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
+  widget.mount(document.querySelector('#scope-root'), { api, account: 'scope-regression' })
+  try {
+    expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3, 2])
+    resolve({ state: 'loading', dataState: 'partial', periods: { month: {
+      productLines: [{ ...productLines[0], people: [{ ...productLines[0].people[0], bugCount: 9 }] }],
+    } } })
+    await vi.waitFor(() => expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([9]))
+    expect(api.getStatistics).toHaveBeenCalledOnce()
+  } finally { widget.destroy() }
+})
+
+
+it('ends Loading after a rejected request and does not start another poll', async () => {
+  const getStatistics = vi.fn().mockRejectedValue(new TypeError('Request failed'))
+  const { widget } = mount({ getStatistics })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('No results available. Request failed'))
+  expect(document.body.textContent).not.toContain('Loading')
+  expect(document.body.textContent).toContain('Failed')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(getStatistics).toHaveBeenCalledTimes(1)
+  widget.destroy()
+})
+
+it('keeps server-confirmed data after a request failure and ends pending metric labels', async () => {
+  const getStatistics = vi.fn().mockResolvedValueOnce({ state: 'ready', dataState: 'ready', periods: { month: {
+    productLines, availability: { current: { basic: true, comment: true, verify: false }, previous: { basic: true, comment: true, verify: false } }
+  } } }).mockRejectedValue(new TypeError('Request failed'))
+  const { widget, chartFactory } = mount({ getStatistics })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('Waiting for scheduled refresh'))
+  widget.update()
+  await vi.waitFor(() => expect(document.body.textContent).toContain('Request failed'))
+  expect(document.body.textContent).not.toContain('Loading')
+  expect(document.querySelector('button[data-value="verifyCount"]').textContent).toContain('Failed')
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3, 2])
+  widget.destroy()
+})
+
+
+it('does not treat the browser first-frame cache as confirmed data after fetch rejection', async () => {
+  const first = mount({ getStatistics: async () => ({ state: 'ready', dataState: 'ready', periods: { month: { productLines } } }) })
+  await vi.waitFor(() => expect(first.chartFactory).toHaveBeenCalled())
+  first.widget.destroy()
+  const { widget } = mount({ getStatistics: async () => { throw new TypeError('Request failed') } })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('No results available.'))
+  expect(document.querySelector('[data-ranked-chart]').hidden).toBe(true)
+  expect(document.body.textContent).not.toContain('Loading')
+  widget.destroy()
+})
+
+
+it('does not display an intentional abort as a request failure', async () => {
+  const getStatistics = vi.fn().mockRejectedValue(new DOMException('Cancelled', 'AbortError'))
+  const { widget } = mount({ getStatistics })
+  await vi.waitFor(() => expect(getStatistics).toHaveBeenCalledOnce())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(document.querySelector('.inline-status-error')).toBeNull()
   widget.destroy()
 })

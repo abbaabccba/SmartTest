@@ -12,6 +12,7 @@ PYWIN32_RUNTIME_MODULES = (
 
 TOOL_HIDDEN_IMPORTS = PYWIN32_RUNTIME_MODULES + (
     "ldap3",
+    "tenacity",
     "FluentUI.FluentUI",
     "Crypto.Hash.MD4",
 )
@@ -21,5 +22,6 @@ TOOL_SMOKE_MODULES = (
     "win32cred",
     "win32timezone",
     "ldap3",
+    "tenacity",
     "qrcode",
 )

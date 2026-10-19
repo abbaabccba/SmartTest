@@ -112,6 +112,7 @@ a = Analysis(
         "PySide6.QtWebEngineQuick",
         "Crypto.Hash.MD4",
         "ldap3",
+        "tenacity",
         "ldap3.core",
         "ldap3.protocol",
         "pyasn1",

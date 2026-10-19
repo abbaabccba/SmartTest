@@ -31,6 +31,7 @@ def test_refresh_failure_keeps_safe_context(monkeypatch):
     assert records[-1][1]['level'] == 'ERROR'
     assert records[-1][1]['extra']['error_code'] == 'jira_search_failed'
     assert '100/200' in records[-1][0]
+    assert 'error_code=jira_search_failed' in records[-1][0]
 
 
 def test_metric_failure_is_logged_once_and_propagates_original_error(monkeypatch):

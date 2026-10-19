@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled, check_cancellation, current_cancellation
+
 from copy import deepcopy
 from concurrent.futures import Future, as_completed
 from datetime import datetime, timezone
@@ -74,6 +76,8 @@ def refresh_project_catalogs(client, store, product_lines=PRODUCT_LINES, *, now=
                       extra={"stage": "catalog.line", "space_key": line.confluence_space_key, "duration_ms": request_ms,
                              "parse_duration_ms": round((perf_counter() - parse_started) * 1000, 3), "project_count": len(rows), "outcome": "success"})
             return index, line, source, rows, None
+        except TaskCancelled:
+            raise
         except Exception as exc:
             response = getattr(exc, 'response', None)
             smart_log("Confluence catalog stage timing", level="error", domain="framework", source="confluence_catalog", emit_runtime_event=False,
@@ -142,7 +146,12 @@ def refresh_project_catalogs(client, store, product_lines=PRODUCT_LINES, *, now=
 
     def submit(item):
         if manager is not None:
-            return manager.submit(f"confluence-catalog:{item[1].confluence_space_key}", lambda _token, _progress: fetch(item))
+            token = current_cancellation()
+            label = f"confluence-catalog:{item[1].confluence_space_key}"
+            runner = lambda _token, _progress: fetch(item)
+            if token is not None and token.task_id:
+                return manager.submit_child(token.task_id, label, runner)
+            return manager.submit(label, runner)
         future = Future()
         try:
             future.set_result(fetch(item))
@@ -157,6 +166,7 @@ def refresh_project_catalogs(client, store, product_lines=PRODUCT_LINES, *, now=
         snapshot = build_snapshot(
             phase="catalog_ready" if len(fetched) == len(product_lines) else "catalog_loading",
         )
+        check_cancellation()
         store.save(snapshot)
     smart_log("Confluence catalog stage timing", domain="framework", source="confluence_catalog", emit_runtime_event=False,
               extra={"stage": "catalog.total", "duration_ms": round((perf_counter() - total_started) * 1000, 3),

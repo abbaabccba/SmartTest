@@ -11,6 +11,7 @@ from core.confluence.project import (
 )
 from core.domain.detail import DetailSection, DetailState
 from core.logging import smart_log
+from core.async_tasks import TaskCancelled, current_cancellation
 
 from .project_repository import ConfluenceProjectRepository
 from ..resource_access import remote_status
@@ -78,6 +79,8 @@ class ConfluenceProjectCacheService:
         self._access.require_active()
         try:
             payload = self._gateway.refresh_project_catalogs(scope)
+        except TaskCancelled:
+            raise
         except Exception as error:
             if remote_status(error) == 401:
                 raise PermissionError("reauthentication_required") from error
@@ -141,6 +144,8 @@ class ConfluenceProjectCacheService:
                 raise PermissionError("permission_denied")
             refreshed = self._mapper.with_sections(current, payload, (name,))
             section = getattr(refreshed, name)
+        except TaskCancelled:
+            raise
         except Exception as error:
             self._access.require_active()
             if remote_status(error) == 401:
@@ -165,6 +170,7 @@ class ConfluenceProjectCacheService:
             merged.update({(item.source, item.page.page_id): item for item in section.value or ()})
             stored = replace(section, value=tuple(merged.values()))
         persist_started = time.monotonic()
+        _raise_if_cancelled(current_cancellation())
         self._access.publish(grants, lambda: getattr(self._repository, f"replace_{name}")(project_id, stored),
                              replace_scopes=(scope,))
         smart_log("Confluence detail persistence timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,
@@ -173,6 +179,7 @@ class ConfluenceProjectCacheService:
         return section
 
     def _publish_catalog(self, projects, complete_spaces):
+        _raise_if_cancelled(current_cancellation())
         grants = [
             ("project", project.identity.confluence_id, "catalog", project.product_space.key)
             for project in projects
@@ -186,6 +193,8 @@ class ConfluenceProjectCacheService:
                 grants, lambda: self._save_catalog_projects(projects),
                 replace_scopes=complete_spaces,
             )
+        except TaskCancelled:
+            raise
         except Exception as error:
             smart_log("Confluence catalog publish timing", platform="web", domain="framework", level="error", source="confluence_catalog_cache", emit_runtime_event=False,
                       extra={"stage": "filter.catalog_publish", "outcome": "failure",

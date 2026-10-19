@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from core.read_requests import read_request
+
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from hashlib import sha256
 from threading import local
-from time import monotonic, sleep
+from time import monotonic
+from contextvars import copy_context
+from core.async_tasks import TaskCancelled
 from typing import Any, Callable
 
 try:
@@ -41,7 +46,6 @@ class JiraGatewayError(RuntimeError):
 class JiraGateway:
     FULL_SEARCH_PAGE_SIZE = 1000
     FULL_SEARCH_WORKERS = 4
-    _RETRY_DELAYS = (0.25, 0.5, 1.0)
     CORE_FIELDS = (
         "summary",
         "project",
@@ -87,8 +91,8 @@ class JiraGateway:
         if Jira is None:
             raise JiraGatewayError("jira_dependency_unavailable")
         try:
-            self._api = Jira(url=clean_url, username=username, password=password)
-            self._api_factory = lambda: Jira(url=clean_url, username=username, password=password)
+            self._api = Jira(url=clean_url, username=username, password=password, backoff_and_retry=False, retry_with_header=False)
+            self._api_factory = lambda: Jira(url=clean_url, username=username, password=password, backoff_and_retry=False, retry_with_header=False)
         except Exception as exc:
             raise JiraGatewayError("jira_initialization_failed") from exc
 
@@ -111,7 +115,9 @@ class JiraGateway:
     def release_field_metadata(self) -> dict[str, str]:
         try:
             getter = getattr(self._api, "get_all_fields", None)
-            payload = getter() if getter is not None else self._api.get("rest/api/2/field")
+            payload = read_request(getter) if getter is not None else read_request(self._api.get, "rest/api/2/field")
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_field_metadata_failed") from exc
         wanted = set(self.RELEASE_FIELD_NAMES)
@@ -131,7 +137,7 @@ class JiraGateway:
         expand: list[str] | None = None,
     ) -> dict[str, Any]:
         try:
-            payload = self._api.jql(
+            payload = read_request(self._api.jql,
                 query,
                 fields=fields or list(self.CORE_FIELDS),
                 start=start_at,
@@ -139,6 +145,8 @@ class JiraGateway:
                 expand=",".join(expand) if expand else None,
                 validate_query="strict",
             )
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_search_failed") from exc
         return payload if isinstance(payload, dict) else {}
@@ -155,13 +163,28 @@ class JiraGateway:
     ) -> list[dict[str, Any]]:
         requested_fields = fields or list(self.CORE_FIELDS)
         requested_page_size = self.FULL_SEARCH_PAGE_SIZE if page_size is None else page_size
-        if workers is not None:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jira-activity-search") as executor:
-                return self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, executor)
-        return self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, self._full_search_executor)
+        started = monotonic()
+        query_digest = sha256(query.encode()).hexdigest()[:12]
+        smart_log(f"Jira gateway remote search started queryDigest={query_digest} pageSize={requested_page_size} workers={workers or self.FULL_SEARCH_WORKERS} "
+                  f"expandChangelog={bool(expand and 'changelog' in expand)}", domain="jira", source="jira_gateway")
+        try:
+            if workers is not None:
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="jira-activity-search") as executor:
+                    rows = self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, executor)
+            else:
+                rows = self._collect_search_pages(query, requested_fields, expand, progress, requested_page_size, self._full_search_executor)
+        except TaskCancelled:
+            raise
+        except Exception as error:
+            smart_log(f"Jira gateway remote search failed queryDigest={query_digest} errorType={type(error).__name__} "
+                      f"durationMs={round((monotonic() - started) * 1000, 3)}", domain="jira", source="jira_gateway", level="ERROR")
+            raise
+        smart_log(f"Jira gateway remote search completed queryDigest={query_digest} rows={len(rows)} "
+                  f"durationMs={round((monotonic() - started) * 1000, 3)}", domain="jira", source="jira_gateway")
+        return rows
 
     def _collect_search_pages(self, query, requested_fields, expand, progress, requested_page_size, executor):
-        pages = {0: executor.submit(
+        pages = {0: executor.submit(copy_context().run,
             self._search_full_page, query, 0, requested_fields, expand, requested_page_size,
         ).result()}
         observed_total = int(pages[0].get("total") or 0)
@@ -175,7 +198,7 @@ class JiraGateway:
             for start in range(requested_page_size, total, requested_page_size):
                 if start not in scheduled:
                     scheduled.add(start)
-                    future = executor.submit(
+                    future = executor.submit(copy_context().run,
                         self._search_full_page, query, start, requested_fields, expand, requested_page_size,
                     )
                     pending[future] = start
@@ -233,7 +256,9 @@ class JiraGateway:
                     if progress:
                         progress(len(rows), len(rows))
                     try:
-                        payload = self._api.get_issue(row["key"], fields=["created"], expand="changelog")
+                        payload = read_request(self._api.get_issue, row["key"], fields=["created"], expand="changelog")
+                    except TaskCancelled:
+                        raise
                     except Exception as exc:
                         raise JiraGatewayError("jira_changelog_failed") from exc
                     history = payload.get("changelog") or {}
@@ -251,7 +276,7 @@ class JiraGateway:
                 while True:
                     if progress:
                         progress(len(rows), len(rows))
-                    payload = self._api.get(f"rest/api/2/issue/{row['key']}/comment",
+                    payload = read_request(self._api.get, f"rest/api/2/issue/{row['key']}/comment",
                                             params={"startAt": len(comments), "maxResults": 1000})
                     items = payload.get("comments") or []
                     comments.extend(items)
@@ -261,6 +286,8 @@ class JiraGateway:
                         raise JiraGatewayError("jira_comments_incomplete")
                 fields["comment"] = {**embedded, "comments": comments, "total": len(comments)}
             except JiraGatewayError:
+                raise
+            except TaskCancelled:
                 raise
             except Exception as exc:
                 raise JiraGatewayError("jira_comments_failed") from exc
@@ -276,95 +303,51 @@ class JiraGateway:
     ) -> dict[str, Any]:
         api = self._thread_api()
         started = monotonic()
-        for attempt in range(len(self._RETRY_DELAYS) + 1):
-            attempt_started = monotonic()
-            try:
-                payload = api.jql(
-                    query,
-                    fields=fields,
-                    start=start,
-                    limit=page_size,
-                    expand=",".join(expand) if expand else None,
-                    validate_query="strict",
-                )
-                return payload if isinstance(payload, dict) else {}
-            except Exception as exc:
-                # Exception text/args may contain URLs, credentials, JQL or response bodies.
-                chain = []
-                cause = exc
-                seen = set()
-                while (
-                    isinstance(cause, BaseException)
-                    and id(cause) not in seen
-                    and len(chain) < 8
-                ):
-                    seen.add(id(cause))
-                    identity = {"type": type(cause).__name__}
-                    for name in ("errno", "winerror"):
-                        value = getattr(cause, name, None)
-                        if isinstance(value, int):
-                            identity[name] = value
-                    chain.append(identity)
-                    nested = cause.__cause__ or cause.__context__
-                    if not isinstance(nested, BaseException):
-                        nested = getattr(cause, "reason", None)
-                    if not isinstance(nested, BaseException):
-                        nested = next(
-                            (
-                                value
-                                for value in cause.args
-                                if isinstance(value, BaseException)
-                            ),
-                            None,
-                        )
-                    cause = nested
-                failure_context = {
-                    "exception_chain": chain,
-                    "phase": "search_page",
-                    "field_count": len(fields),
-                    "expand_changelog": "changelog" in (expand or []),
-                }
-                status = getattr(getattr(exc, "response", None), "status_code", None)
-                if status != 502 or attempt >= len(self._RETRY_DELAYS):
-                    smart_log(
-                        "Jira gateway search failed",
-                        domain="jira",
-                        source="jira_gateway",
-                        level="ERROR",
-                        emit_runtime_event=False,
-                        extra={
-                            **failure_context,
-                            "operation": "search_page",
-                            "http_status": status,
-                            "cause_type": type(exc).__name__,
-                            "start_at": start,
-                            "page_size": page_size,
-                            "attempt": attempt + 1,
-                            "duration_ms": round((monotonic() - started) * 1000, 3),
-                            "outcome": "failed",
-                        },
+        try:
+            payload = read_request(api.jql, query, fields=fields, start=start, limit=page_size,
+                                   expand=",".join(expand) if expand else None, validate_query="strict")
+            return payload if isinstance(payload, dict) else {}
+        except TaskCancelled:
+            raise
+        except Exception as exc:
+            # Exception text/args may contain URLs, credentials, JQL or response bodies.
+            chain = []
+            cause = exc
+            seen = set()
+            while (
+                isinstance(cause, BaseException)
+                and id(cause) not in seen
+                and len(chain) < 8
+            ):
+                seen.add(id(cause))
+                identity = {"type": type(cause).__name__}
+                for name in ("errno", "winerror"):
+                    value = getattr(cause, name, None)
+                    if isinstance(value, int):
+                        identity[name] = value
+                chain.append(identity)
+                nested = cause.__cause__ or cause.__context__
+                if not isinstance(nested, BaseException):
+                    nested = getattr(cause, "reason", None)
+                if not isinstance(nested, BaseException):
+                    nested = next(
+                        (
+                            value
+                            for value in cause.args
+                            if isinstance(value, BaseException)
+                        ),
+                        None,
                     )
-                    raise JiraGatewayError("jira_search_failed") from exc
-                smart_log(
-                    "Jira gateway page retry",
-                    domain="jira",
-                    source="jira_gateway",
-                    level="WARNING",
-                    emit_runtime_event=False,
-                    extra={
-                        **failure_context,
-                        "operation": "search_page",
-                        "outcome": "retry",
-                        "start_at": start,
-                        "page_size": page_size,
-                        "attempt": attempt + 1,
-                        "http_status": status,
-                        "cause_type": type(exc).__name__,
-                        "duration_ms": round((monotonic() - attempt_started) * 1000, 3),
-                    },
-                )
-                sleep(self._RETRY_DELAYS[attempt])
-        raise JiraGatewayError("jira_search_failed")  # pragma: no cover
+                cause = nested
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            smart_log(f"Jira gateway search failed startAt={start} pageSize={page_size} "
+                      f"errorType={type(exc).__name__} httpStatus={status}", domain="jira",
+                      source="jira_gateway", level="ERROR",
+                      extra={"phase": "search_page", "exception_chain": chain, "expand_changelog": "changelog" in (expand or []),
+                             "field_count": len(fields), "operation": "search_page", "start_at": start, "page_size": page_size,
+                             "cause_type": type(exc).__name__, "http_status": status,
+                             "duration_ms": round((monotonic() - started) * 1000, 3)})
+            raise JiraGatewayError("jira_search_failed") from exc
 
     def _thread_api(self) -> Any:
         if not hasattr(self._client_state, "api"):
@@ -377,7 +360,9 @@ class JiraGateway:
     def get_issue(self, issue_key: str) -> dict[str, Any]:
         started = monotonic()
         try:
-            payload = self._api.get_issue(issue_key, fields=list(self.CORE_FIELDS), expand=None)
+            payload = read_request(self._api.get_issue, issue_key, fields=list(self.CORE_FIELDS), expand=None)
+        except TaskCancelled:
+            raise
         except Exception as exc:
             response = getattr(exc, "response", None)
             smart_log(
@@ -407,7 +392,9 @@ class JiraGateway:
         result: dict[str, Any] = {}
         if "comments" in sections:
             try:
-                comments = self._api.issue_get_comments(issue_key) or {}
+                comments = read_request(self._api.issue_get_comments, issue_key) or {}
+            except TaskCancelled:
+                raise
             except Exception as exc:
                 raise JiraGatewayError("jira_comments_failed") from exc
             result["comments"] = comments.get("comments", comments if isinstance(comments, list) else [])
@@ -422,7 +409,9 @@ class JiraGateway:
         if requested_fields:
             started = monotonic()
             try:
-                payload = self._api.get_issue(issue_key, fields=requested_fields, expand='names' if 'custom_fields' in sections else None) or {}
+                payload = read_request(self._api.get_issue, issue_key, fields=requested_fields, expand='names' if 'custom_fields' in sections else None) or {}
+            except TaskCancelled:
+                raise
             except Exception as exc:
                 response = getattr(exc, "response", None)
                 smart_log(
@@ -468,7 +457,9 @@ class JiraGateway:
     def update_issue(self, command: UpdateIssueCommand) -> dict[str, Any]:
         try:
             self._api.issue_update(command.issue_key, command.fields)
-            payload = self._api.get_issue(command.issue_key, fields=list(self.CORE_FIELDS), expand=None)
+            payload = read_request(self._api.get_issue, command.issue_key, fields=list(self.CORE_FIELDS), expand=None)
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_update_failed") from exc
         return payload if isinstance(payload, dict) else {}
@@ -521,24 +512,30 @@ class JiraGateway:
 
     def fetch_filter(self, filter_id: str) -> dict[str, Any]:
         try:
-            payload = self._api.get_filter(filter_id) or {}
+            payload = read_request(self._api.get_filter, filter_id) or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_filter_failed") from exc
         return payload if isinstance(payload, dict) else {}
 
     def fetch_query_fields(self) -> dict[str, Any]:
         try:
-            payload = self._api.get("rest/api/2/jql/autocompletedata") or {}
+            payload = read_request(self._api.get, "rest/api/2/jql/autocompletedata") or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_field_metadata_failed") from exc
         return payload if isinstance(payload, dict) else {}
 
     def fetch_query_suggestions(self, field_name: str, query: str = "") -> dict[str, Any]:
         try:
-            payload = self._api.get(
+            payload = read_request(self._api.get,
                 "rest/api/2/jql/autocompletedata/suggestions",
                 params={"fieldName": str(field_name), "fieldValue": str(query)},
             ) or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_field_suggestions_failed") from exc
         return payload if isinstance(payload, dict) else {}
@@ -546,17 +543,21 @@ class JiraGateway:
     def fetch_saved_filters(self) -> list[dict[str, Any]]:
         """Return the filters Jira exposes through its read-only favourite endpoint."""
         try:
-            payload = self._api.get("rest/api/2/filter/favourite") or []
+            payload = read_request(self._api.get, "rest/api/2/filter/favourite") or []
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_filter_list_failed") from exc
         return [item for item in payload if isinstance(item, dict)]
 
     def validate_jql(self, jql: str) -> dict[str, Any]:
         try:
-            self._api.jql(
+            read_request(self._api.jql,
                 str(jql), fields=[], start=0, limit=0, expand=None,
                 validate_query="strict",
             )
+        except TaskCancelled:
+            raise
         except Exception as exc:
             response = getattr(exc, "response", None)
             if getattr(response, "status_code", None) == 400:
@@ -572,7 +573,9 @@ class JiraGateway:
 
     def fetch_create_metadata(self, project_key: str, issue_type: str) -> dict[str, Any]:
         try:
-            payload = self._api.issue_createmeta(project_key, expand="projects.issuetypes.fields") or {}
+            payload = read_request(self._api.issue_createmeta, project_key, expand="projects.issuetypes.fields") or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_create_metadata_failed") from exc
         return payload if isinstance(payload, dict) else {}
@@ -584,7 +587,9 @@ class JiraGateway:
         project_key: str = _DEFAULT_USER_SEARCH_PROJECT,
     ) -> list[dict[str, Any]]:
         try:
-            payload = self._api.get_all_assignable_users_for_project(project_key, start=0, limit=1000) or []
+            payload = read_request(self._api.get_all_assignable_users_for_project, project_key, start=0, limit=1000) or []
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_user_search_failed") from exc
         needle = str(query or "").strip().casefold()
@@ -601,9 +606,11 @@ class JiraGateway:
 
     def user_groups(self, username: str) -> tuple[str, ...]:
         try:
-            payload = self._api.get("rest/api/2/user", params={
+            payload = read_request(self._api.get, "rest/api/2/user", params={
                 "username": str(username), "expand": "groups",
             }) or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_user_groups_failed") from exc
         groups = payload.get("groups") if isinstance(payload, dict) else None
@@ -617,14 +624,18 @@ class JiraGateway:
 
     def current_user(self) -> dict[str, str]:
         try:
-            payload = self._api.get("rest/api/2/myself") or {}
+            payload = read_request(self._api.get, "rest/api/2/myself") or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_current_user_failed") from exc
         return _public_user(payload)
 
     def attachment_metadata(self) -> JiraAttachmentMetadata:
         try:
-            payload = self._api.get_attachment_meta() or {}
+            payload = read_request(self._api.get_attachment_meta) or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_attachment_metadata_failed") from exc
         limit = payload.get("uploadLimit")
@@ -632,7 +643,9 @@ class JiraGateway:
 
     def list_attachments(self, issue_key: str) -> list[dict[str, Any]]:
         try:
-            payload = self._api.get_issue(issue_key, fields=["attachment"], expand=None) or {}
+            payload = read_request(self._api.get_issue, issue_key, fields=["attachment"], expand=None) or {}
+        except TaskCancelled:
+            raise
         except Exception as exc:
             raise JiraGatewayError("jira_attachments_list_failed") from exc
         fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else {}
