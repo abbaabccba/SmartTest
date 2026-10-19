@@ -367,31 +367,53 @@ class JiraAnalyticsRepository:
                     metadata['availability'][source_period]['activity'] = True
                 sources.append((source_row[0] if valid else '', None))
 
-            def load():
-                def facts_for(identity):
-                    return [json.loads(item[0]) for item in connection.execute(
-                        select(jira_analytics_facts.c.fact_json)
-                        .where(jira_analytics_facts.c.snapshot_id == identity)
-                        .order_by(jira_analytics_facts.c.sequence))]
-                facts = facts_for(snapshot_id)
-                for identity, metrics in sources:
-                    if identity:
-                        if metrics is None:
-                            merge_annual_activity_facts(facts, facts_for(identity))
-                        else:
-                            merge_annual_activity_facts(facts, facts_for(identity), metrics=metrics)
-                return aggregate_annual_facts(facts, metadata, period, today=today)
+            def read_raw_facts(connection):
+                # Resolve identities in the metadata transaction; active facts are immutable.
+                return [[item[0] for item in connection.execute(
+                    select(jira_analytics_facts.c.fact_json)
+                    .where(jira_analytics_facts.c.snapshot_id == identity)
+                    .order_by(jira_analytics_facts.c.sequence))] if identity else []
+                    for identity in [snapshot_id, *(identity for identity, _metrics in sources)]]
 
             complete = all(all(values.values()) for values in metadata.get('availability', {}).values())
-            if self._statistics_cache is None or not current or not complete or not immutable_sources:
-                return load()
-            dependencies = json.dumps([snapshot_id, sources, row[3], roster], sort_keys=True, separators=(',', ':'))
-            identity = CacheIdentity(format_version=1, namespace='jira-annual-statistics',
-                scope=json.dumps([row[1], row[2]], separators=(',', ':')),
-                dependency_revision=sha256(dependencies.encode()).hexdigest(),
-                dimensions=(('period', str(period)),), time_boundary=today.isoformat())
-            return self._statistics_cache.get_or_load(identity, load,
-                ttl_seconds=self._statistics_cache_ttl_seconds)
+            cacheable = (self._statistics_cache is not None and current and complete and immutable_sources)
+            if not cacheable:
+                # Pending/mutable metadata and facts must come from the same consistent read.
+                raw_facts = read_raw_facts(connection)
+
+        def aggregate(raw):
+            facts = [json.loads(value) for value in raw[0]]
+            for (_identity, metrics), source_rows in zip(sources, raw[1:]):
+                contributions = [json.loads(value) for value in source_rows]
+                if metrics is None:
+                    merge_annual_activity_facts(facts, contributions)
+                else:
+                    merge_annual_activity_facts(facts, contributions, metrics=metrics)
+            return aggregate_annual_facts(facts, metadata, period, today=today)
+
+        if not cacheable:
+            return aggregate(raw_facts)
+
+        def load():
+            identities = {snapshot_id, *(identity for identity, _metrics in sources if identity)}
+            with self.database.connect() as connection:
+                if not connection.in_transaction():
+                    connection.begin()
+                existing = {item[0] for item in connection.execute(
+                    select(jira_analytics_snapshots.c.snapshot_id)
+                    .where(jira_analytics_snapshots.c.snapshot_id.in_(identities)))}
+                if existing != identities:
+                    raise LookupError('query_snapshot_unavailable')
+                raw = read_raw_facts(connection)
+            return aggregate(raw)
+
+        dependencies = json.dumps([snapshot_id, sources, row[3], roster], sort_keys=True, separators=(',', ':'))
+        identity = CacheIdentity(format_version=1, namespace='jira-annual-statistics',
+            scope=json.dumps([row[1], row[2]], separators=(',', ':')),
+            dependency_revision=sha256(dependencies.encode()).hexdigest(),
+            dimensions=(('period', str(period)),), time_boundary=today.isoformat())
+        return self._statistics_cache.get_or_load(identity, load,
+            ttl_seconds=self._statistics_cache_ttl_seconds)
 
     def annual_source(self, account, source_key, revision):
         state = self.state("", account, card_key=source_key)
