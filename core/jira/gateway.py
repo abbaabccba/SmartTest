@@ -241,9 +241,12 @@ class JiraGateway:
         return self._complete_activity_payloads(rows, progress=progress)
 
     def search_metric_page(self, query, start, metric):
-        fields = ["comment", "created"] if metric == "comment" else ["created"]
+        fields = ["comment", "attachment", "created"] if metric == "comment" else ["created"]
         page = self._search_full_page(query, start, fields, ["changelog"] if metric == "verify" else None, 100)
         self._complete_activity_payloads(page.get("issues") or [], comment=metric == "comment", verify=metric == "verify")
+        if metric == "comment" and any(not isinstance((row.get("fields") or {}).get("attachment"), list)
+                                      for row in page.get("issues") or []):
+            raise JiraGatewayError("jira_attachments_missing")
         return page
 
     def _complete_activity_payloads(self, rows, *, progress=None, comment=True, verify=True):

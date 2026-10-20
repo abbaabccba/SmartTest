@@ -218,3 +218,21 @@ jira_sync_state = Table('jira_sync_state', APPLICATION_METADATA,
     Column('last_error', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
     mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
 )
+
+# Full composite identity consumes 2356 bytes under utf8mb4 (below MySQL's 3072).
+jira_analytics_qa_events = Table('jira_analytics_qa_events', APPLICATION_METADATA,
+    Column('sequence', BigInteger, primary_key=True, nullable=False, autoincrement=True),
+    Column('snapshot_id', String(191), nullable=False),
+    Column('issue_id', String(191), nullable=False),
+    Column('event_kind', String(16), nullable=False),
+    Column('source_id', String(191), nullable=False),
+    Column('author_identity', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_account', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('author_display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('created_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('updated_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('payload_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    UniqueConstraint('snapshot_id', 'issue_id', 'event_kind', 'source_id'),
+    ForeignKeyConstraint(['snapshot_id'], ['jira_analytics_snapshots.snapshot_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)

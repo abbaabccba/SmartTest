@@ -3,11 +3,11 @@ from __future__ import annotations
 from sqlalchemy import select, or_, text, update, delete, func
 from ..database import upsert
 
-from .schema import jira_analytics_facts, jira_analytics_queries, jira_analytics_snapshot_issues, jira_analytics_snapshots, jira_history_scopes, jira_issues
+from .schema import jira_analytics_qa_events, jira_analytics_facts, jira_analytics_queries, jira_analytics_snapshot_issues, jira_analytics_snapshots, jira_history_scopes, jira_issues
 
 import json
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from hashlib import sha256
 
 from ..cache import CacheIdentity
@@ -248,7 +248,7 @@ class JiraAnalyticsRepository:
                     updates=(),
                 )
 
-    def update_statistics(self, snapshot_id, statistics, *, facts=None):
+    def update_statistics(self, snapshot_id, statistics, *, facts=None, qa_events=None):
         with self.database.transaction() as connection:
             scope = self._lock_query(connection, snapshot_id)
             pending = connection.execute(
@@ -287,6 +287,19 @@ class JiraAnalyticsRepository:
                         conflict_columns=("snapshot_id", "issue_id"),
                         updates=("fact_json",),
                     )
+            if cursor.rowcount and qa_events is not None:
+                event_rows = [
+                    {"snapshot_id": snapshot_id,
+                     **{key: event[key] for key in ("issue_id", "event_kind", "source_id",
+                        "author_identity", "author_account", "author_display_name", "created_at", "updated_at")},
+                     "payload_json": json.dumps(event["payload"], ensure_ascii=False)}
+                    for event in qa_events
+                ]
+                for start in range(0, len(event_rows), 500):
+                    upsert(connection, jira_analytics_qa_events, event_rows[start:start + 500],
+                           conflict_columns=("snapshot_id", "issue_id", "event_kind", "source_id"),
+                           updates=("author_identity", "author_account", "author_display_name",
+                                    "created_at", "updated_at", "payload_json"))
             return bool(cursor.rowcount)
 
     def local_statistics(self, snapshot_id, period):
@@ -319,7 +332,6 @@ class JiraAnalyticsRepository:
         from core.jira.services.jql_statistics_cards import (
             aggregate_annual_facts, merge_annual_activity_facts, load_activity_qa_roster,
         )
-        from .analytics_refresh import metric_source_key
         today = self._today()
         with self.database.connect() as connection:
             if not connection.in_transaction():
@@ -339,16 +351,11 @@ class JiraAnalyticsRepository:
             roster = load_activity_qa_roster().fingerprint if metadata.get('metricSources') else ''
             sources = []
             immutable_sources = True
-            for source_period, metrics in metadata.get('metricSources', {}).items():
-                for metric, source in metrics.items():
-                    key = metric_source_key(source['card'], source['query'], roster, metric)
-                    source_row = connection.execute(text(
-                        "SELECT s.snapshot_id FROM jira_analytics_queries q "
-                        "JOIN jira_analytics_snapshots s ON s.snapshot_id=q.active_snapshot_id "
-                        "WHERE q.session_hash=:scope AND s.account=:account AND s.card_key=:key AND s.state='active'"
-                    ), {'scope': self._scope('', key, row[1]), 'account': row[1], 'key': key}).first()
-                    metadata['availability'][source_period][metric] = bool(source_row)
-                    sources.append((source_row[0] if source_row else '', (metric + 'Count',)))
+            metric_sources = self._metric_sources(connection, row[1], metadata, roster)
+            for source in metric_sources:
+                metadata['availability'][source['year']][source['metric']] = bool(source['snapshotId'])
+                sources.append((source['snapshotId'], (source['metric'] + 'Count',)))
+            evidence_refs = self._qa_references(snapshot_id, period, today, metric_sources)
             for source_period, source in metadata.get('activitySources', {}).items():
                 if source.get('snapshotId'):
                     source_row = connection.execute(select(jira_analytics_snapshots.c.snapshot_id,
@@ -394,6 +401,7 @@ class JiraAnalyticsRepository:
         def presentation_fields(result):
             from copy import deepcopy
             result = deepcopy(result)
+            result["qaEvidence"] = evidence_refs
             issue_ids = tuple({item["issueId"] for kind in ("current", "previous") for item in result[kind]["details"]})
             with self.database.connect() as connection:
                 fields = {row[0]: {"key": row[1], "summary": row[2], "status": row[3], "webUrl": row[4],
@@ -636,3 +644,128 @@ class JiraAnalyticsRepository:
     def cleanup(self):
         with self.database.transaction() as connection:
             return self._delete_expired(connection, self._now())
+
+    def _metric_sources(self, connection, account, metadata, roster):
+        from .analytics_refresh import metric_source_key
+        resolved = []
+        for year, metrics in metadata.get('metricSources', {}).items():
+            for metric, source in metrics.items():
+                key = metric_source_key(source['card'], source['query'], roster, metric)
+                row = connection.execute(select(jira_analytics_snapshots.c.snapshot_id,
+                    jira_analytics_snapshots.c.statistics_json, jira_analytics_snapshots.c.roster_fingerprint, jira_analytics_snapshots.c.created_at)
+                    .join(jira_analytics_queries, jira_analytics_queries.c.active_snapshot_id == jira_analytics_snapshots.c.snapshot_id)
+                    .where(jira_analytics_queries.c.session_hash == self._scope('', key, account),
+                           jira_analytics_snapshots.c.account == account, jira_analytics_snapshots.c.card_key == key,
+                           jira_analytics_snapshots.c.state == 'active')).first()
+                evidence = json.loads(row[1] or '{}').get('qaEvidence', {}) if row else {}
+                resolved.append({'year': year, 'metric': metric, 'snapshotId': row[0] if row else '',
+                    'rosterFingerprint': row[2] if row else '', 'version': evidence.get('version'),
+                    'complete': evidence.get('complete', False), 'roster': evidence.get('roster'), 'createdAt': row[3] if row else 0})
+        return resolved
+
+    @staticmethod
+    def _qa_references(base, period, today, sources):
+        from core.jira.services.filter_service import jira_period_ranges
+        result = {}
+        for kind, window in jira_period_ranges(period, today).items():
+            years = (['previous'] if window['start'] < f'{today.year}-01-01' else [])
+            if window['end'] is None or window['end'] > f'{today.year}-01-01':
+                years.append('current')
+            result[kind] = {}
+            for metric in ('comment', 'verify'):
+                selected = []
+                for year in years:
+                    source = next((item for item in sources if item['year'] == year and item['metric'] == metric),
+                        {'year': year, 'snapshotId': '', 'rosterFingerprint': '', 'version': None, 'complete': False})
+                    selected.append({key: source[key] for key in ('year', 'snapshotId', 'rosterFingerprint', 'version', 'complete')})
+                result[kind][metric] = {'baseSnapshotId': base, 'period': period, 'periodKind': kind,
+                    'metric': metric, 'range': {key: window[key] for key in ('start', 'end')}, 'sources': selected}
+        return result
+
+    def qa_details(self, account, card, reference, *, product_line='', person='', all_qa=False,
+                   issue_id='', actions=False, page=0, download=False):
+        from core.jira.mapper import _datetime
+        from core.jira.services.jql_statistics_cards import load_activity_qa_roster, effective_card_jql_pair, card_definition
+        account = str(account).casefold()
+        if type(page) is not int or page < 0 or not isinstance(reference, dict) or (download and not actions):
+            raise ValueError('invalid_details')
+        metric, period, kind = (reference.get(key) for key in ('metric', 'period', 'periodKind'))
+        if metric not in ('comment', 'verify') or period not in ('week', 'month', 'quarter', 'year') or kind not in ('current', 'previous'):
+            raise ValueError('invalid_details')
+        with self.database.connect() as connection:
+            connection.begin()
+            base = connection.execute(select(jira_analytics_snapshots).join(jira_analytics_queries,
+                jira_analytics_queries.c.active_snapshot_id == jira_analytics_snapshots.c.snapshot_id).where(
+                    jira_analytics_queries.c.session_hash == self._scope('', card, account),
+                    jira_analytics_snapshots.c.account == account, jira_analytics_snapshots.c.card_key == card,
+                    jira_analytics_snapshots.c.state == 'active')).mappings().first()
+            conditions = connection.execute(select(jira_analytics_queries.c.user_conditions_json).where(
+                jira_analytics_queries.c.session_hash == self._scope('', 'conditions', account))).scalar_one_or_none()
+            applied = json.loads(conditions or '{}').get('userJql')
+            expected = effective_card_jql_pair(card, applied or '', 'year')
+            if not base or base['snapshot_id'] != reference.get('baseSnapshotId') or applied is None or base['user_jql'] != applied or base['jql'] != expected['current']['jql'] or base['comparison_jql'] != expected['previous']['jql']:
+                raise ValueError('details_version_changed')
+            fingerprint = card_definition(card).fingerprint
+            legacy = f'{fingerprint}:annual-activity-v4:' + load_activity_qa_roster().fingerprint
+            if base['roster_fingerprint'] not in (f'{fingerprint}:annual-metrics-v5', legacy):
+                raise ValueError('details_version_changed')
+            metadata = json.loads(base['statistics_json'] or '{}')
+            sources = self._metric_sources(connection, account, metadata, load_activity_qa_roster().fingerprint)
+            expected_ref = self._qa_references(base['snapshot_id'], period, self._today(), sources)[kind][metric]
+            if reference != expected_ref:
+                raise ValueError('details_version_changed')
+            wanted = [source for source in sources if source['metric'] == metric and
+                      source['year'] in {item['year'] for item in reference['sources']}]
+            if not wanted or len(wanted) != len(reference['sources']) or any(not item['snapshotId'] or item['version'] != 1 or not item['complete'] or item['roster'] is None for item in wanted):
+                raise ValueError('details_not_collected')
+            rosters = {source['snapshotId']: dict(source['roster']) for source in wanted}
+            events, facts = jira_analytics_qa_events, jira_analytics_facts
+            created = func.left(func.json_unquote(func.json_extract(facts.c.fact_json, '$.createdAt')), 10)
+            query = select(events.c.sequence, events.c.snapshot_id, events.c.issue_id, events.c.event_kind,
+                events.c.source_id, events.c.author_account, events.c.author_display_name, events.c.created_at).join(
+                    facts, (facts.c.snapshot_id == events.c.snapshot_id) & (facts.c.issue_id == events.c.issue_id)).where(
+                        events.c.snapshot_id.in_(rosters), created >= reference['range']['start'])
+            if reference['range']['end'] is not None:
+                query = query.where(created < reference['range']['end'])
+            if issue_id:
+                query = query.where(events.c.issue_id == str(issue_id))
+            entries = []
+            for row in connection.execute(query).mappings():
+                author = row['author_account'].strip().casefold()
+                assignments = rosters[row['snapshot_id']].get(author)
+                if assignments is None or (person and author != person) or (not all_qa and product_line not in assignments):
+                    continue
+                stamp = _datetime(row['created_at'])
+                entry = dict(row)
+                entry.update(person=author, assignments=assignments,
+                    order=(stamp.timestamp() if stamp else float('-inf'), row['event_kind'], row['source_id'], row['snapshot_id']))
+                entries.append(entry)
+            entries.sort(key=lambda item: item['order'], reverse=True)
+            page_size = 1000 if download else 25
+            if actions:
+                selected = entries[page * page_size:(page + 1) * page_size]
+                payloads = {row[0]: json.loads(row[1]) for row in connection.execute(select(events.c.sequence, events.c.payload_json)
+                    .where(events.c.sequence.in_([entry['sequence'] for entry in selected])))} if selected else {}
+                rows = [{'issueId': entry['issue_id'], 'person': entry['person'], 'personName': entry['author_display_name'],
+                    'eventKind': entry['event_kind'], 'sourceId': entry['source_id'], 'createdAt': entry['created_at'],
+                    'assignments': entry['assignments'], 'payload': payloads[entry['sequence']]} for entry in selected]
+                total = len(entries)
+            else:
+                grouped = {}
+                for entry in entries:
+                    key = (entry['issue_id'], entry['person'])
+                    group = grouped.setdefault(key, {'issueId': key[0], 'person': key[1], 'personName': entry['author_display_name'],
+                        'assignments': entry['assignments'], 'commentCount': 0, 'attachmentCount': 0, 'historyCount': 0,
+                        'createdAt': entry['created_at']})
+                    group[{'comment': 'commentCount', 'attachment': 'attachmentCount', 'verify': 'historyCount'}[entry['event_kind']]] += 1
+                total = len(grouped); rows = list(grouped.values())[page * page_size:(page + 1) * page_size]
+            ids = {row['issueId'] for row in rows}
+            fields = {row[0]: {'key': row[1], 'summary': row[2], 'webUrl': row[3]} for row in connection.execute(
+                select(jira_issues.c.issue_id, jira_issues.c.issue_key, jira_issues.c.summary, jira_issues.c.web_url)
+                .where(jira_issues.c.issue_id.in_(ids)))} if ids else {}
+            for row in rows:
+                row.update(fields.get(row['issueId'], {}))
+            totals = {kind: sum(entry['event_kind'] == kind for entry in entries) for kind in ('comment', 'attachment', 'verify')}
+            return {'rows': rows, 'total': total, 'page': page, 'pageSize': page_size, 'reference': expected_ref,
+                    'updatedAt': datetime.fromtimestamp(max(source['createdAt'] for source in wanted), timezone.utc).isoformat(),
+                    'metric': metric, 'totals': totals}

@@ -120,3 +120,68 @@ it('does not save an XLSX buffer that finishes after the panel is replaced', asy
   expect(document.querySelector('dialog tbody').textContent).toContain('New project')
   details.destroy()
 })
+
+
+it('loads summary pages lazily, expands safe text, switches scope and downloads all actions', async () => {
+  const saveFile = vi.fn()
+  const details = createDataDetails({ loadWorkbook: async () => ExcelJS.Workbook, saveFile })
+  const loadPage = vi.fn(async ({ page, allQa }) => ({ total: allQa ? 1 : 26, updatedAt: '2026-10-20T12:00:00Z', rows: [{ issueId: String(page), key: `TV-${page}`, person: 'qa' }] }))
+  const loadActions = vi.fn(async () => ({ total: 1, rows: [{ eventKind: 'comment', createdAt: '2026-01-01', payload: { body: '<img src=x onerror=bad()>\nRaw' } },
+    { eventKind: 'attachment', payload: { filename: 'QA image.png', content: 'https://jira.example/file', created: '2026-01-01' } },
+    { eventKind: 'verify', payload: { items: [{ fromString: 'Resolved', toString: 'Verified' }] } }] }))
+  const loadDownload = vi.fn(async () => Array.from({ length: 27 }, (_, index) => ({ body: `Original-${index}` })))
+  details.open({ title: 'Comments', columns: [{ key: 'key', label: 'Jira' }], loadPage, loadActions, loadDownload,
+    downloadColumns: [{ key: 'body', label: 'Original' }], scopeOptions: true })
+  await vi.waitFor(() => expect(document.querySelector('tbody').textContent).toContain('TV-0'))
+  expect(loadActions).not.toHaveBeenCalled()
+  document.querySelector('[data-details-expand]').click()
+  await vi.waitFor(() => expect(document.querySelector('[data-details-events]').textContent).toContain('<img src=x onerror=bad()>'))
+  expect(document.querySelector('[data-details-events] img')).toBeNull()
+  expect(document.querySelector('[data-details-events]').textContent).toContain('Resolved → Verified')
+  expect(document.querySelector('[data-details-events] a').href).toBe('https://jira.example/file')
+  document.querySelector('[data-details-next]').click()
+  await vi.waitFor(() => expect(document.querySelector('tbody').textContent).toContain('TV-1'))
+  document.querySelector('[data-details-scope]').click()
+  expect(document.querySelector('tbody').textContent).not.toContain('TV-1')
+  expect(document.querySelector('h2').textContent).toContain('All QA')
+  await vi.waitFor(() => expect(loadPage.mock.calls.at(-1)[0].allQa).toBe(true))
+  await vi.waitFor(() => expect(document.querySelector('[data-details-download]').disabled).toBe(false))
+  document.querySelector('[data-details-download]').click()
+  await vi.waitFor(() => expect(saveFile).toHaveBeenCalledOnce())
+  const book = new ExcelJS.Workbook(); await book.xlsx.load(saveFile.mock.calls[0][0])
+  expect(book.getWorksheet('Details').rowCount).toBe(28)
+  expect(book.getWorksheet('Context').getCell('B2').value).toContain('All QA (including unassigned)')
+  expect(book.getWorksheet('Context').getCell('B3').value).toBe(1)
+  expect(book.getWorksheet('Context').getCell('B5').value).toBe('2026-10-20T12:00:00Z')
+  details.destroy()
+})
+
+it('ignores late summary results and cancels requests when closed', async () => {
+  let finish; let signal
+  const details = createDataDetails()
+  details.open({ title: 'Verify', columns: [], loadPage: options => { signal = options.signal; return new Promise(resolve => { finish = resolve }) } })
+  details.destroy()
+  expect(signal.aborted).toBe(true)
+  finish({ rows: [{ summary: 'late' }], total: 1 })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(document.querySelector('dialog')).toBeNull()
+})
+
+it('renders only server-provided comment HTML while keeping structured bodies and Verify as text', async () => {
+  const details = createDataDetails()
+  details.open({ title: 'Comments', columns: [{ key: 'key', label: 'Jira' }],
+    loadPage: async () => ({ total: 1, rows: [{ key: 'TV-1' }] }),
+    loadActions: async () => ({ total: 3, rows: [
+      { eventKind: 'comment', bodyHtml: '<table><tbody><tr><td>one<br>two</td></tr></tbody></table>', payload: { body: '||raw||' } },
+      { eventKind: 'comment', payload: { body: { text: '<img src=x>' } } },
+      { eventKind: 'verify', bodyHtml: '<b>ignored</b>', payload: { items: [{ fromString: '<b>Resolved</b>', toString: 'Verified' }] } },
+    ] }) })
+  await vi.waitFor(() => expect(document.querySelector('[data-details-expand]')).not.toBeNull())
+  document.querySelector('[data-details-expand]').click()
+  await vi.waitFor(() => expect(document.querySelector('.data-details-event table')).not.toBeNull())
+  expect(document.querySelector('.data-details-event td').innerHTML).toBe('one<br>two')
+  expect(document.querySelector('.data-details-events img')).toBeNull()
+  expect(document.querySelector('.data-details-events b')).toBeNull()
+  expect(document.querySelector('.data-details-events').textContent).toContain('<b>Resolved</b>')
+  details.destroy()
+})

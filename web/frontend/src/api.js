@@ -184,7 +184,11 @@ export function createJiraStatisticsCardApi({ fetchImpl = globalThis.fetch, base
     const path = `/jira/cards/${encodeURIComponent(cardKey)}/${query ? 'query' : 'statistics'}`
     return requestJson(fetchImpl, `${baseUrl}${path}`, { credentials: 'same-origin', ...(query ? { method: 'POST' } : {}) })
   }
-  return { getStatistics: () => request(), queryStatistics: () => request(true) }
+  return { getStatistics: () => request(), queryStatistics: () => request(true),
+    getDetails: (payload, { signal } = {}) => requestJson(fetchImpl, `${baseUrl}/jira/cards/${encodeURIComponent(cardKey)}/details`, {
+      method: 'POST', credentials: 'same-origin', signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+    }),
+  }
 }
 
 export function createProjectFactsApi({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {

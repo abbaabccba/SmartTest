@@ -17,7 +17,7 @@ from smarttest_web import schema
 
 
 def test_target_schema_declares_all_persistent_owners():
-    assert len(schema.application_metadata().tables) == 38
+    assert len(schema.application_metadata().tables) == 39
     assert 'smarttest_schema' not in APPLICATION_METADATA.tables
     assert 'web_daily_refresh' in APPLICATION_METADATA.tables
     assert APPLICATION_METADATA.tables['jira_analytics_facts'].c.sequence is not None
@@ -48,7 +48,7 @@ def test_mysql_limits_case_trailing_spaces_and_alternate_unique_conflict(applica
     database = application_database
     with database.connect() as connection:
         assert 'STRICT_ALL_TABLES' in connection.execute(text('SELECT @@sql_mode')).scalar_one()
-        assert len(inspect(connection).get_table_names()) == 39
+        assert len(inspect(connection).get_table_names()) == 40
     with pytest.raises(DataError):
         with database.transaction() as connection:
             connection.execute(user_preferences.insert().values(username='u', scope='s', key='x' * 192,
@@ -304,7 +304,9 @@ def test_mysql_statistics_real_redis_versions_expiry_and_outage(application_data
         expected = repo.local_statistics(snapshot, 'year')
         assert repo.local_statistics(snapshot, 'year') == expected and len(calls) == 1
         publish(metric_source_key('task', 'local', 'roster-1', 'comment'), {})
-        assert repo.local_statistics(snapshot, 'year') == expected and len(calls) == 2
+        refreshed = repo.local_statistics(snapshot, 'year')
+        assert {key: value for key, value in refreshed.items() if key != 'qaEvidence'} == {key: value for key, value in expected.items() if key != 'qaEvidence'} and len(calls) == 2
+        assert refreshed['qaEvidence']['current']['comment'] != expected['qaEvidence']['current']['comment']
         today[0] = date(2026, 10, 17)
         dated = repo.local_statistics(snapshot, 'year')
         assert len(calls) == 3

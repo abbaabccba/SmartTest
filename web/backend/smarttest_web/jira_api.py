@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from functools import wraps
 from time import monotonic
+import re
+
+import nh3
 
 from sqlalchemy.exc import SQLAlchemyError
 from core.logging import smart_log
+from core.markup import render_markup
 
 from fastapi import APIRouter
 from fastapi import Body, Depends, HTTPException, Request
@@ -183,6 +187,38 @@ def create_router(authenticated_session, sessions, cache_database, jira_cache_ow
     def jira_analytics_state(request: Request, value=Depends(authenticated_session)):
         conditions = jira_analytics.published_conditions(audit_session(request), value.username)
         return {"conditions": conditions, "userJql": conditions.get("userJql", "") if conditions else ""}
+
+    @router.post("/api/jira/cards/{card_key}/details")
+    def jira_qa_details(card_key: str, payload: dict = Body(...), value=Depends(authenticated_session)):
+        require_jira_card(card_key)
+        if (type(payload.get('page', 0)) is not int or type(payload.get('allQa', False)) is not bool
+                or type(payload.get('actions', False)) is not bool or type(payload.get('download', False)) is not bool
+                or any(not isinstance(payload.get(key, ''), str) for key in ('productLine', 'person', 'issueId'))):
+            raise HTTPException(status_code=422, detail={'state': 'invalid_details'})
+        try:
+            result = jira_analytics.qa_details(value.username, card_key, payload.get('reference'),
+                product_line=payload.get('productLine', ''), person=payload.get('person', ''),
+                all_qa=payload.get('allQa', False), issue_id=payload.get('issueId', ''),
+                actions=payload.get('actions', False), page=payload.get('page', 0), download=payload.get('download', False))
+            if not payload.get('download', False):
+                for row in result['rows']:
+                    body = row.get('payload', {}).get('body')
+                    if row.get('eventKind') == 'comment' and isinstance(body, str):
+                        row['bodyHtml'] = nh3.clean(render_markup(body, source_format='jira-wiki'),
+                            tags={'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'q', 'sup', 'sub',
+                                  'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'hr', 'h1', 'h2', 'h3', 'h4',
+                                  'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'font'},
+                            attributes={'a': {'href', 'title'}, 'font': {'color'}},
+                            attribute_filter=lambda tag, attr, value: value if attr != 'color' or re.fullmatch(
+                                r'#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?|black|silver|gray|white|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua', value) else None,
+                            url_schemes={'http', 'https'}, url_relative='deny',
+                            set_tag_attribute_values={'a': {'target': '_blank'}}, link_rel='noopener noreferrer')
+            return result
+        except ValueError as error:
+            state = str(error)
+            if state not in {'invalid_details', 'details_version_changed', 'details_not_collected'}:
+                raise
+            raise HTTPException(status_code=422 if state == 'invalid_details' else 409, detail={'state': state}) from error
 
     @router.get("/api/jira/cards/{card_key}/statistics")
     @_trace_analytics("statistics")

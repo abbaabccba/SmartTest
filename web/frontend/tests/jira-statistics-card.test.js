@@ -604,18 +604,20 @@ it('does not display an intentional abort as a request failure', async () => {
   widget.destroy()
 })
 
-it('opens the clicked Jira period and excludes Comments and Verify without another request', async () => {
+it('keeps basic details local and lazily opens Comments and Verify with their displayed reference', async () => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
   document.body.innerHTML = '<div id="root"></div>'
   const detail = key => ({ issueId: key, key, summary: 'Database issue', productLine: 'China Operator',
     people: [{ identity: 'a', displayName: 'Alice', bugCount: 2, invalidCount: 0 }] })
   const data = { state: 'ready', current: { productLines, details: [detail('CURRENT-1')] },
-    previous: { productLines, details: [detail('PREVIOUS-1')] } }
+    previous: { productLines, details: [detail('PREVIOUS-1')] },
+    qaEvidence: { current: { comment: { metric: 'comment' }, verify: { metric: 'verify' } } } }
+  const getDetails = vi.fn(async () => ({ rows: [{ key: 'QA-1', person: 'a', personName: 'Alice', commentCount: 1 }], total: 1 }))
   const getStatistics = vi.fn(async () => data)
   const chartFactory = vi.fn(chartMock)
   const widget = createJiraStatisticsCard({ chartFactory })
-  widget.mount(document.querySelector('#root'), { api: { getStatistics }, account: 'details' })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics, getDetails }, account: 'details' })
   await vi.waitFor(() => expect(chartFactory).toHaveBeenCalled())
   const config = chartFactory.mock.calls.at(-1)[1]
   const index = config.data.labels.indexOf('Alice')
@@ -627,8 +629,56 @@ it('opens the clicked Jira period and excludes Comments and Verify without anoth
   for (const metric of ['commentCount', 'verifyCount']) {
     document.querySelector(`[data-value="${metric}"]`).click()
     chartFactory.mock.calls.at(-1)[1].options.onClick({}, [{ index: 0, datasetIndex: 0 }])
-    expect(document.querySelector('dialog')).toBeNull()
-    expect(document.querySelector('[data-ranking-details]').childElementCount).toBe(0)
+    await vi.waitFor(() => expect(document.querySelector('dialog tbody').textContent).toContain('QA-1'))
+    expect(getDetails.mock.calls.at(-1)[0]).toMatchObject({ reference: { metric: metric === 'commentCount' ? 'comment' : 'verify' }, person: metric === 'commentCount' ? 'a' : 'b', allQa: false })
+    expect(document.querySelector('[data-qa-details]').textContent).toContain('Details')
+    document.querySelector('[data-details-close]').click()
   }
+  widget.destroy()
+})
+
+
+it('reaches zero-count QA histories and downloads every action page with one fixed reference', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  document.body.innerHTML = '<div id="root"></div>'
+  const reference = { baseSnapshotId: 'base', metric: 'verify', sources: [{ snapshotId: 'evidence' }] }
+  const data = { state: 'ready', productLines: [], qaEvidence: { current: { verify: reference } } }
+  const getDetails = vi.fn(async payload => ({ total: payload.actions ? 27 : 1, pageSize: 25,
+    rows: payload.actions ? Array.from({ length: payload.page ? 2 : 25 }, (_, index) => ({
+      sourceId: String(payload.page * 25 + index), eventKind: 'verify', person: 'qa', payload: { items: [{ fromString: 'Resolved', toString: 'Verified' }] },
+    })) : [{ issueId: 'issue', key: 'QA-ZERO', person: 'qa', historyCount: 27 }] }))
+  const { widget } = mount({ getStatistics: async () => data, getDetails }, vi.fn(chartMock), 'qa-zero')
+  await vi.waitFor(() => expect(document.querySelector('[data-value="verifyCount"]').disabled).toBe(false))
+  document.querySelector('[data-value="verifyCount"]').click()
+  document.querySelector('[data-qa-details] button').click()
+  await vi.waitFor(() => expect(document.querySelector('dialog tbody').textContent).toContain('QA-ZERO'))
+  document.querySelector('[data-details-scope]').click()
+  await vi.waitFor(() => expect(getDetails.mock.calls.at(-1)[0].allQa).toBe(true))
+  await vi.waitFor(() => expect(document.querySelector('[data-details-download]').disabled).toBe(false))
+  document.querySelector('[data-details-download]').click()
+  await vi.waitFor(() => expect(getDetails.mock.calls.filter(([payload]) => payload.actions)).toHaveLength(2))
+  const actionRequests = getDetails.mock.calls.filter(([payload]) => payload.actions).map(([payload]) => payload)
+  expect(actionRequests.map(payload => payload.page)).toEqual([0, 1])
+  expect(actionRequests.every(payload => payload.allQa && payload.person === '' && JSON.stringify(payload.reference) === JSON.stringify(reference))).toBe(true)
+  widget.destroy()
+})
+
+
+it.each([
+  ['details_version_changed', 'Displayed data has changed. Close and reopen details'],
+  ['details_not_collected', 'QA source details have not been completely collected'],
+])('explains %s without replacing it with another source', async (code, text) => {
+  const getStatistics = vi.fn(async () => ({ state: 'ready', productLines: [],
+    qaEvidence: { current: { comment: { baseSnapshotId: 'base', metric: 'comment' } } } }))
+  const getDetails = vi.fn(async () => { throw Object.assign(new Error('Request failed 409'), { code }) })
+  const { widget } = mount({ getStatistics, getDetails }, vi.fn(chartMock), code)
+  await vi.waitFor(() => expect(document.querySelector('[data-value="commentCount"]').disabled).toBe(false))
+  document.querySelector('[data-value="commentCount"]').click()
+  document.querySelector('[data-qa-details] button').click()
+  await vi.waitFor(() => expect(document.querySelector('dialog').textContent).toContain(text))
+  expect(getDetails).toHaveBeenCalledOnce()
+  expect(getStatistics).toHaveBeenCalledOnce()
+  expect(document.querySelector('[data-details-download]').disabled).toBe(true)
   widget.destroy()
 })

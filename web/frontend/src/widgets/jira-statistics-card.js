@@ -92,6 +92,56 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
     return false
   }
 
+  function openQaDetails(payload, { productLine, mode, row, periodKind, trigger }) {
+    const metric = mode === 'verifyCount' ? 'verify' : 'comment'
+    const reference = payload.qaEvidence?.[periodKind]?.[metric]
+    const fixedReference = reference ? structuredClone(reference) : null
+    const range = payload.ranges?.[periodKind]
+    const scope = `${JIRA_STATISTICS_CARDS[cardKey].title} · ${productLine} · ${period} · ${periodKind}${range ? ` · ${range.start} – ${range.end ?? 'now'}` : ''}`
+    const request = (options, signal) => {
+      if (!fixedReference) return Promise.reject(new Error('Details have not been collected for this displayed result.'))
+      return api.getDetails({ reference: fixedReference, productLine, person: options.allQa ? '' : row?.identity || '', ...options }, { signal }).catch(error => {
+        if (error.code === 'details_version_changed') throw new Error('Displayed data has changed. Close and reopen details to use its current version.')
+        if (error.code === 'details_not_collected') throw new Error('QA source details have not been completely collected for this displayed result.')
+        throw error
+      })
+    }
+    const columns = [...issueColumns.slice(0, 2), { key: 'personName', label: 'QA person' }, { key: 'assignmentLabel', label: 'QA assignment' },
+      ...(metric === 'comment' ? [{ key: 'commentCount', label: 'Comments' }, { key: 'attachmentCount', label: 'QA uploads' }]
+        : [{ key: 'historyCount', label: 'QA Verify histories' }]), { key: 'createdAt', label: 'Latest action' }]
+    const exportColumns = [{ key: 'key', label: 'Jira' }, { key: 'summary', label: 'Summary' },
+      { key: 'personName', label: 'QA person' }, { key: 'person', label: 'QA account' }, { key: 'assignments', label: 'Product lines' },
+      { key: 'eventKind', label: 'Action' }, { key: 'createdAt', label: 'Original time' }, { key: 'body', label: 'Original comment' },
+      { key: 'filename', label: 'File name' }, { key: 'from', label: 'From status' }, { key: 'to', label: 'To status' },
+      { key: 'sourceId', label: 'Native ID' }, { key: 'raw', label: 'Original payload' }]
+    details.open({ title: `${metric === 'verify' ? 'Verify' : 'Comments'} · ${row?.name || 'All QA in product line'}`,
+      scope, value: row ? periodKind === 'previous' ? row.previousCount : row.count : undefined,
+      columns, trigger, scopeOptions: true, downloadColumns: exportColumns,
+      note: `${metric === 'verify' ? 'Card count uses the last verification contribution. Details show all matching QA histories.' : 'Comments and QA uploads are counted separately.'} Issue creation determines the selected period. Jira titles are current cached fields.`,
+      loadPage: async ({ page, allQa, signal }) => {
+        const result = await request({ page, allQa }, signal)
+        return { ...result, rows: result.rows.map(item => ({ ...item, assignmentLabel: item.assignments?.join(', ') || 'Unassigned' })) }
+      },
+      loadActions: (selected, { page, allQa, signal }) => request({ page, allQa, actions: true, issueId: selected.issueId, person: selected.person }, signal),
+      loadDownload: async ({ allQa, signal }) => {
+        const result = []; let page = 0
+        while (true) {
+          const current = await request({ page, allQa, actions: true, download: true }, signal)
+          result.push(...current.rows.map(item => ({ ...item,
+            assignments: item.assignments?.join(', ') || 'Unassigned',
+            body: typeof item.payload?.body === 'string' ? item.payload.body : item.payload?.body == null ? '' : JSON.stringify(item.payload.body),
+            filename: item.payload?.filename || '', from: (item.payload?.items ?? []).map(change => change.fromString || change.from || '').join(' | '),
+            to: (item.payload?.items ?? []).map(change => change.toString || change.to || '').join(' | '), raw: JSON.stringify(item.payload),
+          })))
+          if ((page + 1) * current.pageSize >= current.total) break
+          if (!current.rows.length) throw new Error('Incomplete details page.')
+          page++
+        }
+        return result
+      },
+    })
+  }
+
   function draw(payload) {
     if (payload.period) period = payload.period
     const current = payload.current ?? payload
@@ -133,13 +183,14 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       unmappedCount: Number(current.unmappedCount || 0), unassignedCount: Number(current.unassignedCount || 0),
       productLines: combinedLines, currentJqlByProductLineAndMetric: payload.currentJqlByProductLineAndMetric,
     }
-    const signature = JSON.stringify([display, current.details, previous?.details])
+    const signature = JSON.stringify([display, current.details, previous?.details, payload.qaEvidence])
     if (displayed && signature === displaySignature) return
     const byLine = new Map(combinedLines.map(line => [line.id, line]))
     const pendingLabel = ({ failed: 'Failed', cancelled: 'Unavailable' })[payload.state] ?? (payload.state === 'ready' ? 'Waiting for scheduled refresh' : 'Loading…')
     const presentation = {
-      detailsEnabled: metric => !['commentCount', 'verifyCount'].includes(metric),
+      detailsEnabled: () => true,
       onDataClick: ({ productLine, mode, row, periodKind, trigger }) => {
+        if (['commentCount', 'verifyCount'].includes(mode)) return openQaDetails(payload, { productLine, mode, row, periodKind, trigger })
         const source = (periodKind === 'previous' ? payload.previous : current)?.details
         const rows = (source ?? []).filter(item => item.productLine === productLine).flatMap(item => {
           if (cardKey === 'customer-feedback') {
@@ -195,6 +246,15 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       onSelectionChange: ({ productLine, mode }) => {
         const jql = display.currentJqlByProductLineAndMetric?.[productLine]?.[mode]
         currentJql.textContent = jql ?? 'Current JQL unavailable.'
+        const controls = root.querySelector('[data-qa-details]'); controls.replaceChildren()
+        if (['commentCount', 'verifyCount'].includes(mode)) {
+          for (const periodKind of comparison ? ['current', 'previous'] : ['current']) {
+            const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-secondary'
+            button.textContent = periodKind === 'current' ? 'Details' : 'Previous details'; button.setAttribute('aria-haspopup', 'dialog')
+            button.addEventListener('click', () => openQaDetails(payload, { productLine, mode, periodKind, trigger: button }))
+            controls.append(button)
+          }
+        }
       },
     }
     if (displayed) ranking.update(presentation)
@@ -277,7 +337,7 @@ export function createJiraStatisticsCard({ pollDelay = 800, chartFactory } = {})
       period = 'month'
       localPayload = null
       serverPayload = null
-      root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" class="icon-button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div data-jira-ranking></div>`
+      root.innerHTML = `${periodMarkup()}<div class="jira-current-jql"><div class="jira-current-jql-head"><strong>Current JQL</strong><button type="button" class="icon-button" data-copy-current-jql aria-label="Copy current JQL" title="Copy current JQL">${COPY_ICON}</button></div><code data-current-jql>Current JQL unavailable.</code></div><div class="filter-actions" data-qa-details></div><div data-jira-ranking></div>`
       rankingHost = root.querySelector('[data-jira-ranking]')
       periods = root.querySelector('[data-jira-periods]')
       currentJql = root.querySelector('[data-current-jql]')

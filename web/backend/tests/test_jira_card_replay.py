@@ -147,8 +147,8 @@ def test_annual_facts_survive_restart_and_periods_only_slice_issue_created_at(
     dates = [month['current']['start'], month['previous']['start'], f"{date.today().year - 1}-01-01"]
     rows = [{"id": str(i), "key": f"TV-{i}", "fields": {"created": created + "T00:00:00+08:00",
         "project": {"key": "TV"}, "creator": {"name": "fan.xu"},
-        "comment": {"comments": [{"author": {"name": "fan.xu"}, "created": "2000-01-01T00:00:00Z", "body": "never-store"}]}},
-        "changelog": {"histories": [{"author": {"name": "fan.xu"}, "created": "2020-01-01T00:00:00Z",
+        "comment": {"comments": [{"id": "comment-1", "author": {"name": "fan.xu"}, "created": "2000-01-01T00:00:00Z", "body": "never-store"}]}},
+        "changelog": {"histories": [{"id": "history-1", "author": {"name": "fan.xu"}, "created": "2020-01-01T00:00:00Z",
             "items": [{"field": "status", "fromString": "Resolved", "toString": "Verified"}]}]}}
         for i, created in enumerate(dates)]
     def search(_self, query, **kwargs):

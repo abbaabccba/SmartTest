@@ -81,7 +81,7 @@ def test_three_cards_reuse_only_identical_business_activity_scopes_and_keep_canc
         entered.set()
         assert release.wait(5)
         return dated_rows([{'id':'comment-only','key':'SH-999','fields':{'comment':{'comments':[
-            {'author':{'name':'YIMIN.ZHOU'}}, {'author':{'name':'meng.wang1'}}] * copies[0]}}}], query)
+            {'id': 'action-84-12', 'author':{'name':'YIMIN.ZHOU'}}, {'id': 'action-84-46', 'author':{'name':'meng.wang1'}}] * copies[0]}}}], query)
     monkeypatch.setattr(Gateway, 'search_activity_payloads', comments)
     api = client(tmp_path, database_factory=database_factory)
     api.post('/api/jira/analytics/search', json={'mode':'advanced','jql':'status = Open OR project = SH ORDER BY key'})
@@ -149,7 +149,7 @@ def test_each_explicit_apply_refreshes_activities_and_failure_keeps_prior_result
         if fail[0]:
             raise RuntimeError('offline')
         return dated_rows([{'id':'one','key':'SH-1','fields':{'comment':{'comments':[
-            {'author':{'name':'yimin.zhou'}}] * copies[0]}}}], query)
+            {'id': 'action-152-12', 'author':{'name':'yimin.zhou'}}] * copies[0]}}}], query)
     monkeypatch.setattr(Gateway, 'search_activity_payloads', activity)
     api = client(tmp_path, database_factory=database_factory)
     first = query_card(api, {'mode':'advanced','jql':'status = Open'}).json()
@@ -184,7 +184,7 @@ def test_failed_comment_source_can_retry_and_new_user_query_does_not_reuse_old_s
         if len(queries) == 1:
             raise RuntimeError('private credential text must not be logged')
         return dated_rows([{'id':'comment','key':'SH-9','fields':{'comment':{'comments':[
-            {'author':{'name':'yimin.zhou'}}]}}}], query)
+            {'id': 'action-187-12', 'author':{'name':'yimin.zhou'}}]}}}], query)
     monkeypatch.setattr(Gateway, 'search_activity_payloads', comments)
     api = client(tmp_path, database_factory=database_factory)
     first = query_card(api, {'mode':'advanced','jql':'status = Open'}).json()
@@ -222,8 +222,8 @@ def test_completed_current_activity_year_is_visible_while_previous_year_and_basi
         if f'created >= "{date.today().year-1}-01-01"' in query:
             assert previous_release.wait(5)
         return dated_rows([{'id':'qa-comment','key':'SH-9','fields':{'comment':{'comments':[
-            {'author':{'name':'yimin.zhou'}}]}}, 'changelog': {'histories': [
-                {'author': {'name': 'yimin.zhou'}, 'created': '2020-01-01T00:00:00Z',
+            {'id': 'action-225-12', 'author':{'name':'yimin.zhou'}}]}}, 'changelog': {'histories': [
+                {'id': 'action-226-16', 'author': {'name': 'yimin.zhou'}, 'created': '2020-01-01T00:00:00Z',
                  'items': [{'field': 'status', 'fromString': 'Resolved', 'toString': 'Verified'}]}]}}], query)
     monkeypatch.setattr(Gateway,'search_all_payloads',search)
     monkeypatch.setattr(Gateway,'search_activity_payloads',comments)
@@ -699,13 +699,13 @@ def test_card_bulk_query_requests_comments_and_replays_comment_authors(
         return dated_rows([{"id": "1", "key": "TV-1", "fields": {
             "project": {"key": "TV"}, "creator": {"name": "fan.xu"},
             "comment": {"comments": [{"id": "c1", "author": {"name": "meng.wang1"}, "created": "2020-01-01T00:00:00Z"}]},
-        }, "changelog": {"histories": [{"author": {"name": "meng.wang1"},
+        }, "changelog": {"histories": [{'id': 'action-702-39', "author": {"name": "meng.wang1"},
             "created": "2026-09-01T00:00:00Z", "items": [{"field": "status", "fromString": "Resolved", "toString": "Verified"}]}]}}], _query)
     monkeypatch.setattr(Gateway, "search_all_payloads", search)
     def comments(_self, query, *, progress=None):
         return dated_rows([{"id": "1", "key": "TV-1", "fields": {
             "creator": {"name": "not-qa"}, "project": {"key": "SH"},
-            "comment": {"comments": [{"id": "c1", "author": {"name": "meng.wang1"}}]}}, "changelog": {"histories": [{"author": {"name": "meng.wang1"}, "created": "2020-01-01T00:00:00Z", "items": [{"field": "status", "fromString": "Resolved", "toString": "Verified"}]}]}}], query)
+            "comment": {"comments": [{"id": "c1", "author": {"name": "meng.wang1"}}]}}, "changelog": {"histories": [{'id': 'action-708-116', "author": {"name": "meng.wang1"}, "created": "2020-01-01T00:00:00Z", "items": [{"field": "status", "fromString": "Resolved", "toString": "Verified"}]}]}}], query)
     monkeypatch.setattr(Gateway, "search_activity_payloads", comments)
     api = client(tmp_path, database_factory=database_factory)
     api.post("/api/jira/analytics/search", json={"mode": "basic", "basic": {}})
@@ -772,8 +772,8 @@ def test_incremental_card_aggregation_loads_each_account_groups_once_per_task(
     monkeypatch.setattr(Gateway, "user_groups", user_groups)
     monkeypatch.setattr(Gateway, "search_all_payloads", lambda _self, _query, **kwargs: [{
         "id": "1", "key": "TV-1", "fields": {"project": {"key": "TV"}, "creator": {"name": "creator"},
-            "comment": {"comments": [{"author": {"name": "outside"}, "created": "2026-09-01T00:00:00Z"}]}},
-        "changelog": {"histories": [{"author": {"name": "verifier"}, "created": "2026-09-01T00:00:00Z",
+            "comment": {"comments": [{'id': 'action-775-37', "author": {"name": "outside"}, "created": "2026-09-01T00:00:00Z"}]}},
+        "changelog": {"histories": [{'id': 'action-776-36', "author": {"name": "verifier"}, "created": "2026-09-01T00:00:00Z",
             "items": [{"field": "status", "fromString": "Resolved", "toString": "Verified"}]}]}
             if kwargs.get("expand") else {},
     }])
@@ -803,10 +803,10 @@ def test_comments_and_verify_share_user_annual_scope_and_personnel_lines(
         assert card_definition(card_key).custom_jql in query
         return dated_rows([{"id":str(index), "key":f"SH-{index}", "fields":{
             "project":{"key":"SH"}, "creator":{"name":"outside"},
-            "comment":{"comments":[{"author":{"name":"meng.wang1"}}]}},
-            "changelog":{"histories":[{"author":{"name":"meng.wang1"}, "created":"2019-01-01T00:00:00Z",
+            "comment":{"comments":[{'id': 'action-806-35', "author":{"name":"meng.wang1"}}]}},
+            "changelog":{"histories":[{'id': 'action-807-38', "author":{"name":"meng.wang1"}, "created":"2019-01-01T00:00:00Z",
                 "items":[{"field":"status", "fromString":"Resolved", "toString":"Verified"}]},
-                {"author":{"name":actor}, "created":"2020-01-01T00:00:00Z",
+                {'id': 'action-809-16', "author":{"name":actor}, "created":"2020-01-01T00:00:00Z",
                 "items":[{"field":"status", "fromString":"Resolved", "toString":"Verified"}]}]}}
             for index, actor in [(2,"meng.wang1"),(3,"outside")]], query)
     monkeypatch.setattr(Gateway,'search_all_payloads',basic)
@@ -883,7 +883,7 @@ def test_comment_publication_preserves_unchanged_basic_facts_and_merges_independ
     activity = {
         "id": "100",
         "key": "SH-100",
-        "fields": {"comment": {"comments": [{"author": {"name": "meng.wang1"}}]}},
+        "fields": {"comment": {"comments": [{'id': 'action-886-44', "author": {"name": "meng.wang1"}}]}},
     }
     monkeypatch.setattr(
         Gateway,

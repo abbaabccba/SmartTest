@@ -60,8 +60,8 @@ class PooledReads:
             rows = [(json.dumps(self.metadata), "qa", "self-test", "definition", "pending" if self.pending else "active")]
         elif columns == ("active_snapshot_id",):
             rows = [] if self.pending else [("snapshot",)]
-        elif "SELECT s.snapshot_id FROM" in sql:
-            rows = [(self.source,)]
+        elif columns == ("snapshot_id", "statistics_json", "roster_fingerprint", "created_at"):
+            rows = [(self.source, "{}", "source-roster", 1)]
         elif columns == ("snapshot_id",):
             identities = next(iter(statement.compile().params.values()))
             rows = [(identity,) for identity in identities if identity not in self.removed]

@@ -43,7 +43,7 @@ def test_metric_failure_is_logged_once_and_propagates_original_error(monkeypatch
     monkeypatch.setattr(owner, 'smart_log', lambda message, **kwargs: records.append((message, kwargs)))
     with pytest.raises(RuntimeError) as caught:
         owner.refresh_metric(repository, pages, Mock(), 'private-account', 'task', 'private-query',
-                             Mock(fingerprint='roster'), 'verify', Mock(), Mock())
+                             Mock(fingerprint='roster', assignments=()), 'verify', Mock(), Mock())
     assert caught.value is error
     assert [item[1]['extra']['outcome'] for item in records] == ['started', 'failed']
     assert 'private' not in str(records)
@@ -90,7 +90,7 @@ def test_refresh_begin_failure_uses_shared_report_and_keeps_original_error(monke
     repository.begin.side_effect = error
     with pytest.raises(RuntimeError) as caught:
         owner.refresh_metric(repository, Mock(), Mock(), 'private-account', 'task', 'private-query',
-                             Mock(fingerprint='roster'), 'comment', Mock(), callback, log_progress=report)
+                             Mock(fingerprint='roster', assignments=()), 'comment', Mock(), callback, log_progress=report)
     assert caught.value is error
     assert report.finished
     assert [r['outcome'] for r in records] == ['started', 'failed']

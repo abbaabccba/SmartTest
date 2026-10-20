@@ -21,3 +21,13 @@ dialog.data-details { position: fixed; inset: 0; margin: auto; height: fit-conte
 .data-details-actions { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
 .data-details-download-status { padding: 0 1.5rem .75rem; }
 @media (max-width: 600px) { .data-details-header { flex-wrap: wrap; } .data-details-actions { margin-left: auto; } }
+
+.data-details-events { display: grid; gap: 1rem; padding: .5rem; }
+.data-details-event { border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; }
+.data-details-event-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.data-details-expanded > td { background: var(--bg-secondary); }
+.data-details-event-markup { overflow-x: auto; overflow-wrap: anywhere; line-height: 1.6; }
+.data-details-event-markup table { border-collapse: collapse; width: max-content; min-width: 100%; }
+.data-details-event-markup th, .data-details-event-markup td { border: 1px solid var(--border-color); padding: .5rem .75rem; }
+.data-details-event-markup pre { overflow-x: auto; padding: .75rem; background: var(--bg-primary); border-radius: .5rem; }
+.data-details-event-markup a { color: var(--accent); }

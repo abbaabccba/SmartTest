@@ -103,16 +103,47 @@ class JiraIssueMapper:
         )
 
     @staticmethod
-    def last_verification(payload: dict[str, Any]) -> IssueVerification | None:
-        verifications = []
+    def verification_histories(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+        histories = []
         for history in (payload.get("changelog") or {}).get("histories", ()):
-            if not any(item.get("field") == "status" and "resolved" in str(item.get("fromString") or "").casefold()
-                       and "verified" in str(item.get("toString") or "").casefold() for item in history.get("items", ())):
-                continue
-            created_at = _datetime(history.get("created"))
-            if created_at is not None:
-                verifications.append(IssueVerification(_person(history.get("author")), created_at))
+            items = [item for item in history.get("items", ())
+                     if item.get("field") == "status"
+                     and "resolved" in str(item.get("fromString") or "").casefold()
+                     and "verified" in str(item.get("toString") or "").casefold()]
+            if items and _datetime(history.get("created")) is not None:
+                histories.append({**history, "items": items})
+        return tuple(histories)
+
+    @staticmethod
+    def last_verification(payload: dict[str, Any]) -> IssueVerification | None:
+        verifications = [IssueVerification(_person(history.get("author")), _datetime(history["created"]))
+                         for history in JiraIssueMapper.verification_histories(payload)]
         return max(verifications, key=lambda item: item.created_at.timestamp(), default=None)
+
+    @staticmethod
+    def qa_events(payload: dict[str, Any], qa_accounts, *, metric: str) -> tuple[dict[str, Any], ...]:
+        fields = payload.get("fields") or {}
+        sources = ([("comment", item, ("body",)) for item in (fields.get("comment") or {}).get("comments", ())]
+                   + [("attachment", item, ("filename", "size", "mimeType", "content", "thumbnail", "self"))
+                      for item in fields.get("attachment") or ()]) if metric == "comment" else [
+            ("verify", history, ("items",)) for history in JiraIssueMapper.verification_histories(payload)]
+        events = []
+        for kind, item, keys in sources:
+            author = _person(item.get("author"))
+            if not author or author.account.strip().casefold() not in qa_accounts:
+                continue
+            issue_id, source_id = str(payload["id"]), str(item.get("id") or "")
+            if not 0 < len(source_id) <= 191 or not 0 < len(issue_id) <= 191:
+                raise ValueError("jira_qa_event_id_invalid")
+            raw_author = {key: value for key, value in (item.get("author") or {}).items()
+                          if key in ("name", "key", "accountId", "displayName")}
+            raw = {key: item[key] for key in ("id", "created", "updated", *keys) if key in item}
+            raw["author"] = raw_author
+            events.append({"issue_id": issue_id, "event_kind": kind, "source_id": source_id,
+                           "author_identity": author.identity, "author_account": author.account,
+                           "author_display_name": author.display_name, "created_at": item.get("created"),
+                           "updated_at": item.get("updated"), "payload": raw})
+        return tuple(events)
 
     @staticmethod
     def _attachment(payload: dict[str, Any]) -> IssueAttachment:

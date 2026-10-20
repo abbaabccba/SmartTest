@@ -119,7 +119,7 @@ web_daily_refresh = Table('web_daily_refresh', APPLICATION_METADATA,
 )
 
 
-CURRENT_SCHEMA_REVISION = '20261016_01'
+CURRENT_SCHEMA_REVISION = '20261020_01'
 
 
 def application_metadata():

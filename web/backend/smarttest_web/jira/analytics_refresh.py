@@ -2,6 +2,7 @@ import hashlib
 from time import monotonic
 
 from core.async_tasks import TaskCancelled
+from core.jira.mapper import JiraIssueMapper
 from core.jira.services.jql_statistics_cards import build_annual_facts
 from core.logging import smart_log
 
@@ -53,15 +54,21 @@ def refresh_metric(repository, pages, gateway, account, card, query, roster, met
         scope = metric_source_key(card, query, roster.fingerprint, metric)
         snapshot = repository.begin('', account, query, {}, '', expires_at=0, card_key=scope,
                                     roster_fingerprint=roster.fingerprint)
-        metadata = {'annual': True, 'activityRoster': roster.fingerprint, 'metric': metric}
+        metadata = {'annual': True, 'activityRoster': roster.fingerprint, 'metric': metric,
+                    'qaEvidence': {'version': 1, 'roster': list(roster.assignments),
+                                   'kinds': ['comment', 'attachment'] if metric == 'comment' else ['verify'],
+                                   'complete': False}}
         def consume(rows):
             token.raise_if_cancelled()
             facts = build_annual_facts(gateway, [], [], current_activities=rows,
                                        previous_activities=[], activity_roster=roster)['_facts']
-            if not repository.update_statistics(snapshot, metadata, facts=facts):
+            events = [event for row in rows for event in JiraIssueMapper.qa_events(
+                row, dict(roster.assignments), metric=metric)]
+            if not repository.update_statistics(snapshot, metadata, facts=facts, qa_events=events):
                 raise TaskCancelled()
         pages.run(gateway, query, metric, token, consume, report)
         token.raise_if_cancelled()
+        metadata['qaEvidence']['complete'] = True
         if not repository.activate(snapshot, metadata):
             raise TaskCancelled()
         report.finish('completed')

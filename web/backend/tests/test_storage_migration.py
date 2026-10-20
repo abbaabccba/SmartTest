@@ -77,7 +77,7 @@ def test_real_mysql_backup_import_preserves_content_pointers_and_rowid_order(tmp
     digest = sha256(path.read_bytes()).hexdigest()
     report = rehearse(path, digest, database=application_database, batch_size=1)
     assert report['import_committed'] and report['constraint_errors'] == []
-    assert len(report['tables']) == 38
+    assert len(report['tables']) == 39
     assert all(table['verified'] for table in report['tables'].values())
     target_state = JiraAnalyticsRepository(application_database).state('s', 'alice', card_key='task')
     assert target_state['activeSnapshotId'] == 'first'

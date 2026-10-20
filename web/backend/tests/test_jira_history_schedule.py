@@ -36,11 +36,11 @@ def test_metric_merge_does_not_erase_other_metric():
 def test_comment_page_never_requests_or_requires_history():
     class API:
         def jql(self, query, **kwargs):
-            assert kwargs['fields'] == ['comment', 'created']
+            assert kwargs['fields'] == ['comment', 'attachment', 'created']
             assert kwargs['expand'] is None
             assert kwargs['limit'] == 100
             return {'total': 1, 'issues': [{'id': '1', 'fields': {
-                'created': '2026-01-01', 'comment': {'total': 0, 'comments': []}}}]}
+                'created': '2026-01-01', 'attachment': [], 'comment': {'total': 0, 'comments': []}}}]}
     gateway = JiraGateway('https://example.test', '', '', api=API())
     page = gateway.search_metric_page('query', 0, 'comment')
     assert len(page['issues']) == 1
@@ -85,10 +85,10 @@ def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_surv
     def page(self, query, start, metric):
         calls.append((query, metric))
         if metric == 'verify' and fail[0]: raise RuntimeError('offline')
-        row = {'id': '1', 'key': 'SH-1', 'fields': {'comment': {'comments': [{'author': {'name': 'meng.wang1'}}]}}}
+        row = {'id': '1', 'key': 'SH-1', 'fields': {'comment': {'comments': [{'id': 'action-88-77', 'author': {'name': 'meng.wang1'}}]}}}
         if metric == 'verify':
             row['fields'].pop('comment')
-            row['changelog'] = {'histories': [{'author': {'name': 'meng.wang1'}, 'created': '2026-01-01T00:00:00Z',
+            row['changelog'] = {'histories': [{'id': 'action-91-46', 'author': {'name': 'meng.wang1'}, 'created': '2026-01-01T00:00:00Z',
                 'items': [{'field': 'status', 'fromString': 'Resolved', 'toString': 'Verified'}]}]}
         return {'total': 1, 'issues': dated_rows([row], query)}
     monkeypatch.setattr(Gateway, 'search_metric_page', page)
@@ -112,3 +112,14 @@ def test_search_does_not_fetch_history_or_mix_scopes_and_same_scope_refresh_surv
     assert wait_terminal(api, task['taskId']) == 'completed'
     assert not api.get('/api/jira/cards/self-test/statistics').json()['periods']['year']['availability']['current']['verify']
     assert schedule.repository.history_scopes('another-account') == {}
+
+
+def test_comment_page_missing_attachment_metadata_is_not_successful_zero():
+    import pytest
+    from core.jira.gateway import JiraGatewayError
+    class API:
+        def jql(self, *_args, **_kwargs):
+            return {'total': 1, 'issues': [{'id': '1', 'fields': {'comment': {'total': 0, 'comments': []}}}]}
+    gateway = JiraGateway('https://example.test', '', '', api=API())
+    with pytest.raises(JiraGatewayError, match='jira_attachments_missing'):
+        gateway.search_metric_page('query', 0, 'comment')
