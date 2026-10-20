@@ -15,6 +15,26 @@ Web 应用持久数据统一存入 MySQL；Redis 只保存可以从当前有效�
 
 当前 Windows 本机部署由当前用户的计划任务管理：`SmartTest.MySQL` 与 `SmartTest.RedisRuntime` 在用户登录时启动独立 MySQL 和现有 WSL Redis；按需任务 `SmartTest.WebRuntime` 隐藏运行上述同一 `web/scripts/dev.py` 入口。可通过 `Start-ScheduledTask -TaskName SmartTest.WebRuntime` 启动、任务计划程序停止；手动启动开发入口前先停止已运行的 Web 实例，保持单 Web 进程。这些用户任务不等同于开机未登录前的系统服务。
 
+数据库任务保留当前 Windows 用户的 `Interactive` / `LogonTrigger`，使用 `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "& '<原可执行文件>' <原参数>; exit $LASTEXITCODE"` 同步运行原命令，不新增包装脚本。`Hidden=true` 隐藏任务，真正隐藏控制台的是 `-WindowStyle Hidden`。`StartWhenAvailable=true` 允许补启动，原 `RestartCount=3` / `RestartInterval=PT1M`、`ExecutionTimeLimit=PT0S` 保持不变；正常退出时原进程退出码交回任务计划程序。MySQL 仍为独立 `13306` 实例、原数据目录，不能操作另一 `MYSQL80` / `3306` 服务。需要停止 MySQL 时应使用已有部署身份执行原生 `SHUTDOWN`，不要直接结束进程。
+
+`SmartTest.RedisRuntime` 隐藏同步运行 `wsl.exe -d Ubuntu -- sleep infinity`，保持当前用户的发行版运行；Redis 本身由该发行版已有 `smarttest-cache.service` 启动，`enabled`、`Restart=on-failure`，使用 `/etc/redis/smarttest-cache.conf`、端口 `16379`。它不是默认的 `redis-server.service`，不要另启动一份 Redis。
+
+任务计划程序的强制 Stop 不保证清理 PowerShell 的整个子进程树，也不等于正常停止数据库；Redis 保活任务停止后，systemd Redis 服务仍可能继续运行。维护时先通过数据库原生方式停止服务；若需清理保活客户端，先核对该任务的实际 PID、命令和父子链，再用 Windows `taskkill /PID <已核实的保活客户端PID> /T /F` 精确清理，避免重启任务后留下重复保活链。不要按进程名批量终止 WSL，也不要为此终止整个发行版或 Web。
+
+本机当前身份没有 Windows 服务安装权限（SCM `CREATE_SERVICE` 返回 Access denied），因此这里只落实**用户登录后自动隐藏后台运行**，没有改成未登录即可启动的系统服务，也不假定 SYSTEM 能访问当前用户的 WSL 发行版。2026-10-20 修改前的两份任务 XML 备份位于本机 `%LOCALAPPDATA%/Amlogic/SmartTest/storage-preparation/background-startup-20261020/*.before.xml`；恢复时可用 `Register-ScheduledTask -TaskName <原任务名> -Xml (Get-Content -Raw <对应备份>) -Force`。
+
+手动启动与只读状态检查（不启动 Web 或数据采集）：
+
+```powershell
+Start-ScheduledTask -TaskName SmartTest.MySQL
+Start-ScheduledTask -TaskName SmartTest.RedisRuntime
+Get-ScheduledTask -TaskName SmartTest.MySQL,SmartTest.RedisRuntime
+Get-ScheduledTaskInfo -TaskName SmartTest.MySQL
+Get-ScheduledTaskInfo -TaskName SmartTest.RedisRuntime
+wsl.exe -d Ubuntu -- systemctl is-enabled smarttest-cache.service
+wsl.exe -d Ubuntu -- systemctl is-active smarttest-cache.service
+```
+
 ## 持久配置与凭据
 
 `smarttest_web/config.py:storage_environment()` 复用 `core.config.jsonTool`，读取应用数据目录下的 `web/storage.json`，显式环境变量覆盖文件配置。所有 PC、Windows/macOS/Linux 共用同一缺省规则：MySQL 为 `127.0.0.1:13306`，Redis 为 `127.0.0.1:16379`。配置优先级为显式环境变量 > 本机 `web/storage.json` > 这些缺省值；数据库用户、密码和库名仍须明确配置。本机配置文件与安全凭据不会随 Git 同步，拉取代码不会安装或启动数据库，也不会修改已有配置。Windows 示例只包含非敏感值：
@@ -101,7 +121,32 @@ Alembic 是唯一 schema 升级 owner。应用账号仅需 SELECT/INSERT/UPDATE/
 .\.venv\Scripts\python.exe -m alembic -c web/backend/alembic.ini check
 ```
 
-部署身份通过进程内安全配置覆盖数据库凭据，不将管理员密码写入仓库或命令行。一次性 `web/scripts/migrate_storage.py` 仅接受指定、SHA256 匹配的离线备份；显式目标仅允许正式 `smarttest_web` 和隔离准备库，拒绝非空目标。它先检查覆盖、长度/NULL/关联，再按外键顺序分批导入，保留原标识和插入顺序，验证所有表的行数/内容摘要、指针及选定 owner 输出。7 张已停用旧表保留在独立完整备份中并记录摘要，不静默丢弃；数据库运行期不包含备份格式读取器。
+部署身份通过进程内安全配置覆盖数据库凭据，不将管理员密码写入仓库或命令行。本机既有部署凭据由 `WindowsCredentialStore(target_prefix='SmartTest/StoragePreparation/')` 的 `mysql-admin` 引用持有；它与 `SmartTest/WebStorage/mysql` 应用凭据分离，不提升应用账号权限。使用仓库虚拟环境并设置 `PYTHONPATH` 为仓库根目录及 `web/backend` 后，在同一 Python 进程内运行：
+
+```python
+from dataclasses import replace
+from alembic import command
+from alembic.config import Config
+from core.credentials.windows import WindowsCredentialStore
+from smarttest_web.config import ApplicationDatabaseSettings, storage_environment
+from smarttest_web.database import WebDatabase
+
+user, password = WindowsCredentialStore(target_prefix='SmartTest/StoragePreparation/').read('mysql-admin')
+settings = ApplicationDatabaseSettings.from_environment(storage_environment())
+assert settings.host == '127.0.0.1' and settings.port == 13306
+# 只连接 SmartTest 独立实例，禁止连接系统 3306 实例。
+database = WebDatabase.from_settings(replace(settings, user=user, password=password))
+config = Config('web/backend/alembic.ini')
+try:
+    with database.transaction() as connection:
+        config.attributes['connection'] = connection
+        command.upgrade(config, 'head')
+        command.check(config)
+finally:
+    database.close()
+```
+
+一次性 `web/scripts/migrate_storage.py` 仅接受指定、SHA256 匹配的离线备份；显式目标仅允许正式 `smarttest_web` 和隔离准备库，拒绝非空目标。它先检查覆盖、长度/NULL/关联，再按外键顺序分批导入，保留原标识和插入顺序，验证所有表的行数/内容摘要、指针及选定 owner 输出。7 张已停用旧表保留在独立完整备份中并记录摘要，不静默丢弃；数据库运行期不包含备份格式读取器。
 
 MySQL 备份/恢复直接使用官方 `mysqldump` / `mysql`，不要经 PowerShell 文本管道转码。两个命令均明确 `--default-character-set=utf8mb4`，避免 Windows 客户端默认 GBK 破坏 UTF-8 SQL。凭据可使用受限权限、用后清理的 `--defaults-extra-file`（该参数放在首位），不写密码参数：
 
@@ -115,6 +160,8 @@ mysql.exe --defaults-extra-file=<受限配置> --default-character-set=utf8mb4 -
 ## 测试
 
 完整后端业务测试必须使用独立 MySQL `smarttest_preparation_test`，缺配置明确失败，不会大面积跳过或使用正式库。`conftest.py:application_database` 在执行任何清理前验证 schema 名称；测试身份必须只获隔离库权限，不能使用正式 `smarttest_web` 凭据。
+
+本机已有测试身份由 `WindowsCredentialStore(target_prefix='SmartTest/StoragePreparation/').read('mysql-app')` 读取，用户名为 `smarttest_prep`，只授权 `smarttest_preparation` / `smarttest_preparation_test` 两个隔离库；不得将 `mysql-admin` / root 用作 pytest 身份。通过同一 Python 进程设置 `SMARTTEST_TEST_DB_HOST=127.0.0.1`、`SMARTTEST_TEST_DB_PORT=13306`、`SMARTTEST_TEST_DB_NAME=smarttest_preparation_test`，并把该安全 owner 返回的用户/密码仅注入本进程对应 `SMARTTEST_TEST_DB_USER/PASSWORD`，再调用 `pytest.main(...)`；不打印或保存密码。真实 Redis 测试沿同一 prefix 的 `redis-cache` 引用读取，使用独立测试 DB。
 
 由部署环境安全注入 `SMARTTEST_TEST_DB_HOST/PORT/USER/PASSWORD/NAME`，其中 NAME 必须为 `smarttest_preparation_test`；需要真实 Redis 集成时注入 `SMARTTEST_TEST_REDIS_HOST/PORT/DB/USER/PASSWORD`。不要把测试密码写入仓库。先由有 DDL 权限的测试身份准备该库，再从仓库根目录执行：
 
