@@ -13,6 +13,8 @@ PYWIN32_RUNTIME_MODULES = (
 TOOL_HIDDEN_IMPORTS = PYWIN32_RUNTIME_MODULES + (
     "ldap3",
     "tenacity",
+    "markdown",
+    "jira2markdown",
     "FluentUI.FluentUI",
     "Crypto.Hash.MD4",
 )
@@ -24,4 +26,6 @@ TOOL_SMOKE_MODULES = (
     "ldap3",
     "tenacity",
     "qrcode",
+    "core.markup",
+    "jira2markdown",
 )

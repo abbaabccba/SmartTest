@@ -113,6 +113,8 @@ a = Analysis(
         "Crypto.Hash.MD4",
         "ldap3",
         "tenacity",
+        "markdown",
+        "jira2markdown",
         "ldap3.core",
         "ldap3.protocol",
         "pyasn1",

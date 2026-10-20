@@ -11,6 +11,7 @@ PACKAGES = (
     "keyboard==0.13.5", "PyOpenGL==3.1.7", "py7zr==0.22.0", "pyserial==3.5",
     "ldap3==2.9.1", "pycryptodome==3.23.0", "openpyxl==3.1.5",
     "atlassian-python-api==4.0.7", "tenacity==9.2.1", "tzdata==2025.2", "Markdown==3.10.2",
+    "jira2markdown==0.5.3", "nh3==0.3.7",
     "playwright==1.54.0", "pytest==8.4.1",
     "uiautomator2==3.5.2",
     "xlrd==2.0.2",
