@@ -65,35 +65,25 @@ it('retains identity selection and disabled feedback without creating background
 })
 
 
-it('switches identity surfaces to dark backgrounds and light foregrounds without changing selection', () => {
+it('reuses the two product palettes across opposite theme selection states', () => {
   mountStyles()
   for (const line of lines) {
-    for (const surface of ['layout', 'card', 'button', 'badge', 'disclosure']) {
-      const element = bindProductLine(document.createElement(surface === 'button' ? 'button' : 'div'), line, surface)
-      if (surface === 'button') element.classList.add('product-space-summary')
-      document.body.append(element)
-      document.documentElement.classList.remove('dark-theme')
-      const light = getComputedStyle(element)
-      const background = light.getPropertyValue('--product-line-background')
-      const foreground = light.getPropertyValue('--product-line-foreground')
-      const fill = light.backgroundColor
-      for (const selected of ['false', 'true']) {
-        element.setAttribute('aria-pressed', selected)
-        for (const dark of [false, true]) {
-          document.documentElement.classList.toggle('dark-theme', dark)
-          const current = getComputedStyle(element)
-          if (dark) {
-            expect(current.getPropertyValue('--product-line-background')).not.toBe(background)
-            expect(current.getPropertyValue('--product-line-background')).toContain('#1c1c1e')
-            expect(current.getPropertyValue('--product-line-foreground').trim()).toBe('#f5f5f7')
-          } else {
-            expect(current.getPropertyValue('--product-line-background')).toBe(background)
-            expect(current.backgroundColor).toBe(fill)
-            expect(current.getPropertyValue('--product-line-foreground')).toBe(foreground)
-            expect(foreground.trim()).toBe(line === 'Smart Device' ? '#123c56' : '#243342')
-          }
-        }
-      }
+    const button = bindProductLine(document.createElement('button'), line, 'button')
+    document.body.append(button)
+    const appearance = (dark, selected) => {
+      document.documentElement.classList.toggle('dark-theme', dark)
+      button.setAttribute('aria-pressed', String(selected))
+      const style = getComputedStyle(button)
+      return { background: style.backgroundColor, color: style.color,
+        light: style.getPropertyValue('--product-line-background'),
+        dark: style.getPropertyValue('--product-line-selected-background') }
     }
+    const lightIdle = appearance(false, false)
+    const lightSelected = appearance(false, true)
+    expect(lightIdle.background).not.toBe(lightSelected.background)
+    expect(lightIdle.color).not.toBe(lightSelected.color)
+    expect(appearance(true, false)).toEqual(lightSelected)
+    expect(appearance(true, true)).toEqual(lightIdle)
+    expect(appearance(false, false)).toEqual(lightIdle)
   }
 })

@@ -1,6 +1,7 @@
-/* Product identities share tone and icons; each theme owns its surface contrast. */
+/* Product identities reuse light/dark palettes with selection reversed by theme. */
 :where([data-product-line][data-product-surface]) {
   --product-line-tone: initial;
+  --product-line-selected-background: initial;
   --product-line-icon: initial;
   --product-line-foreground: initial;
   --product-line-background: initial;
@@ -9,22 +10,27 @@
 }
 [data-product-line="China Operator"] {
   --product-line-tone: #c45d4b;
+  --product-line-selected-background: #291d23;
   --product-line-icon: url('/icons/radio-tower.svg');
 }
 [data-product-line="Smart Device"] {
   --product-line-tone: #0891b2;
+  --product-line-selected-background: #091d30;
   --product-line-icon: url('/icons/speaker.svg');
 }
 [data-product-line="TV"] {
   --product-line-tone: #8762d5;
+  --product-line-selected-background: #201631;
   --product-line-icon: url('/icons/tv.svg');
 }
 [data-product-line="Global Operator & STB"] {
   --product-line-tone: #4d79ce;
+  --product-line-selected-background: #13233c;
   --product-line-icon: url('/icons/globe.svg');
 }
 [data-product-line="Wireless Connection"] {
   --product-line-tone: #198c72;
+  --product-line-selected-background: #102a27;
   --product-line-icon: url('/icons/wifi.svg');
 }
 [data-product-line][data-product-surface] {
@@ -44,8 +50,8 @@
 }
 
 .dark-theme [data-product-line][data-product-surface] {
-  --product-line-foreground: #f5f5f7;
-  --product-line-background: color-mix(in srgb, var(--product-line-tone) 18%, #1c1c1e);
+  background-color: var(--product-line-selected-background);
+  color: #f2f7fc;
   --product-line-border: color-mix(in srgb, var(--product-line-tone) 35%, #38383a);
 }
 
@@ -60,6 +66,12 @@
 [data-product-line][data-product-surface="button"] { cursor: pointer; }
 [data-product-line][data-product-surface="button"][aria-pressed="true"] {
   border-color: var(--accent);
+  background-color: var(--product-line-selected-background);
+  color: #f2f7fc;
+}
+.dark-theme [data-product-line][data-product-surface="button"][aria-pressed="true"] {
+  background-color: var(--product-line-background, var(--bg-primary));
+  color: var(--product-line-foreground, var(--text-primary));
 }
 [data-product-line][data-product-surface="button"].product-space-summary { padding-left: 3rem; }
 /* Identity icons: Lucide (ISC), public/icons/lucide-LICENSE.txt. */
