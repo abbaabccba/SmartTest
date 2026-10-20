@@ -1,11 +1,13 @@
+from sqlalchemy import text
 from core.domain.values import NamedValue
 from core.jira.domain import Issue, IssueIdentity, JiraProjectRef
-from smarttest_web.database import WebDatabase
 from smarttest_web.jira.analytics_repository import JiraAnalyticsRepository
 
 
-def test_failed_refresh_preserves_active_and_superseded_task_cannot_activate(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / 'web.db'))
+def test_failed_refresh_preserves_active_and_superseded_task_cannot_activate(
+    tmp_path, *, database_factory
+):
+    repo = JiraAnalyticsRepository(database_factory())
     cached = repo.begin('first', 'alice', 'annual', {}, '', expires_at=100, user_jql='', card_key='self-test')
     repo.write_batch(cached, [issue('A-1')]); repo.activate(cached)
     failed = repo.begin('first', 'alice', 'annual', {}, '', expires_at=100, user_jql='', card_key='self-test')
@@ -18,15 +20,14 @@ def test_failed_refresh_preserves_active_and_superseded_task_cannot_activate(tmp
     assert state['activeSnapshotId'] == cached and state['pendingSnapshotId'] == new
 
 
-
 def issue(key):
     return Issue(identity=IssueIdentity(key, key, ""), summary=key,
                  project=JiraProjectRef("P", "p", "Project"),
                  status=NamedValue("1", "Open"), issue_type=NamedValue("2", "Bug"))
 
 
-def test_snapshots_are_isolated_by_session_and_account(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10)
+def test_snapshots_are_isolated_by_session_and_account(tmp_path, *, database_factory):
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: 10)
     first = repo.begin("session-a", "alice", "project = A", {}, "", expires_at=100)
     second = repo.begin("session-b", "bob", "project = B", {}, "", expires_at=100)
     repo.write_batch(first, [issue("A-1")]); repo.activate(first)
@@ -38,8 +39,8 @@ def test_snapshots_are_isolated_by_session_and_account(tmp_path):
     assert repo.state("session-a", "alice")["userJql"] is None
 
 
-def test_stale_generation_cannot_replace_active_snapshot(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10)
+def test_stale_generation_cannot_replace_active_snapshot(tmp_path, *, database_factory):
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: 10)
     old = repo.begin("s", "alice", "old", {}, "", expires_at=100)
     new = repo.begin("s", "alice", "new", {}, "", expires_at=100)
     repo.write_batch(old, [issue("OLD-1")]); repo.write_batch(new, [issue("NEW-1")])
@@ -49,8 +50,10 @@ def test_stale_generation_cannot_replace_active_snapshot(tmp_path):
     assert repo.issue_keys("s", "alice") == ["NEW-1"]
 
 
-def test_failed_or_cancelled_pending_query_preserves_active_snapshot(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10)
+def test_failed_or_cancelled_pending_query_preserves_active_snapshot(
+    tmp_path, *, database_factory
+):
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: 10)
     active = repo.begin("s", "alice", "good", {}, "", expires_at=100)
     repo.write_batch(active, [issue("GOOD-1")]); repo.activate(active)
 
@@ -63,9 +66,11 @@ def test_failed_or_cancelled_pending_query_preserves_active_snapshot(tmp_path):
     assert repo.issue_keys("s", "alice") == ["GOOD-1"]
 
 
-def test_delete_session_and_expiry_remove_analytics_snapshots(tmp_path):
+def test_delete_session_and_expiry_remove_analytics_snapshots(
+    tmp_path, *, database_factory
+):
     clock = [10]
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: clock[0])
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: clock[0])
     repo.begin("expired", "alice", "x", {}, "", expires_at=11)
     repo.begin("deleted", "alice", "y", {}, "", expires_at=100)
     clock[0] = 12
@@ -76,8 +81,10 @@ def test_delete_session_and_expiry_remove_analytics_snapshots(tmp_path):
     assert repo.state("deleted", "alice")["pendingSnapshotId"] == ""
 
 
-def test_effective_jql_and_empty_user_draft_remain_distinct_after_reopening_database(tmp_path):
-    database = WebDatabase(tmp_path / "web.db")
+def test_effective_jql_and_empty_user_draft_remain_distinct_after_reopening_database(
+    tmp_path, *, database_factory
+):
+    database = database_factory()
     repo = JiraAnalyticsRepository(database, now=lambda: 10)
     snapshot = repo.begin("s", "alice", 'channel = "Self-Test"', {}, "", expires_at=100, user_jql="")
     repo.activate(snapshot)
@@ -92,8 +99,10 @@ def test_effective_jql_and_empty_user_draft_remain_distinct_after_reopening_data
     assert state["activeJql"] == 'channel = "Self-Test"'
 
 
-def test_card_scopes_do_not_replace_each_others_sqlite_results_or_published_conditions(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10)
+def test_card_scopes_do_not_replace_each_others_database_results_or_published_conditions(
+    tmp_path, *, database_factory
+):
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: 10)
     conditions = {"mode": "basic", "basic": {"project": ["A"]}}
     repo.publish_conditions("s", "alice", conditions, expires_at=100)
     first = repo.begin("s", "alice", "scope A", {}, "", expires_at=100, card_key="first")
@@ -103,7 +112,9 @@ def test_card_scopes_do_not_replace_each_others_sqlite_results_or_published_cond
     assert repo.issue_keys("s", "alice", card_key="first") == ["A-1"]
     assert repo.issue_keys("s", "alice", card_key="second") == ["B-1"]
     assert repo.issue_keys("s", "bob", card_key="first") == []
-    assert repo.published_conditions("s", "alice") == conditions
+    published = repo.published_conditions("s", "alice")
+    assert {key: value for key, value in published.items() if key != "queryRevision"} == conditions
+    assert published["queryRevision"]
     old = repo.begin("s", "alice", "old A", {}, "", expires_at=100, card_key="first")
     new = repo.begin("s", "alice", "new A", {}, "", expires_at=100, card_key="first")
     assert repo.activate(old) is False
@@ -111,12 +122,14 @@ def test_card_scopes_do_not_replace_each_others_sqlite_results_or_published_cond
     assert repo.issue_keys("s", "alice", card_key="second") == ["B-1"]
     repo.delete_session("s")
     assert repo.state("relogin", "alice", card_key="first")["activeSnapshotId"] == first
-    assert repo.published_conditions("relogin", "alice") == conditions
+    assert repo.published_conditions("relogin", "alice") == published
 
 
-def test_account_card_replay_survives_session_expiry_but_does_not_expose_other_session_task(tmp_path):
+def test_account_card_replay_survives_session_expiry_but_does_not_expose_other_session_task(
+    tmp_path, *, database_factory
+):
     clock = [10]
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: clock[0])
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: clock[0])
     snapshot = repo.begin("old-session", "alice", "scope", {}, "", expires_at=11,
                           user_jql="user", card_key="self-test")
     repo.write_batch(snapshot, [issue("A-1")]); repo.activate(snapshot)
@@ -132,8 +145,10 @@ def test_account_card_replay_survives_session_expiry_but_does_not_expose_other_s
     assert repo.issue_keys("new-session", "bob", card_key="self-test") == []
 
 
-def test_comparison_query_and_memberships_are_persisted_and_reused_atomically(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10)
+def test_comparison_query_and_memberships_are_persisted_and_reused_atomically(
+    tmp_path, *, database_factory
+):
+    repo = JiraAnalyticsRepository(database_factory(), now=lambda: 10)
     snapshot = repo.begin("s", "alice", "current", {}, "", expires_at=100, user_jql="user",
                           card_key="self-test", roster_fingerprint="definition", comparison_jql="previous")
     repo.write_batch(snapshot, [issue("CUR-1")], period_kind="current")
@@ -146,21 +161,78 @@ def test_comparison_query_and_memberships_are_persisted_and_reused_atomically(tm
     assert repo.issue_keys("new", "alice", card_key="self-test", period_kind="previous") == ["PREV-1"]
 
 
-def test_partial_statistics_persist_without_replacing_valid_result_and_reject_stale_writes(tmp_path):
-    repo = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"))
+def test_partial_statistics_persist_without_replacing_valid_result_and_reject_stale_writes(
+    tmp_path, *, database_factory
+):
+    repo = JiraAnalyticsRepository(database_factory())
     old = repo.begin("s", "alice", "scope", {}, "", expires_at=100, card_key="task")
     repo.activate(old, {"value": "valid"})
     partial = repo.begin("s", "alice", "scope", {}, "", expires_at=100, card_key="task")
     assert repo.update_statistics(partial, {"value": "basic"})
-    reopened = JiraAnalyticsRepository(WebDatabase(tmp_path / "web.db"))
+    reopened = JiraAnalyticsRepository(database_factory())
     assert reopened.statistics_preview("s", "alice", card_key="task")["statistics"] == {"value": "basic"}
     assert reopened.state("s", "alice", card_key="task")["activeSnapshotId"] == old
     replacement = repo.begin("s", "alice", "scope", {}, "", expires_at=100, card_key="task")
     assert not repo.update_statistics(partial, {"value": "stale"}, facts=[{"issueId": "stale"}])
     with repo.database.connect() as connection:
-        assert connection.execute("SELECT count(*) FROM jira_analytics_facts WHERE snapshot_id=?", (partial,)).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM jira_analytics_facts WHERE snapshot_id=:snapshot_id"
+                ),
+                {"snapshot_id": partial},
+            ).fetchone()[0]
+            == 0
+        )
     assert repo.update_statistics(replacement, {"value": "new"})
     repo.finish(partial, "cancelled")
     assert repo.statistics_preview("s", "alice", card_key="task")["statistics"] == {"value": "new"}
     repo.finish(replacement, "failed")
     assert repo.state("s", "alice", card_key="task")["activeSnapshotId"] == old
+
+
+def test_batched_facts_preserve_duplicate_order_and_rollback_across_batches(
+    database_factory,
+):
+    import json
+    import pytest
+    from sqlalchemy import select
+    from sqlalchemy.exc import DataError
+    from smarttest_web.jira.schema import jira_analytics_facts
+
+    repo = JiraAnalyticsRepository(database_factory())
+    snapshot = repo.begin(
+        "s", "alice", "scope", {}, "", expires_at=100, card_key="task"
+    )
+    facts = [{"issueId": str(index), "value": index} for index in range(1000)]
+    facts.insert(500, {"issueId": "0", "value": "last"})
+    assert repo.update_statistics(snapshot, {"saved": True}, facts=facts)
+    with repo.database.connect() as connection:
+        values = [
+            json.loads(row[0])
+            for row in connection.execute(
+                select(jira_analytics_facts.c.fact_json)
+                .where(jira_analytics_facts.c.snapshot_id == snapshot)
+                .order_by(jira_analytics_facts.c.sequence)
+            )
+        ]
+    assert [value["issueId"] for value in values] == [
+        str(index) for index in range(1000)
+    ]
+    assert values[0]["value"] == "last"
+    invalid = [{"issueId": f"new-{index}"} for index in range(500)] + [
+        {"issueId": "x" * 192}
+    ]
+    with pytest.raises(DataError):
+        repo.update_statistics(snapshot, {"must": "rollback"}, facts=invalid)
+    assert repo.statistics_preview("s", "alice", card_key="task")["statistics"] == {
+        "saved": True
+    }
+    with repo.database.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM jira_analytics_facts WHERE snapshot_id=:id"),
+                {"id": snapshot},
+            ).scalar_one()
+            == 1000
+        )

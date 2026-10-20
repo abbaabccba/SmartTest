@@ -14,9 +14,11 @@ class MemoryCredentialStore:
 
 
 def confirmed_access(database, projects=(), pages=(), account="coco"):
-    """Seed a previously confirmed account in the real SQLite boundary."""
+    """Seed a previously confirmed account in the real MySQL boundary."""
     from smarttest_web.session import PersistentSessionStore
-    sessions = PersistentSessionStore(path=database.path, credential_store=MemoryCredentialStore())
+    sessions = PersistentSessionStore(
+        database=database, credential_store=MemoryCredentialStore()
+    )
     token = sessions.create(account, "test")
     access = sessions.resource_access(token, "confluence:https://confluence.amlogic.com", database)
     from core.product_lines import PRODUCT_LINES
@@ -30,25 +32,101 @@ def confirmed_access(database, projects=(), pages=(), account="coco"):
 @pytest.fixture(autouse=True)
 def isolate_server_credentials(monkeypatch, tmp_path, request):
     import smarttest_web.session as session_module
-    from smarttest_web.database import WebDatabase
-    from smarttest_web.schema import initialize_web_schema
-    database_path = tmp_path / "isolated-smarttest-web.db"
-    stores = {}
-    monkeypatch.setattr(session_module, "default_web_database_path", lambda: database_path)
+    import smarttest_web.app as app_module
+
     monkeypatch.setattr(
-        session_module, "create_credential_store",
-        lambda path: stores.setdefault(str(path), MemoryCredentialStore()),
+        app_module, "configured_reports_root", lambda environment: tmp_path / "reports"
     )
-    if request.node.fspath.basename in {"test_cache_schema.py", "test_schema_migrations.py"}:
-        return SimpleNamespace(root=tmp_path, database_path=database_path, credential_stores=stores)
-    database_init = WebDatabase.__init__
-    def initialize_test_database(database, path):
-        database_init(database, path)
-        initialize_web_schema(database)
-    monkeypatch.setattr(WebDatabase, "__init__", initialize_test_database)
-    session_init = session_module.PersistentSessionStore.__init__
-    def initialize_test_sessions(store, path=None, **kwargs):
-        initialize_web_schema(WebDatabase(path or session_module.default_web_database_path()))
-        session_init(store, path, **kwargs)
-    monkeypatch.setattr(session_module.PersistentSessionStore, "__init__", initialize_test_sessions)
+    database_path = tmp_path / "retired-live-path-must-not-be-used.db"
+    stores = {}
+    monkeypatch.setattr(
+        session_module,
+        "create_credential_store",
+        lambda database: stores.setdefault(database.location, MemoryCredentialStore()),
+    )
+    original = session_module.PersistentSessionStore.__init__
+
+    def initialize_test_sessions(store, *args, **kwargs):
+        if not args and kwargs.get("database") is None and "path" not in kwargs:
+            kwargs["database"] = request.getfixturevalue("database_factory")()
+        original(store, *args, **kwargs)
+
+    monkeypatch.setattr(
+        session_module.PersistentSessionStore, "__init__", initialize_test_sessions
+    )
     return SimpleNamespace(root=tmp_path, database_path=database_path, credential_stores=stores)
+
+
+@pytest.fixture
+def database_factory(application_database):
+    from smarttest_web.config import ApplicationDatabaseSettings
+    from smarttest_web.database import WebDatabase
+    import os
+
+    environment = {
+        name.replace("SMARTTEST_TEST_DB_", "SMARTTEST_DB_"): value
+        for name, value in os.environ.items()
+        if name.startswith("SMARTTEST_TEST_DB_")
+    }
+    settings = ApplicationDatabaseSettings.from_environment(environment)
+    databases = []
+
+    def create():
+        database = WebDatabase.from_settings(settings)
+        databases.append(database)
+        return database
+
+    yield create
+    for database in databases:
+        database.close()
+
+
+@pytest.fixture
+def application_database():
+    import os
+    from pathlib import Path
+    from sqlalchemy import delete
+    from smarttest_web.config import ApplicationDatabaseSettings
+    from smarttest_web.database import WebDatabase
+    from smarttest_web import schema
+
+    if not os.environ.get("SMARTTEST_TEST_DB_NAME"):
+        raise pytest.UsageError(
+            "Backend business tests require SMARTTEST_TEST_DB_* for smarttest_preparation_test; production databases are forbidden"
+        )
+    environment = {
+        name.replace("SMARTTEST_TEST_DB_", "SMARTTEST_DB_"): value
+        for name, value in os.environ.items()
+        if name.startswith("SMARTTEST_TEST_DB_")
+    }
+    settings = ApplicationDatabaseSettings.from_environment(environment)
+    if settings.database != "smarttest_preparation_test":
+        raise RuntimeError(
+            "This destructive synthetic-data fixture requires smarttest_preparation_test"
+        )
+    database = WebDatabase.from_settings(settings)
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    with database.transaction() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+    metadata = schema.application_metadata()
+
+    def clear():
+        with database.transaction() as connection:
+            for table in reversed(metadata.sorted_tables):
+                connection.execute(delete(table))
+
+    from smarttest_web.jira.analytics_tasks import JIRA_ANALYTICS_TASKS
+
+    JIRA_ANALYTICS_TASKS.close_pages()
+    clear()
+    JIRA_ANALYTICS_TASKS.open_pages()
+    try:
+        yield database
+    finally:
+        JIRA_ANALYTICS_TASKS.close_pages()
+        clear()
+        database.close()

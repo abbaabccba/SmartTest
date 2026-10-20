@@ -1,387 +1,90 @@
-/* Explicit visual identities only; these are presentation tokens, not a business catalog.
-   Theme variables handle light/dark; approved product artwork is defined below. */
+/* Product identities reuse light/dark palettes with selection reversed by theme. */
 :where([data-product-line][data-product-surface]) {
+  --product-line-tone: initial;
+  --product-line-selected-background: initial;
+  --product-line-icon: initial;
   --product-line-foreground: initial;
   --product-line-background: initial;
   --product-line-border: initial;
   --product-line-accent: initial;
-  --product-line-texture: initial;
-  --product-line-animation: initial;
-  --product-line-icon: initial;
-  --product-line-title: initial;
-  --product-line-tone: initial;
 }
-[data-product-line="China Operator"],
-[data-product-line="Smart Device"],
-[data-product-line="TV"],
-[data-product-line="Global Operator & STB"],
-[data-product-line="Wireless Connection"] {
-  --product-line-foreground: var(--text-primary);
-  --product-line-background: initial;
-  --product-line-border: var(--border-color);
-  --product-line-accent: var(--accent);
-  --product-line-texture: none;
-  --product-line-animation: none;
-}
-[data-product-line][data-product-surface]:is([data-product-surface="card"], [data-product-surface="layout"]) {
-  background-color: var(--product-line-background, transparent);
-  color: var(--product-line-foreground, var(--text-primary));
-  border-color: var(--product-line-border, var(--border-color));
-  background-image: var(--product-line-texture, none);
-  animation: var(--product-line-animation, none);
-}
-[data-product-line][data-product-surface="layout"].product-space-group {
-  border: 1px solid var(--product-line-border, var(--border-color));
-  border-radius: .75rem;
-  background-color: var(--product-line-background, var(--bg-surface));
-}
-[data-product-line][data-product-surface="button"] {
-  color: var(--product-line-foreground, var(--text-primary));
-  border: 0;
-  background-color: var(--product-line-background, transparent);
-  background-image: var(--product-line-texture, none);
-  cursor: pointer;
-  animation: var(--product-line-animation, none);
-}
-[data-product-line][data-product-surface="badge"] {
-  color: var(--product-line-foreground, var(--text-primary));
-  background: var(--product-line-texture, none), var(--product-line-background, var(--bg-primary));
-  border: 1px solid var(--product-line-border, var(--border-color));
-  border-radius: 999px;
-  animation: var(--product-line-animation, none);
-}
-[data-product-line][data-product-surface="button"]:focus-visible {
-  outline: 2px solid var(--product-line-accent, var(--accent));
-  outline-offset: 3px;
-}
-[data-product-line][data-product-surface="button"]:disabled {
-  cursor: default;
-  opacity: .5;
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-product-line][data-product-surface],
-  [data-product-line][data-product-surface]::before,
-  [data-product-line][data-product-surface]::after { animation: none !important; transition: none !important; }
-}
-[data-product-line][data-product-surface="button"]:disabled::before,
-[data-product-line][data-product-surface="button"]:disabled::after { animation: none; opacity: 0; }
-/* Smart Device — audio technology. Speaker: Lucide (ISC), public/icons/lucide-LICENSE.txt.
-   Source: https://github.com/lucide-icons/lucide/blob/main/icons/speaker.svg */
-[data-product-line="Smart Device"][data-product-surface] {
-  --product-line-foreground: #123c56;
-  --product-line-background: #f8fcff;
-  --product-line-border: #88c4dc;
-  --product-line-accent: #0891b2;
-  --product-line-texture: radial-gradient(ellipse at 100% 0%, #0891b214, transparent 65%);
-}
-.dark-theme [data-product-line="Smart Device"][data-product-surface] {
-  --product-line-foreground: #dbf6ff;
-  --product-line-background: #091826;
-  --product-line-border: #26738d;
-  --product-line-texture: radial-gradient(ellipse at 100% 0%, #36cfff14, transparent 65%);
-}
-[data-product-line="Smart Device"][data-product-surface="card"] {
-  border-top: 2px solid var(--product-line-border);
-  box-shadow: inset 0 0 24px #0891b209;
-}
-[data-product-line="Smart Device"][data-product-surface="button"],
-[data-product-line="Smart Device"][data-product-surface="badge"] {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--product-line-border);
-  border-radius: 7px;
-  background: linear-gradient(135deg, #e8f5fb, var(--product-line-background));
-  color: var(--product-line-foreground);
-  box-shadow: inset 0 1px 0 #ffffff40;
-  transition: background .2s, box-shadow .2s, transform .2s;
-}
-.dark-theme [data-product-line="Smart Device"][data-product-surface="button"],
-.dark-theme [data-product-line="Smart Device"][data-product-surface="badge"] {
-  background: linear-gradient(135deg, #102b3c, var(--product-line-background));
-}
-[data-product-line="Smart Device"][data-product-surface="button"][aria-pressed="true"],
-[data-product-line="Smart Device"][data-product-surface="button"].product-space-summary {
-  background-color: #091d30;
-  background-image: linear-gradient(100deg, #091d30, #0d3044);
-  background-size: 100% 100%;
-  color: #e2f6ff;
-  border-color: #24768c;
-  text-shadow: none;
-  box-shadow: inset 0 1px 0 #a7efff26, 0 0 13px #0891b226;
-}
-[data-product-line="Smart Device"][data-product-surface="button"].product-space-summary {
-  border-radius: 0;
-  border-width: 0 0 1px;
-  padding-left: 3rem;
-}
-[data-product-line="Smart Device"][data-product-surface="button"].product-space-summary::before { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); }
-[data-product-line="Smart Device"][data-product-surface="button"]::before,
-[data-product-line="Smart Device"][data-product-surface="badge"]::before {
-  content: '';
-  display: inline-block;
-  flex: 0 0 18px;
-  width: 18px;
-  height: 20px;
-  margin-right: 8px;
-  vertical-align: middle;
-  background: currentColor;
-  mask: url('/icons/speaker.svg') center / contain no-repeat;
-  pointer-events: none;
-}
-[data-product-line="Smart Device"][data-product-surface="button"]:disabled::before { opacity: 1; }
-[data-product-line="Smart Device"][data-product-surface="badge"] { border-left: 3px solid var(--product-line-accent); }
-[data-product-line="Smart Device"][data-product-surface="button"].product-space-summary > .kanban-title { color: inherit; }
-
-/* Disclosure surfaces decorate the existing hover-revealed project row as a whole.
-   The summary/detail visibility and stage/launch-OS folding remain page-owned. */
-[data-product-line][data-product-surface="disclosure"] {
-  color: var(--product-line-foreground, var(--text-primary));
-  background-color: var(--product-line-background, var(--bg-primary));
-  background-image: var(--product-line-texture, none);
-  border-color: var(--product-line-border, var(--border-color));
-}
-[data-product-line][data-product-surface="disclosure"]:is(:hover, :focus-within) {
-  border-color: var(--product-line-accent, var(--accent));
-}
-[data-product-line="Smart Device"][data-product-surface="disclosure"] {
-  --product-line-texture: linear-gradient(110deg, #0891b208, transparent 70%);
-  border-left: 2px solid var(--product-line-border);
-}
-.dark-theme [data-product-line="Smart Device"][data-product-surface="disclosure"] {
-  --product-line-texture: linear-gradient(110deg, #36cfff0a, transparent 70%);
-}
-[data-product-line="Smart Device"][data-product-surface="disclosure"] > .project-card-details {
-  border-top-color: var(--product-line-border);
-}
-/* Approved product artwork. Icons: Lucide (ISC), public/icons/lucide-LICENSE.txt.
-   Sources: https://github.com/lucide-icons/lucide/tree/main/icons */
 [data-product-line="China Operator"] {
-  --product-line-tone: #c45d4b; --product-line-title: #291d23;
+  --product-line-tone: #c45d4b;
+  --product-line-selected-background: #291d23;
   --product-line-icon: url('/icons/radio-tower.svg');
 }
+[data-product-line="Smart Device"] {
+  --product-line-tone: #0891b2;
+  --product-line-selected-background: #091d30;
+  --product-line-icon: url('/icons/speaker.svg');
+}
 [data-product-line="TV"] {
-  --product-line-tone: #8762d5; --product-line-title: #201631;
+  --product-line-tone: #8762d5;
+  --product-line-selected-background: #201631;
   --product-line-icon: url('/icons/tv.svg');
 }
 [data-product-line="Global Operator & STB"] {
-  --product-line-tone: #4d79ce; --product-line-title: #13233c;
+  --product-line-tone: #4d79ce;
+  --product-line-selected-background: #13233c;
   --product-line-icon: url('/icons/globe.svg');
 }
 [data-product-line="Wireless Connection"] {
-  --product-line-tone: #198c72; --product-line-title: #102a27;
+  --product-line-tone: #198c72;
+  --product-line-selected-background: #102a27;
   --product-line-icon: url('/icons/wifi.svg');
 }
-/* Shared surfaces for these four identities; Smart Device keeps its accepted artwork. */
-:is([data-product-line="China Operator"], [data-product-line="TV"], [data-product-line="Global Operator & STB"], [data-product-line="Wireless Connection"])[data-product-surface] {
+[data-product-line][data-product-surface] {
   --product-line-foreground: #243342;
   --product-line-background: color-mix(in srgb, var(--product-line-tone) 4%, #fbfcfe);
   --product-line-border: color-mix(in srgb, var(--product-line-tone) 40%, #d9e2ec);
   --product-line-accent: var(--product-line-tone);
-  --product-line-texture: linear-gradient(110deg, color-mix(in srgb, var(--product-line-tone) 7%, transparent), transparent 70%);
-}
-.dark-theme :is([data-product-line="China Operator"], [data-product-line="TV"], [data-product-line="Global Operator & STB"], [data-product-line="Wireless Connection"])[data-product-surface] {
-  --product-line-foreground: #e2eaf2;
-  --product-line-background: color-mix(in srgb, var(--product-line-tone) 5%, #101b27);
-  --product-line-border: color-mix(in srgb, var(--product-line-tone) 55%, #304256);
-}
-:is([data-product-line="China Operator"], [data-product-line="TV"], [data-product-line="Global Operator & STB"], [data-product-line="Wireless Connection"]) {
-  &:is([data-product-surface="card"], [data-product-surface="layout"]) { border-top: 2px solid var(--product-line-border); }
-  &[data-product-surface="disclosure"] { border-left: 2px solid var(--product-line-border); }
-  &[data-product-surface="disclosure"] > .project-card-details { border-top-color: var(--product-line-border); }
-  &[data-product-surface="badge"], &[data-product-surface="button"] {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid var(--product-line-border);
-    border-radius: 7px;
-    transition: box-shadow .2s, transform .2s;
-  }
-  &[data-product-surface="badge"] { border-left: 3px solid var(--product-line-tone); }
-  &[data-product-surface="button"][aria-pressed="true"], &[data-product-surface="button"].product-space-summary {
-    background-color: var(--product-line-title);
-    color: #f2f7fc;
-    border-color: var(--product-line-tone);
-    box-shadow: inset 0 1px 0 #ffffff20, 0 3px 12px color-mix(in srgb, var(--product-line-tone) 20%, transparent);
-  }
-  &[data-product-surface="button"].product-space-summary { border-radius: 0; border-width: 0 0 1px; padding-left: 3rem; }
-  &[data-product-surface="button"].product-space-summary > .kanban-title { color: inherit; }
-  &[data-product-surface="badge"]::before, &[data-product-surface="button"]::before {
-    content: ''; display: inline-block; flex: 0 0 18px; width: 18px; height: 20px;
-    margin-right: 8px; vertical-align: middle; background: currentColor;
-    mask: var(--product-line-icon) center / contain no-repeat; pointer-events: none;
-  }
-  &[data-product-surface="button"].product-space-summary::before { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); }
-  &[data-product-surface="button"]:is(:hover, :focus-visible):not(:disabled) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--product-line-tone) 16%, transparent); }
-  &[data-product-surface="button"]:disabled::before { opacity: 1; }
-}
-/* Independent CSS interpretation of the approved rain / particles / aurora concepts.
-   Visual references (no source code copied): uiverse.io/SelfMadeSystem/quiet-snail-9,
-   uiverse.io/jaykdoe/tasty-dragon-12, uiverse.io/risabbir/giant-mole-44.
-   Background layers never introduce an overlay, hit target, or content opacity. */
-@property --product-particle-glow { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
-:is([data-product-line="China Operator"], [data-product-line="Smart Device"], [data-product-line="TV"], [data-product-line="Global Operator & STB"], [data-product-line="Wireless Connection"])[data-product-surface]:is([data-product-surface="layout"], [data-product-surface="card"], [data-product-surface="button"], [data-product-surface="badge"], [data-product-surface="disclosure"]) {
-  --product-pattern-tone: var(--product-line-accent);
-  --product-pattern-strength: 40%;
-  --product-pattern-color: color-mix(in srgb, var(--product-pattern-tone) var(--product-pattern-strength), transparent);
-  background-image: var(--product-motion-pattern);
-  background-size: var(--product-motion-size);
-  background-position: 0 0;
-  animation: var(--product-motion);
-}
-.dark-theme [data-product-line][data-product-surface] {
-  --product-pattern-strength: 62%;
-}
-[data-product-line][data-product-surface="button"]:is([aria-pressed="true"], .product-space-summary) {
-  --product-pattern-strength: 65%;
-}
-.dark-theme [data-product-line][data-product-surface="button"]:is([aria-pressed="true"], .product-space-summary) {
-  --product-pattern-strength: 72%;
-}
-/* Compact surfaces show fewer local particles, with slower travel and no content motion. */
-[data-product-line][data-product-surface]:is([data-product-surface="button"], [data-product-surface="badge"], [data-product-surface="disclosure"]) {
-  animation-duration: 24s;
-}
-[data-product-line][data-product-surface="button"]:disabled { animation: none; }
-/* Uiverse.io by solowzrd: independent logo cells replace the character matrix. */
-[data-product-line="China Operator"][data-product-surface] {
-  --product-motion-pattern: none;
-  --product-motion: none;
-}
-.operator-matrix-surface { position: relative; isolation: isolate; }
-.operator-matrix {
-  position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%;
-  pointer-events: none; border-radius: inherit;
-}
-/* Bounded, independent product artwork; functional parts animate via CSS only. */
-[data-product-line="Smart Device"][data-product-surface] { --product-motion-pattern: none; --product-motion: none; }
-.smart-device-surface { position: relative; isolation: isolate; }
-.smart-device-art {
-  position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit;
-  pointer-events: none; color: #248aa1; --device-active: #008fb8; --device-fill: #38bddc17; --device-screen: #43b8d52b;
-}
-.dark-theme .smart-device-art,
-[data-product-surface="button"][aria-pressed="true"] > .smart-device-art,
-.product-space-summary > .smart-device-art { color: #55c7df; --device-active: #76edff; --device-fill: #55c7df16; --device-screen: #55c7df24; }
-.smart-device-product { position: absolute; width: calc(var(--device-width) * var(--device-scale)); opacity: .84; }
-.smart-device-product > svg {
-  display: block; width: 100%; overflow: visible;
-  transform: translate(-50%, -50%) rotate(var(--device-angle));
-  animation: smart-device-float var(--device-period) ease-in-out infinite var(--device-phase) alternate;
-}
-.smart-device-compact .smart-device-product { left: 75% !important; top: 50% !important; }
-.smart-device-compact .smart-device-product > svg { opacity: .6; }
-.smart-shell { fill: var(--device-fill); }
-.smart-screen { fill: var(--device-screen); }
-.smart-light, .smart-bulb-light, .smart-led {
-  color: var(--device-active); fill: currentColor;
-  animation: smart-device-light var(--device-function-period) ease-in-out infinite var(--device-phase);
-}
-.smart-bulb-light { animation-name: smart-device-bulb; }
-.smart-light, .smart-led { stroke-width: 2.4; }
-.smart-key, .smart-keys > circle, .smart-tiles > rect {
-  color: var(--device-active); fill: currentColor;
-  animation: smart-device-sequence calc(var(--device-function-period) * 1.5) linear infinite;
-  animation-delay: calc(var(--device-phase) - var(--device-function-period) * 1.5 * var(--part-offset));
-}
-.smart-disc, .smart-lens, .smart-hand {
-  color: var(--device-active); stroke-width: 2;
-  transform-box: fill-box; transform-origin: center;
-}
-.smart-disc { fill: var(--device-screen); animation: smart-device-spin calc(var(--device-function-period) * 1.5) linear infinite var(--device-phase); }
-.smart-disc-mark, .smart-reflection { fill: currentColor; }
-.smart-lens { animation: smart-device-camera var(--device-function-period) ease-in-out infinite var(--device-phase) alternate; }
-.smart-hand { transform-box: view-box; transform-origin: 55px 49px; animation: smart-device-spin 18s linear infinite var(--device-phase); }
-.smart-volume > rect {
-  color: var(--device-active); fill: currentColor; opacity: .95; transform-box: fill-box; transform-origin: center bottom;
-  animation: smart-device-volume calc(var(--device-function-period) * .65) ease-in-out infinite var(--device-phase) alternate;
-}
-.smart-volume > rect:nth-child(2n) { animation-delay: calc(var(--device-phase) - .3s); }
-.smart-volume > rect:nth-child(3n) { animation-delay: calc(var(--device-phase) - .65s); }
-.smart-ring { color: var(--device-active); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: smart-device-ring var(--device-function-period) ease-out infinite var(--device-phase); }
-.smart-wave > path { color: var(--device-active); stroke-width: 2.5; transform-box: view-box; transform-origin: 60px 67px; animation: smart-device-wave 1.7s ease-out infinite var(--device-phase); }
-.smart-wave > path:nth-child(2) { animation-delay: calc(var(--device-phase) - .55s); }
-.smart-wave > path:nth-child(3) { animation-delay: calc(var(--device-phase) - 1.1s); }
-.smart-motion-paused *, [data-product-surface="button"]:disabled .smart-device-art * { animation-play-state: paused !important; }
-@media (prefers-reduced-motion: reduce) { .smart-device-art * { animation: none !important; } }
-@keyframes smart-device-float {
-  from { transform: translate(-50%, -50%) translateY(-4px) rotate(var(--device-angle)); }
-  to { transform: translate(-50%, -50%) translateY(5px) rotate(var(--device-angle)); }
-}
-@keyframes smart-device-light { 0%, 100% { opacity: .06; } 40%, 65% { opacity: 1; } }
-@keyframes smart-device-bulb { 0%, 20%, 100% { opacity: 0; } 35%, 70% { opacity: .82; } }
-@keyframes smart-device-sequence { 0%, 12% { opacity: 1; } 17%, 100% { opacity: .08; } }
-@keyframes smart-device-spin { to { transform: rotate(360deg); } }
-@keyframes smart-device-camera { from { transform: translateX(-5px) rotate(-10deg); } to { transform: translateX(5px) rotate(10deg); } }
-@keyframes smart-device-volume { from { transform: scaleY(.12); } to { transform: scaleY(1); } }
-@keyframes smart-device-ring { from { transform: scale(.85); opacity: 1; } to { transform: scale(1.2); opacity: 0; } }
-@keyframes smart-device-wave { from { transform: translateX(-3px) scale(.8); opacity: 1; } to { transform: translateX(8px) scale(1.18); opacity: 0; } }
-[data-product-line="TV"][data-product-surface] { --product-motion-pattern: none; --product-motion: none; }
-.tv-surface { position: relative; isolation: isolate; }
-.tv-art { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none; }
-.tv-product { position: absolute; width: calc(var(--tv-width) * var(--tv-scale)); opacity: .42; }
-.dark-theme .tv-product, [aria-pressed="true"] > .tv-art .tv-product, .product-space-summary > .tv-art .tv-product { opacity: .62; }
-.tv-product > svg { display: block; width: 100%; overflow: visible; transform: translate(-50%, -50%) rotate(var(--tv-angle)); }
-.tv-compact .tv-product { left: 78% !important; top: 52% !important; opacity: .3; }
-.tv-ribbon, .tv-highlight { transform-box: view-box; transform-origin: 120px 71px; }
-.tv-ribbon { animation: tv-silk-flow var(--tv-period) ease-in-out infinite var(--tv-phase) alternate; }
-.tv-ribbon-back { opacity: .65; }
-.tv-ribbon-front { animation-duration: calc(var(--tv-period) * .77); animation-delay: calc(var(--tv-phase) - 5s); }
-.tv-highlight { animation: tv-silk-highlight calc(var(--tv-period) * .6) ease-in-out infinite var(--tv-phase) alternate; }
-.tv-art.smart-motion-paused *, [data-product-surface="button"]:disabled .tv-art * { animation-play-state: paused !important; }
-@media (prefers-reduced-motion: reduce) { .tv-art * { animation: none !important; } }
-@keyframes tv-silk-flow {
-  from { transform: translate(-15px, 13px) rotate(-8deg) scale(1.05, .8); }
-  to { transform: translate(17px, -10px) rotate(7deg) scale(1.18, 1.12); }
-}
-@keyframes tv-silk-highlight {
-  from { transform: translate(-13px, 9px) scale(.96); opacity: .12; }
-  to { transform: translate(18px, -5px) scale(1.08); opacity: .9; }
-}
-[data-product-line="Global Operator & STB"][data-product-surface] { --product-motion-pattern: none; --product-motion: none; }
-.global-globe-surface { position: relative; isolation: isolate; }
-.global-globe { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; border-radius: inherit; pointer-events: none; opacity: .65; }
-.dark-theme .global-globe { opacity: .8; }
-[data-product-line="Wireless Connection"][data-product-surface] {
-  --product-ofdm-period: 480px;
-  --product-ofdm-shift: -480px;
-  --product-motion-pattern: url('/patterns/wireless-ofdm-light.svg');
-  --product-motion-size: 480px 120px;
-  --product-motion: product-ofdm-flow 9.5s linear infinite;
-  background-repeat: repeat-x;
-  background-position: 0 50%;
-}
-[data-product-line="Wireless Connection"][data-product-surface="layout"] {
-  --product-motion-size: 480px 120px;
-  background-repeat: repeat-x;
-  background-position: 0 50%;
-}
-.dark-theme [data-product-line="Wireless Connection"][data-product-surface] {
-  --product-motion-pattern: url('/patterns/wireless-ofdm-dark.svg');
-}
-[data-product-line="Wireless Connection"][data-product-surface]:is([data-product-surface="button"], [data-product-surface="badge"], [data-product-surface="disclosure"]) {
-  --product-ofdm-period: 240px;
-  --product-ofdm-shift: -240px;
-  --product-motion-size: 240px 60px;
-  animation-duration: 9.5s;
-}
-/* A composite layout owns one continuous product background. Nested controls retain
-   their semantic colors and borders without starting independent animation tiles. */
-[data-product-surface="layout"] [data-product-line][data-product-surface]:not([data-product-surface="layout"]) {
-  --product-motion: none;
-  --product-motion-pattern: none;
+  color: var(--product-line-foreground, var(--text-primary));
+  background-color: var(--product-line-background, var(--bg-primary));
   background-image: none;
-  animation: none;
 }
-[data-product-surface="layout"] > [data-product-surface="button"].product-space-summary {
-  background-color: color-mix(in srgb, var(--product-line-title, #091d30) 88%, transparent);
+
+[data-product-line="Smart Device"][data-product-surface] {
+  --product-line-foreground: #123c56;
+  --product-line-background: #f8fcff;
+  --product-line-border: #88c4dc;
 }
-[data-product-surface="layout"] [data-product-surface="disclosure"] {
-  background-color: transparent;
+
+.dark-theme [data-product-line][data-product-surface] {
+  background-color: var(--product-line-selected-background);
+  color: #f2f7fc;
+  --product-line-border: color-mix(in srgb, var(--product-line-tone) 35%, #38383a);
 }
-[data-product-surface="layout"] :is(.stage-group, .launch-os-group, .stage-summary, .launch-os-summary) {
-  background: transparent;
+
+[data-product-line][data-product-surface="disclosure"] > .project-card-details {
+  border-top-color: var(--product-line-border);
 }
-@keyframes product-ofdm-flow {
-  from { background-position: 0 50%; }
-  to { background-position: var(--product-ofdm-shift) 50%; }
+[data-product-line][data-product-surface="button"],
+[data-product-line][data-product-surface="badge"] {
+  position: relative;
+  overflow: hidden;
 }
+[data-product-line][data-product-surface="button"] { cursor: pointer; }
+[data-product-line][data-product-surface="button"][aria-pressed="true"] {
+  border-color: var(--accent);
+  background-color: var(--product-line-selected-background);
+  color: #f2f7fc;
+}
+.dark-theme [data-product-line][data-product-surface="button"][aria-pressed="true"] {
+  background-color: var(--product-line-background, var(--bg-primary));
+  color: var(--product-line-foreground, var(--text-primary));
+}
+[data-product-line][data-product-surface="button"].product-space-summary { padding-left: 3rem; }
+/* Identity icons: Lucide (ISC), public/icons/lucide-LICENSE.txt. */
+[data-product-line][data-product-surface="badge"]::before,
+[data-product-line][data-product-surface="button"]::before {
+  content: ''; display: inline-block; flex: 0 0 18px; width: 18px; height: 20px;
+  margin-right: 8px; vertical-align: middle; background: currentColor;
+  mask: var(--product-line-icon) center / contain no-repeat; pointer-events: none;
+}
+[data-product-line][data-product-surface="button"].product-space-summary::before {
+  position: absolute; left: 1rem; top: 50%; transform: translateY(-50%);
+}
+[data-product-line][data-product-surface="button"]:focus-visible {
+  outline: 2px solid var(--product-line-accent, var(--accent)); outline-offset: 3px;
+}
+[data-product-line][data-product-surface="button"]:disabled { cursor: default; opacity: .5; }

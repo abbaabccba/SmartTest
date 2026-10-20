@@ -34,9 +34,7 @@ from core.logging import smart_log
 from .confluence.cache_service import ConfluenceProjectCacheService
 from .confluence.project_repository import ConfluenceProjectRepository
 from .confluence_sync import ConfluenceProjectSyncCoordinator
-from .database import WebDatabase
 from .query_snapshot_repository import PROJECT_FILTER_KEYS
-from .session import default_web_database_path
 
 PAGE_CATALOG_PRODUCT_SPACES = tuple(line.confluence_space_key for line in PRODUCT_LINES)
 PROJECT_STATUS_PATTERN = re.compile(r"^\s*(NORMAL|WARNING|BLOCK)\b", re.IGNORECASE)
@@ -83,15 +81,11 @@ class ProjectFactsWebOwner:
     def __init__(
         self,
         *,
-        repository: ConfluenceProjectRepository | None = None,
+        repository: ConfluenceProjectRepository,
         client_factory=None,
-        data_root=None,
         sync_coordinator_factory=ConfluenceProjectSyncCoordinator,
     ):
-        database_path = (
-            data_root / "smarttest-web.db" if data_root else default_web_database_path()
-        )
-        self._repository = repository or ConfluenceProjectRepository(WebDatabase(database_path))
+        self._repository = repository
         self._client_factory = client_factory or self._make_client
         self._sync_coordinator_factory = sync_coordinator_factory
         self._refresh_lock = Lock()
@@ -101,12 +95,15 @@ class ProjectFactsWebOwner:
         base_url = os.getenv("SMARTTEST_CONFLUENCE_BASE_URL", "https://confluence.amlogic.com")
         return ConfluenceGateway(ConfluenceGatewayConfig(base_url), username, password)
 
-    def refresh(self, access, password):
+    def refresh(self, access, password, *, product_spaces=PAGE_CATALOG_PRODUCT_SPACES, scheduled=False):
+        from .daily_refresh import manual_source_allowed
+        if not scheduled and not manual_source_allowed('confluence'):
+            raise PermissionError('manual_refresh_disabled')
         with self._refresh_lock:
             started = perf_counter()
             service = self._service(access, password)
             result = service.refresh_projects(
-                ProjectSyncScope(product_space_keys=PAGE_CATALOG_PRODUCT_SPACES),
+                ProjectSyncScope(product_space_keys=product_spaces),
             )
             smart_log("Confluence filter preparation timing", platform="web", domain="framework", source="project_facts_owner", emit_runtime_event=False,
                       extra={"stage": "filter.catalog_refresh", "duration_ms": round((perf_counter() - started) * 1000, 3),
@@ -118,25 +115,28 @@ class ProjectFactsWebOwner:
 
     def sync_details(
         self, access, password, *, filters=None, search="", cancelled=None, progress=None,
-        parent_task_id="",
+        parent_task_id="", force=False,
     ):
         del search
-        project_ids = self._acquisition_scope(access, filters)
+        project_ids = self._acquisition_scope(access, filters, force=force)
         progress = progress or (lambda *_: None)
         progress(0, len(project_ids))
         if not project_ids:
             return
         service = self._service(access, password)
         coordinator = self._sync_coordinator_factory(service)
-        coordinator.sync(
+        results = coordinator.sync(
             project_ids,
             ProjectDetails(roles=True, facts=True, evidence=True),
             cancelled=cancelled or (lambda: False),
             progress=progress,
             parent_id=parent_task_id,
+            **({'require_complete': True} if force else {}),
         )
+        if force and any(result != 'updated' for result in results):
+            raise RuntimeError('confluence_details_failed')
 
-    def _acquisition_scope(self, access, filters):
+    def _acquisition_scope(self, access, filters, *, force=False):
         visible_ids = access.ids("project", "catalog")
         catalog = self._repository.list(ProjectQuery(), 0, 100000, visible_ids=visible_ids)
         projects = catalog.projects
@@ -152,7 +152,7 @@ class ProjectFactsWebOwner:
         return tuple(
             project.identity.confluence_id
             for project in loaded
-            if _detail_state((project,)) != "ready"
+            if force or _detail_state((project,)) != "ready"
         )
 
     def refresh_and_sync_details(
@@ -426,7 +426,7 @@ def _project_snapshot_rows(project):
         space_key=WIRELESS_CONNECTION.confluence_space_key,
         roles={
             label: all_roles.get(wifi_label, [])
-            for label, wifi_label in zip(ROLE_LABELS, WIFI_ROLE_LABELS)
+            for (label, wifi_label) in zip(ROLE_LABELS, WIFI_ROLE_LABELS)
         },
     )
     return original, wireless

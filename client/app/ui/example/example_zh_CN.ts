@@ -1673,7 +1673,7 @@ Updated content:
         <translation>Redmine 登录失败。</translation>
     </message>
     <message>
-        <location filename="bridge/RedmineBridge.py" line="1221" />
+        <location filename="bridge/RedmineBridge.py" line="1223" />
         <source>Redmine sign-in cancelled.</source>
         <translation>已取消 Redmine 登录。</translation>
     </message>

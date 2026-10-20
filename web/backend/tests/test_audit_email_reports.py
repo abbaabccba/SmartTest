@@ -12,59 +12,66 @@ from core.email.audit_report import render_history_report, summarize_audit
 from core.jira.audit.models import AuditReport, IssueAuditResult, JiraAuditScope
 
 
-@pytest.mark.parametrize('legacy_names', [
-    ('China Operator Business', 'Smart Device Business', 'TV Business', 'Global Operator & STB Business'),
-    ('DOPL', 'SDPL', 'TV', 'OOPL'),
-])
-def test_confluence_history_migrates_names_and_replays_saved_comparisons(tmp_path, legacy_names):
-    import json
+def test_saved_confluence_comparisons_survive_schema_gate_without_rewrite(
+    database_factory,
+):
     from core.product_lines import PRODUCT_LINES
     from smarttest_web.audit.email_history import AuditEmailHistory
-    from smarttest_web.database import WebDatabase
-    from smarttest_web.schema import initialize_web_schema
+    from smarttest_web.schema import verify_schema_revision
 
-    database = WebDatabase(tmp_path / 'history.db')
+    database = database_factory()
     history = AuditEmailHistory(database)
-    old = history.create('qa', {})
     values = ([6, 280], [18, 160], [16, 176], [7, 112])
-    summary = dict(zip(legacy_names, values))
-    summary.update(counts={name: {'updated': value[0], 'not_updated': value[1] - value[0],
-                                'invalid_format': 0, 'failed': 0, 'unknown': 0}
-                           for name, value in zip(legacy_names, values)},
-                   projects=[{'projectId': 'P1', 'productLine': legacy_names[0]}], scope='saved period')
+    summary = {line.name: value for line, value in zip(PRODUCT_LINES, values)}
+    summary.update(
+        counts={
+            line.name: {
+                "updated": value[0],
+                "not_updated": value[1] - value[0],
+                "invalid_format": 0,
+                "failed": 0,
+                "unknown": 0,
+            }
+            for line, value in zip(PRODUCT_LINES, values)
+        },
+        projects=[{"projectId": "P1", "productLine": PRODUCT_LINES[0].name}],
+        scope="saved period",
+    )
+    old = history.create("qa", {})
     old['summary']['confluence'] = summary
-    old['reports']['confluence'] = {'state': 'completed', 'html': 'old saved body',
-        'subject': 'saved subject', 'sourceIds': [old['id']], 'attachments': ['original.xlsx']}
-    old['deliveries'] = {'confluence': {'state': 'sent', 'sentAt': 'saved-send-time'}}
+    old["reports"]["confluence"] = {
+        "state": "completed",
+        "html": "saved original body",
+        "subject": "saved subject",
+        "sourceIds": [old["id"]],
+        "attachments": ["original.xlsx"],
+    }
+    old["deliveries"] = {"confluence": {"state": "sent", "sentAt": "saved-send-time"}}
+    history.save("qa", old)
     current = history.create('qa', {})
-    canonical = {line.name: value for line, value in zip(PRODUCT_LINES, values)}
-    canonical.update(counts={line.name: summary['counts'][name] for line, name in zip(PRODUCT_LINES, legacy_names)},
-                     projects=[], scope='current period')
-    current['summary']['confluence'] = canonical
-    current['reports']['confluence'] = {'state': 'completed', 'html': 'old comparison body',
-        'subject': 'saved subject', 'sourceIds': [current['id'], old['id']], 'attachments': []}
-    with database.transaction() as connection:
-        for result in (old, current):
-            connection.execute('UPDATE audit_email_runs SET payload=? WHERE id=?', (json.dumps(result), result['id']))
-        connection.execute("UPDATE smarttest_schema SET version=1 WHERE component='confluence_product_line_names'")
-    initialize_web_schema(database)
-
-    history = AuditEmailHistory(database)
-    migrated = history.get('qa', old['id'])
+    current["summary"]["confluence"] = summary
+    records = [
+        {"id": row["id"], "label": row["label"], "summary": summary}
+        for row in (current, old)
+    ]
+    current["reports"]["confluence"] = {
+        **render_history_report("confluence", records, current=True),
+        "state": "completed",
+        "sourceIds": [current["id"], old["id"]],
+        "attachments": [],
+    }
+    history.save("qa", current)
+    verify_schema_revision(database)
+    verify_schema_revision(database)
+    restored = AuditEmailHistory(database)
+    saved = restored.get("qa", old["id"])
     for line, value in zip(PRODUCT_LINES, values):
-        assert migrated['summary']['confluence'][line.name] == value
-    assert migrated['summary']['confluence']['projects'][0]['productLine'] == PRODUCT_LINES[0].name
-    assert migrated['deliveries'] == old['deliveries']
-    assert migrated['reports']['confluence']['attachments'] == ['original.xlsx']
-    assert migrated['reports']['confluence']['sourceIds'] == old['reports']['confluence']['sourceIds']
-    html = history.get('qa', current['id'])['reports']['confluence']['html']
-    assert html.count('6 / 280') == 2
-    assert '0 / 0' not in html
-    with database.connect() as connection:
-        payloads = connection.execute('SELECT payload FROM audit_email_runs').fetchall()
-    assert all(not any(name in payload for name in legacy_names if name != 'TV') for (payload,) in payloads)
-    AuditEmailHistory(database)
-    assert history.get('qa', old['id']) == migrated
+        assert saved["summary"]["confluence"][line.name] == value
+    assert saved["deliveries"] == old["deliveries"]
+    assert saved["reports"]["confluence"] == old["reports"]["confluence"]
+    html = restored.get("qa", current["id"])["reports"]["confluence"]["html"]
+    assert html.count("6 / 280") == 2 and "0 / 0" not in html
+    assert restored.get("qa", old["id"]) == saved
 
 
 @pytest.mark.parametrize('space,name', [('DOPL', 'China Operator'),
@@ -133,10 +140,12 @@ def test_failed_jira_summary_preserves_stable_original_rule_details():
         'reason': 'missing', 'guidance': 'fill', 'observed': ''}
 
 
-def test_remediation_baseline_is_adjacent_completed_jira_and_same_account(tmp_path):
+def test_remediation_baseline_is_adjacent_completed_jira_and_same_account(
+    tmp_path, *, database_factory
+):
     from smarttest_web.audit.email_history import AuditEmailHistory
     from smarttest_web.database import WebDatabase
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'history.db'))
+    history = AuditEmailHistory(database_factory())
     prior = {'startDate': '2026-09-07T00:00:00+08:00', 'endDate': '2026-09-12T00:00:00+08:00'}
     old = history.create('qa', prior)
     old['reports']['jira'] = {'state': 'completed'}
@@ -290,3 +299,43 @@ def test_confluence_report_rejects_incomplete_or_inconsistent_statistics(damage)
             summary['counts']['China Operator']['updated'] = 1
     with pytest.raises(ValueError):
         render_history_report('confluence', [{'id': 'old', 'label': 'old', 'summary': summary}])
+
+
+def test_weekly_creator_counts_are_deduplicated_identity_scoped_and_saved_with_period(
+    tmp_path, *, database_factory
+):
+    from core.jira.audit.models import AuditViolation
+    from smarttest_web.audit.email_history import AuditEmailHistory
+    from smarttest_web.database import WebDatabase
+    violation = AuditViolation('rule', 'section', 'field', '', 'bad', 'fix')
+    issues = tuple(IssueAuditResult(f'SH-{index}', f'https://jira/SH-{index}', '', 'Same Name', index >= 2,
+        (violation, violation) if index < 2 else (), creator_identity='stable-1', creator_account='account.one') for index in range(10))
+    other = IssueAuditResult('SH-other', 'https://jira/SH-other', '', 'Same Name', False, (violation,), creator_identity='stable-2', creator_account='account.two')
+    clean = IssueAuditResult('SH-clean', '', '', 'Zero Violations', True, (), creator_identity='stable-3', creator_account='account.three')
+    report = AuditReport(JiraAuditScope('jql', '', 'saved created week'), datetime.now(), (), (*issues, issues[0], other, clean))
+    period = {'startDate': '2026-10-02T18:00:00+08:00', 'endDate': '2026-10-09T18:00:00+08:00'}
+    summary = summarize_audit('jira', report, period=period)
+    assert summary['period'] == period
+    assert summary['people'] == [
+        {'identity': 'stable-1', 'account': 'account.one', 'displayName': 'Same Name', 'createdCount': 10, 'violatedCount': 2},
+        {'identity': 'stable-2', 'account': 'account.two', 'displayName': 'Same Name', 'createdCount': 1, 'violatedCount': 1},
+        {'identity': 'stable-3', 'account': 'account.three', 'displayName': 'Zero Violations', 'createdCount': 1, 'violatedCount': 0},
+    ]
+    assert summary['issues'][0]['creatorIdentity'] == 'stable-1'
+    assert summary['issues'][0]['creatorAccount'] == 'account.one'
+    history = AuditEmailHistory(database_factory())
+    run = history.create('qa', period)
+    history.complete_report('qa', run, 'jira', summary, [])
+    saved = history.get('viewer', run['id'])
+    assert saved['summary']['jira'] == summary
+    html = saved['reports']['jira']['html']
+    assert '违规数/创建数' in html and '>2/10<' in html and '>1/1<' in html
+    assert 'Zero Violations' not in html
+
+    from core.jira.audit.exporter import export_audit_xlsx
+    from openpyxl import load_workbook
+    sheet = load_workbook(export_audit_xlsx(report, output_path=tmp_path / 'review.xlsx'))['汇总']
+    assert tuple(sheet.cell(9, column).value for column in range(1, 4)) == ('创建人', '违规数/创建数', '违规 Jira 号')
+    assert sheet.cell(10, 2).value == '2/10'
+    assert sheet.cell(10, 3).value == 'SH-0、SH-1'
+    assert sheet.cell(11, 2).value == '1/1'

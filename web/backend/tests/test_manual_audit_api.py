@@ -1,9 +1,9 @@
 from __future__ import annotations
+from sqlalchemy import text
 
 from dataclasses import dataclass
 import json
 from pathlib import Path
-import sqlite3
 import time
 
 from fastapi.testclient import TestClient
@@ -211,7 +211,7 @@ def test_confluence_audit_exports_one_zip_containing_product_line_workbooks(tmp_
 
 
 def test_confluence_review_queries_current_filters_records_snapshot_and_ignores_client_ids(
-    tmp_path, isolate_server_credentials,
+    tmp_path, isolate_server_credentials, *, database_factory
 ) -> None:
     class Facts:
         def __init__(self): self.query_calls = []; self.refresh_calls = 0
@@ -255,9 +255,11 @@ def test_confluence_review_queries_current_filters_records_snapshot_and_ignores_
     assert facts.query_calls[-1] == ({"project id": ("P652",)}, "mode review")
     assert facts.refresh_calls == 0
     assert owner.resolved == [{"projectIds": ["DOPL:P652"], "startDate": "2026-08-17", "endDate": "2026-08-24"}]
-    with sqlite3.connect(isolate_server_credentials.database_path) as connection:
+    with database_factory().connect() as connection:
         snapshot = connection.execute(
-            "SELECT filters_json, search, project_ids_json FROM web_query_snapshots",
+            text(
+                "SELECT filters_json, search, project_ids_json FROM web_query_snapshots"
+            )
         ).fetchone()
     assert json.loads(snapshot[0]) == {"project id": ["P652"]}
     assert snapshot[1] == "mode review"
@@ -270,7 +272,9 @@ def test_confluence_review_queries_current_filters_records_snapshot_and_ignores_
     assert owner.resolved[-1] == {"projectIds": ["DOPL:P652"], "startDate": "2026-08-17", "endDate": "2026-08-24"}
 
 
-def test_confluence_query_snapshot_survives_app_restart_for_same_valid_session(tmp_path) -> None:
+def test_confluence_query_snapshot_survives_app_restart_for_same_valid_session(
+    tmp_path, *, database_factory
+) -> None:
     class Facts:
         def refresh(self, _access, _password): return None
         def query(self, _access, **_kwargs):
@@ -281,12 +285,14 @@ def test_confluence_query_snapshot_survives_app_restart_for_same_valid_session(t
         def resolve(self, payload): self.resolved.append(payload); return super().resolve(payload)
 
     database = tmp_path / "web.db"
-    store = PersistentSessionStore(database)
+    store = PersistentSessionStore(database=database_factory())
     owner = Owner()
     def app():
         return create_app(
-            authenticator=FakeAuthenticator, session_store=lambda: PersistentSessionStore(database),
-            project_facts_owner=Facts, audit_registry=lambda: ManualAuditRegistry(),
+            authenticator=FakeAuthenticator,
+            session_store=lambda: PersistentSessionStore(database=database_factory()),
+            project_facts_owner=Facts,
+            audit_registry=lambda: ManualAuditRegistry(),
             download_service=lambda: DownloadArtifactService(tmp_path / "downloads"),
             jira_audit_owner=lambda _username, _password: JiraOwner(),
             confluence_audit_owner=lambda _access, _password: owner,

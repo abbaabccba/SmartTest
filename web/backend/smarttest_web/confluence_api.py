@@ -220,6 +220,7 @@ def create_router(authenticated_session, sessions, cache_database, facts, refres
 
 
 def _with_sync_state(result, sync_state):
+    result = {**result, "dataState": "ready" if result.get("state") in {"ready", "partial_success"} else "none"}
     if sync_state in {"failed", "invalid_credentials", "loading"}:
         return {**result, "state": sync_state}
     return result

@@ -5,6 +5,18 @@ function formatStage(stage) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : ''
 }
 
+// The server owns dataState; a browser payload is not evidence of valid data.
+export function refreshFeedback({ state = 'idle', dataState, message = '', error = '' } = {}) {
+  if (state === 'invalid_credentials' && !message && !error) message = 'Sync credentials were rejected.'
+  state = ({ queued: 'running', loading: 'running', completed: 'success', ready: 'success',
+    invalid_credentials: 'failed' })[state] ?? state
+  if (state === 'cancelled' && error === 'query_cancelled' && dataState === 'ready') error = ''
+  const text = message || error || ({ success: 'Completed', failed: 'Refresh failed.',
+    cancelled: 'Refresh cancelled.' }[state] ?? '')
+  return { state, message: ['failed', 'cancelled'].includes(state) && dataState === 'ready'
+    ? `${text} Showing saved data.` : text }
+}
+
 export function createAsyncFeedback({ root, cancelButton, onCancel } = {}) {
   root.innerHTML = `<div class="async-feedback__head"><strong data-async-message></strong><span data-async-count></span></div>
     <div class="async-feedback__track" role="progressbar" aria-label="Task progress"><div class="async-feedback__fill"></div></div>`
@@ -24,6 +36,7 @@ export function createAsyncFeedback({ root, cancelButton, onCancel } = {}) {
   cancelButton?.addEventListener('click', cancel)
 
   function update(next = {}) {
+    next = { ...next, ...refreshFeedback(next) }
     state = next.state || 'idle'
     const processed = Math.max(0, Number(next.processed) || 0)
     const total = Math.max(0, Number(next.total) || 0)

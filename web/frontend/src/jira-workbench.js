@@ -96,13 +96,11 @@ export function createJiraWorkbench({ root, api, snapshot = '', projectId = '' }
       }
       if (!disposed) {
         render(payload)
-        const message = payload.syncState === 'invalid_credentials'
-          ? 'Sync credentials were rejected; cached data is still shown.'
-          : (payload.syncState === 'failed' ? 'Sync failed; cached data is still shown.' : '')
-        feedback.update(message ? { state: 'failed', message } : undefined)
+        feedback.update(['failed', 'cancelled', 'invalid_credentials'].includes(payload.syncState)
+          ? { state: payload.syncState, dataState: payload.dataState } : undefined)
       }
     } catch {
-      if (!disposed) feedback.update({ state: 'failed', message: 'Jira sync failed; cached data is still shown.' })
+      if (!disposed) feedback.update({ state: 'failed', message: 'Jira sync failed.' })
     }
   })
   root.querySelector('[data-prev]').addEventListener('click', () => { page -= 1; void load(selectedFilters()) })

@@ -1115,9 +1115,11 @@ class RedmineBridge(QObject):
     def updateCloneDraft(self, issue_id, field_id, value):
         if hasattr(value, "toVariant"):
             value = value.toVariant()
+        previous = self._batch_controller.field_payloads(issue_id)
         if self._batch_controller.update_draft(issue_id, field_id, value):
-            field = self._batch_controller.field_payload(issue_id, field_id)
-            self._emit_clone_draft_field(issue_id, field_id, field)
+            for changed_id, field in self._batch_controller.field_payloads(issue_id).items():
+                if changed_id == field_id or field != previous.get(changed_id):
+                    self._emit_clone_draft_field(issue_id, changed_id, field)
 
     @Slot()
     def submitCloneBatch(self):

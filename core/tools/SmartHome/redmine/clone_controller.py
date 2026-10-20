@@ -226,6 +226,16 @@ class RedmineCloneController:
         field = draft._field(str(field_id or ""))
         return self._field_payload(draft, field) if field is not None else None
 
+    def field_payloads(self, issue_id: str) -> dict[str, dict[str, Any]]:
+        record = self._record(issue_id)
+        if record is None:
+            return {}
+        draft = record["draft"]
+        return {
+            field.field_id: self._field_payload(draft, field)
+            for field in draft.fields
+        }
+
     def start_submit(self) -> CloneOperation | None:
         if self._state != "editing":
             return None

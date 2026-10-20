@@ -9,7 +9,6 @@ from core.domain.detail import DetailState
 from smarttest_web.confluence.cache_service import ConfluenceProjectCacheService
 from smarttest_web.confluence.project_repository import ConfluenceProjectRepository
 from smarttest_web.confluence_sync import ConfluenceProjectSyncCoordinator
-from smarttest_web.database import WebDatabase
 from core.async_tasks import AsyncTaskManager
 
 
@@ -32,10 +31,12 @@ class Gateway:
         return {"facts": {"fresh": project_id}}
 
 
-def test_sync_uses_cache_service_and_cancellation_prevents_queued_refresh(tmp_path) -> None:
+def test_sync_uses_cache_service_and_cancellation_prevents_queued_refresh(
+    tmp_path, *, database_factory
+) -> None:
     cancelled = Event()
     gateway = Gateway(cancelled)
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core((ConfluenceProjectMapper().from_catalog(gateway.get_project_catalog('P1')),))
     service = ConfluenceProjectCacheService(gateway, ConfluenceProjectMapper(), repository, access=confirmed_access(repository.database, ('P1', 'P2')))
     coordinator = ConfluenceProjectSyncCoordinator(service, max_workers=1)

@@ -295,11 +295,12 @@ def test_concurrent_full_searches_share_one_four_request_gateway_limit() -> None
     assert 1 < peak <= 4
 
 
-def test_full_search_retries_only_502_with_fixed_backoff(monkeypatch) -> None:
+def test_full_search_uses_shared_four_attempt_budget(monkeypatch) -> None:
     import core.jira.gateway as gateway_module
 
     delays = []
-    monkeypatch.setattr(gateway_module, "sleep", delays.append)
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", delays.append)
 
     class Response:
         status_code = 502
@@ -320,17 +321,18 @@ def test_full_search_retries_only_502_with_fixed_backoff(monkeypatch) -> None:
 
     assert gateway.search_all_payloads("project = SH") == []
     assert RetryingApi.attempts == 4
-    assert delays == [0.25, 0.5, 1.0]
+    assert delays == [1, 2, 4]
 
 
-def test_full_search_does_not_retry_non_502(monkeypatch) -> None:
+def test_full_search_does_not_retry_permission_error(monkeypatch) -> None:
     import core.jira.gateway as gateway_module
 
     delays = []
-    monkeypatch.setattr(gateway_module, "sleep", delays.append)
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", delays.append)
 
     class Response:
-        status_code = 503
+        status_code = 403
 
     class Failure(Exception):
         response = Response()
@@ -375,6 +377,31 @@ def test_jira_gateway_logs_issue_request_operations_without_response_content(mon
     assert all("body" not in item for item in requests)
 
 
+@pytest.mark.parametrize("status", [None, 503])
+def test_search_failure_logs_safe_page_context_and_preserves_cause(monkeypatch, status):
+    import core.jira.gateway as owner
+    from types import SimpleNamespace
+    from requests.exceptions import ReadTimeout
+    records = []
+    monkeypatch.setattr(owner, "smart_log", lambda message, **kwargs: records.append(kwargs))
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", lambda _: None)
+    error = ReadTimeout('secret password and raw response')
+    error.response = SimpleNamespace(status_code=status)
+    class Api:
+        def jql(self, *_args, **_kwargs):
+            raise error
+    gateway = JiraGateway('https://jira.example', 'u', 'private', api=Api())
+    with pytest.raises(JiraGatewayError) as caught:
+        gateway._search_full_page('reporter = private', 2000, ['comment','created'], ['changelog'], 1000)
+    assert caught.value.__cause__ is error
+    extra = records[-1]['extra']
+    assert extra['http_status'] == status and extra['cause_type'] == 'ReadTimeout'
+    assert extra['start_at'] == 2000 and extra['page_size'] == 1000
+    assert extra['duration_ms'] >= 0
+    assert 'private' not in str(records) and 'secret' not in str(records)
+
+
 def test_explicit_card_page_size_keeps_four_workers_and_default_unchanged():
     lock = Lock()
     active = peak = 0
@@ -400,3 +427,130 @@ def test_explicit_card_page_size_keeps_four_workers_and_default_unchanged():
     calls.clear()
     gateway.search_all_payloads("default")
     assert len(calls) == 1 and calls[0][2] == 1000
+
+
+def test_comment_search_has_its_own_twelve_workers_and_completes_truncated_comments():
+    lock = Lock()
+    active = peak = 0
+    calls = []
+    class Api:
+        def jql(self, query, *, start, limit, fields, **kwargs):
+            nonlocal active, peak
+            assert kwargs.get('expand') == 'changelog'
+            with lock:
+                active += 1
+                peak = max(peak, active)
+                calls.append((start, limit, fields))
+            try:
+                pause(.01)
+                return {"total": 25000, "maxResults": 1000, "issues": [{"id": str(start), "key": f"TV-{start}", "fields": {
+                    "created": "2026-01-01", "comment": {"total": 3 if start == 0 else 0,
+                        "comments": [{"id": "old"}] if start == 0 else []}},
+                    "changelog": {"startAt": 0, "total": 0, "histories": []}}]}
+            finally:
+                with lock:
+                    active -= 1
+        def get(self, path, *, params):
+            assert path == 'rest/api/2/issue/TV-0/comment'
+            assert params['maxResults'] == 1000
+            start = params['startAt']
+            return {'total': 3, 'comments': [{'id': str(i)} for i in range(start, min(start+2,3))]}
+    gateway = JiraGateway('https://jira.example', 'u', 'p', api=Api(), api_factory=Api)
+    rows = gateway.search_activity_payloads('created >= "2026-01-01"')
+    assert 4 < peak <= 12
+    assert all(limit == 1000 and fields == ['comment', 'created'] for _,limit,fields in calls)
+    assert [c['id'] for c in rows[0]['fields']['comment']['comments']] == ['0','1','2']
+    assert gateway._full_search_executor._max_workers == 4
+
+
+def test_activity_history_truncation_uses_supported_issue_expand_and_fails_if_still_incomplete():
+    class Api:
+        def jql(self, *_args, **_kwargs):
+            return {'total':1,'issues':[{'id':'1','key':'SH-1','fields':{'created':'2026-01-01','comment':{'comments':[]}},
+                'changelog':{'startAt':0,'total':2,'histories':[{'id':'1'}]}}]}
+        def get_issue(self, key, *, fields, expand):
+            assert key=='SH-1' and fields==['created'] and expand=='changelog'
+            return {'changelog':{'startAt':0,'total':2,'histories':[{'id':'1'},{'id':'2'}]}}
+    api=Api()
+    gateway=JiraGateway('https://jira.example','u','p',api=api)
+    assert len(gateway.search_activity_payloads('year')[0]['changelog']['histories'])==2
+    api.get_issue=lambda *_args, **_kwargs: {'changelog':{'total':2,'histories':[]}}
+    with pytest.raises(JiraGatewayError) as error:
+        gateway.search_activity_payloads('year')
+    assert error.value.code=='jira_changelog_incomplete'
+
+def test_failed_search_cancels_unstarted_pages_without_replacing_error():
+    from concurrent.futures import Future
+    failure = JiraGatewayError('jira_search_failed')
+    class Executor:
+        def __init__(self): self.futures = []
+        def submit(self, *args):
+            future = Future()
+            self.futures.append(future)
+            if len(self.futures) == 1:
+                future.set_result({'total': 4000, 'issues': []})
+            elif len(self.futures) == 2:
+                future.set_exception(failure)
+            elif len(self.futures) == 3:
+                future.set_running_or_notify_cancel()
+            return future
+    executor = Executor()
+    gateway = JiraGateway('https://jira.example', 'u', 'p', api=object())
+    with pytest.raises(JiraGatewayError) as caught:
+        gateway._collect_search_pages('private query', ['comment'], None, None, 1000, executor)
+    assert caught.value is failure
+    assert executor.futures[2].running()
+    assert executor.futures[3].cancelled()
+
+
+def test_search_failure_logs_safe_nested_connection_cause_without_exception_text(
+    monkeypatch,
+):
+    from requests.exceptions import ConnectionError
+    import core.jira.gateway as owner
+
+    from core import read_requests
+    monkeypatch.setattr(read_requests, "sleep", lambda _: None)
+    records = []
+    root = ConnectionResetError(
+        10054, "secret URL https://private:token@example.test?jql=private"
+    )
+    error = ConnectionError("secret response body", root)
+
+    class Api:
+        def jql(self, *args, **kwargs):
+            raise error
+
+    monkeypatch.setattr(
+        owner, "smart_log", lambda message, **kwargs: records.append(kwargs)
+    )
+    gateway = JiraGateway("https://jira.example", "private", "secret", api=Api())
+    with pytest.raises(JiraGatewayError) as caught:
+        gateway._search_full_page(
+            "private query", 2300, ["comment", "created"], None, 100
+        )
+    assert caught.value.__cause__ is error
+    extra = records[-1]["extra"]
+    assert extra["exception_chain"] == [
+        {"type": "ConnectionError"},
+        {"type": "ConnectionResetError", "errno": 10054},
+    ]
+    assert extra["phase"] == "search_page"
+    assert extra["field_count"] == 2 and extra["expand_changelog"] is False
+    assert extra["start_at"] == 2300
+    assert all(
+        secret not in str(records)
+        for secret in ("private", "secret", "token", "example.test")
+    )
+
+
+def test_successful_search_page_does_not_emit_per_page_logs(monkeypatch):
+    import core.jira.gateway as owner
+    from unittest.mock import Mock
+    logger = Mock()
+    monkeypatch.setattr(owner, 'smart_log', logger)
+    api = Mock()
+    api.jql.return_value = {'issues': [], 'total': 0}
+    gateway = JiraGateway('https://jira.example', '', '', api=api)
+    assert gateway._search_full_page('private query', 0, ['created'], None, 100) == api.jql.return_value
+    logger.assert_not_called()

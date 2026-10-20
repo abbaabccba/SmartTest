@@ -81,7 +81,9 @@ def test_confluence_details_are_loaded_only_for_explicit_apply() -> None:
     assert owner.sync_calls == [({"project id": ("P100",)}, "")]
 
 
-def test_project_page_entry_replays_the_current_session_query_snapshot(tmp_path) -> None:
+def test_project_page_entry_replays_the_current_session_query_snapshot(
+    tmp_path, *, database_factory
+) -> None:
     class Facts(ReadyFactsOwner):
         def __init__(self):
             super().__init__()
@@ -96,11 +98,13 @@ def test_project_page_entry_replays_the_current_session_query_snapshot(tmp_path)
             }
 
     facts = Facts()
-    client = _authenticated_client(create_app(
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
-        project_facts_owner=lambda: facts,
-        authenticator=FakeAuthenticator,
-    ))
+    client = _authenticated_client(
+        create_app(
+            session_store=lambda: PersistentSessionStore(database=database_factory()),
+            project_facts_owner=lambda: facts,
+            authenticator=FakeAuthenticator,
+        )
+    )
 
     client.put("/api/confluence/filter-snapshot", json={
         "filters": {"project id": ["P100"], "current stage": ["EVT"]}, "search": "Apollo",
@@ -112,7 +116,9 @@ def test_project_page_entry_replays_the_current_session_query_snapshot(tmp_path)
     assert facts.query_calls == [({"project id": ["P100"]}, "Apollo")]
 
 
-def test_project_owner_is_kept_while_unsupported_filters_are_ignored(tmp_path) -> None:
+def test_project_owner_is_kept_while_unsupported_filters_are_ignored(
+    tmp_path, *, database_factory
+) -> None:
     class Facts(ReadyFactsOwner):
         def __init__(self):
             super().__init__()
@@ -123,11 +129,13 @@ def test_project_owner_is_kept_while_unsupported_filters_are_ignored(tmp_path) -
             return {"state": "ready", "facets": [], "projects": [], "ownerHierarchy": []}
 
     facts = Facts()
-    client = _authenticated_client(create_app(
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
-        project_facts_owner=lambda: facts,
-        authenticator=FakeAuthenticator,
-    ))
+    client = _authenticated_client(
+        create_app(
+            session_store=lambda: PersistentSessionStore(database=database_factory()),
+            project_facts_owner=lambda: facts,
+            authenticator=FakeAuthenticator,
+        )
+    )
 
     response = client.put("/api/confluence/filter-snapshot", json={"filters": {
         "project id": ["P100"], "project status": ["WARNING"], "current stage": ["EVT"],
@@ -143,7 +151,9 @@ def test_project_owner_is_kept_while_unsupported_filters_are_ignored(tmp_path) -
     assert facts.query_calls[-1] == ({"project id": ("P200",), "project owner": ("Bob",)}, "")
 
 
-def test_project_reset_replaces_session_snapshot_with_authorized_catalog_scope(tmp_path) -> None:
+def test_project_reset_replaces_session_snapshot_with_authorized_catalog_scope(
+    tmp_path, *, database_factory
+) -> None:
     class Facts(ReadyFactsOwner):
         def query(self, _access, *, filters=None, search="", **_kwargs):
             project_id = "FILTERED" if filters or search else "ALL"
@@ -152,11 +162,13 @@ def test_project_reset_replaces_session_snapshot_with_authorized_catalog_scope(t
                 "projects": [{"project_id": project_id}], "ownerHierarchy": [],
             }
 
-    client = _authenticated_client(create_app(
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
-        project_facts_owner=Facts,
-        authenticator=FakeAuthenticator,
-    ))
+    client = _authenticated_client(
+        create_app(
+            session_store=lambda: PersistentSessionStore(database=database_factory()),
+            project_facts_owner=Facts,
+            authenticator=FakeAuthenticator,
+        )
+    )
     client.get("/api/confluence/project-facts", params={"field.current stage": "EVT", "details": "1"})
 
     reset = client.get("/api/confluence/project-facts", params={"reset": "1"})

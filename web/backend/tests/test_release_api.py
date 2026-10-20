@@ -89,7 +89,7 @@ def _client(releases):
     return client
 
 
-def test_dashboard_entry_reads_release_sqlite_owner_and_records_server_scope():
+def test_dashboard_entry_reads_release_database_owner_and_records_server_scope():
     releases = _ReleaseQueries()
     client = _client(releases)
 

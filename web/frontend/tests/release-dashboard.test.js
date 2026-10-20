@@ -52,7 +52,7 @@ it('does not own a second filter and uses explicit sync only from the Sync butto
 it('keeps cached releases visible and reports a downstream sync failure', async () => {
   const api = {
     getDashboardReleases: vi.fn().mockResolvedValue(payload),
-    syncDashboardReleases: vi.fn().mockResolvedValue({ ...payload, syncState: 'loading', taskId: 'task-1' }),
+    syncDashboardReleases: vi.fn().mockResolvedValue({ ...payload, dataState: 'ready', syncState: 'loading', taskId: 'task-1' }),
     getDashboardReleaseSync: vi.fn().mockResolvedValue({ state: 'completed', syncState: 'failed' }),
   }
   const page = createReleaseDashboard({ root: document.querySelector('main'), api })
@@ -61,7 +61,26 @@ it('keeps cached releases visible and reports a downstream sync failure', async 
   document.querySelector('[data-sync]').click()
 
   await vi.waitFor(() => expect(document.querySelector('[data-release-feedback]').textContent)
-    .toContain('cached data'))
+    .toContain('Showing saved data'))
   expect(document.querySelector('[data-release-row]').textContent).toContain('Android 16')
   expect(api.getDashboardReleaseSync).toHaveBeenCalledWith('task-1')
+})
+
+it('opens release issue contributions from the displayed database result without sync or navigation', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  const data = structuredClone(payload)
+  data.releases[0].issues = [
+    { key: 'TV-1', summary: 'Open P0', priority: 'P0', resolution: '' },
+    { key: 'TV-2', summary: 'Closed P0', priority: 'P0', resolution: 'Fixed' },
+    { key: 'TV-3', summary: 'Open P1', priority: 'P1', resolution: '' },
+  ]
+  const api = { getDashboardReleases: vi.fn().mockResolvedValue(data), syncDashboardReleases: vi.fn() }
+  const page = createReleaseDashboard({ root: document.querySelector('main'), api })
+  await page.start()
+  document.querySelector('[data-summary="openP0P1"]').click()
+  expect(document.querySelectorAll('dialog tbody tr')).toHaveLength(2)
+  expect(document.querySelector('dialog tbody').textContent).not.toContain('TV-2')
+  expect(api.syncDashboardReleases).not.toHaveBeenCalled()
+  page.destroy()
 })

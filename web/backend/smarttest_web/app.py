@@ -19,12 +19,11 @@ from .audit.email_history import AuditEmailHistory
 from .audit.email_job import AuditEmailJob
 from .audit.registry import ManualAuditRegistry
 from .audit_email_api import create_router as create_audit_email_router
-from .audit_http import (
-    audit_task_payload as _audit_task_payload,
-    session_owner as _session_owner,
-)
+from .audit_http import session_owner as _session_owner
 from .background_refresh import BackgroundFactsRefresh
-from .config import DatabaseSettings
+from .config import (DatabaseSettings, ApplicationDatabaseSettings, RedisCacheSettings,
+                     storage_environment, statistics_cache_ttl_seconds, reports_root as configured_reports_root)
+from .cache import RedisCache
 from .confluence_api import create_router as create_confluence_router
 from .credentials import CredentialMissingError, CredentialStoreError
 from .database import ReadonlyDatabase, WebDatabase
@@ -32,6 +31,7 @@ from .downloads import DownloadArtifactService
 from .downloads_api import create_router as create_downloads_router
 from .jira.analytics_repository import JiraAnalyticsRepository
 from .jira.analytics_tasks import JIRA_ANALYTICS_TASKS
+from .daily_refresh import DailyFactsRefresh
 from .jira.cache_service import JiraIssueCacheService
 from .jira.issue_repository import JiraIssueRepository
 from .jira_api import create_router as create_jira_router
@@ -43,9 +43,9 @@ from .release_api import create_router as create_release_router
 from .release_query import ProjectReleaseQueryService
 from .report_workspace import ClientAuditReportOwner
 from .report_workspace_api import create_router as create_report_workspace_router
-from .schema import initialize_web_schema
+from .schema import verify_schema_revision
 from .service import WifiDatabaseQueries
-from .session import PersistentSessionStore, default_web_database_path
+from .session import PersistentSessionStore
 from .task_manager import WEB_TASKS, ScopedTaskIndex
 from .test_suite_api import create_router as create_test_suite_router
 from .test_suite_repository import TestSuiteRepository
@@ -63,16 +63,16 @@ def default_authenticator():
     return LdapAuthenticator(platform="web")
 
 
-def default_jira_cache_owner(username: str, password: str):
+def default_jira_cache_owner(username: str, password: str, *, database):
     base_url = os.getenv("SMARTTEST_JIRA_BASE_URL", "https://jira.amlogic.com")
     gateway = JiraGateway(base_url, username, password)
     return JiraIssueCacheService(gateway, JiraIssueMapper(base_url),
-                                 JiraIssueRepository(WebDatabase(default_web_database_path())))
+                                 JiraIssueRepository(database))
 
 
-def default_jira_audit_owner(username: str, password: str):
+def default_jira_audit_owner(username: str, password: str, *, database):
     from .audit.jira_adapter import WebJiraAuditOwner
-    return WebJiraAuditOwner.from_credentials(username, password)
+    return WebJiraAuditOwner.from_credentials(username, password, database=database)
 
 
 def default_jira_filter_owner(username: str, password: str):
@@ -81,9 +81,26 @@ def default_jira_filter_owner(username: str, password: str):
     return JiraFilterService(gateway), gateway
 
 
-def default_confluence_audit_owner(username: str, password: str):
+def default_confluence_audit_owner(username: str, password: str, *, facts):
     from .audit.confluence_adapter import WebConfluenceAuditOwner
-    return WebConfluenceAuditOwner.from_credentials(username, password)
+    return WebConfluenceAuditOwner.from_credentials(username, password, facts=facts)
+
+
+def create_configured_app():
+    environment = storage_environment()
+    redis_settings = RedisCacheSettings.from_environment(environment)
+    ttl = statistics_cache_ttl_seconds(environment)
+    database = WebDatabase.from_settings(ApplicationDatabaseSettings.from_environment(environment))
+    cache = None
+    try:
+        cache = RedisCache(redis_settings)
+        return create_app(database=database, reports_root=configured_reports_root(environment),
+            statistics_cache=cache, statistics_cache_ttl_seconds=ttl)
+    except BaseException:
+        if cache is not None:
+            cache.close()
+        database.close()
+        raise
 
 
 def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOwner.from_environment,
@@ -95,38 +112,70 @@ def create_app(query_owner=default_query_owner, report_owner=ClientAuditReportOw
                download_service=DownloadArtifactService,
                jira_audit_owner=default_jira_audit_owner,
                confluence_audit_owner=default_confluence_audit_owner,
-               jira_filter_owner=default_jira_filter_owner) -> FastAPI:
+               jira_filter_owner=default_jira_filter_owner, *, database=None, reports_root=None, statistics_cache=None, statistics_cache_ttl_seconds=None) -> FastAPI:
     auth = authenticator()
-    sessions = session_store()
-    cache_database = WebDatabase(sessions.path)
-    initialize_web_schema(cache_database)
-    facts = project_facts_owner()
+    sessions = session_store() if database is None else session_store(database=database)
+    cache_database = sessions.database
+    verify_schema_revision(cache_database)
+    if reports_root is None:
+        reports_root = configured_reports_root({})
+    if project_facts_owner is ProjectFactsWebOwner:
+        from .confluence.project_repository import ConfluenceProjectRepository
+        facts = project_facts_owner(repository=ConfluenceProjectRepository(cache_database))
+    else:
+        facts = project_facts_owner()
+    if jira_cache_owner is default_jira_cache_owner:
+        jira_cache_owner = lambda username, password: default_jira_cache_owner(username, password, database=cache_database)
+    if jira_audit_owner is default_jira_audit_owner:
+        jira_audit_owner = lambda username, password: default_jira_audit_owner(username, password, database=cache_database)
+    if confluence_audit_owner is default_confluence_audit_owner:
+        confluence_audit_owner = lambda access, password: default_confluence_audit_owner(access, password, facts=facts)
     refresh = facts_refresh()
     snapshots = ConfluenceQuerySnapshotRepository(cache_database)
     jira_filters = JiraFilterSnapshotRepository(cache_database)
-    jira_analytics = JiraAnalyticsRepository(cache_database)
+    jira_analytics = JiraAnalyticsRepository(cache_database, statistics_cache=statistics_cache,
+        statistics_cache_ttl_seconds=statistics_cache_ttl_seconds)
     jira_analytics.interrupt_pending()
+    daily_refresh = DailyFactsRefresh(cache_database, sessions, jira_analytics, jira_filter_owner, JIRA_ANALYTICS_TASKS, facts)
     releases = release_query_owner(cache_database)
     test_suites = TestSuiteRepository(cache_database)
     audits = audit_registry()
     downloads = download_service()
     email_history = AuditEmailHistory(cache_database)
-    email_job = AuditEmailJob(email_history)
+    email_job = AuditEmailJob(email_history, reports_root=reports_root)
     release_tasks = ScopedTaskIndex(WEB_TASKS)
 
     @asynccontextmanager
     async def lifespan(_app):
+        import asyncio
         from .task_manager import close_web_tasks, open_web_tasks
         open_web_tasks()
+        JIRA_ANALYTICS_TASKS.open_pages()
+        daily_refresh.clock.recover()
+        async def scan_daily():
+            while True:
+                daily_refresh.scan()
+                await asyncio.sleep(60)
+        daily_timer = asyncio.create_task(scan_daily())
         try:
             yield
         finally:
+            daily_timer.cancel()
+            try:
+                await daily_timer
+            except asyncio.CancelledError:
+                pass
+            JIRA_ANALYTICS_TASKS.close_pages()
             email_job.close()
             audits.close()
             downloads.close()
             close_web_tasks()
+            cache_database.close()
+            if statistics_cache is not None:
+                statistics_cache.close()
     app = FastAPI(title="SmartTest Wi-Fi Database", docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
+    app.state.daily_refresh = daily_refresh
 
     def set_session_cookie(request: Request, response: Response, token: str) -> None:
         secure = request.url.scheme.lower() == "https"
@@ -381,7 +430,7 @@ def _get_default_app():
     if _default_app is None:
         with _default_app_lock:
             if _default_app is None:
-                _default_app = create_app()
+                _default_app = create_configured_app()
     return _default_app
 
 

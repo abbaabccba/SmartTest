@@ -1,16 +1,17 @@
 from fastapi.testclient import TestClient
 
 from smarttest_web.app import create_app
-from smarttest_web.database import WebDatabase
 from smarttest_web.jira_filter_snapshot_repository import JiraFilterSnapshotRepository
 from smarttest_web.session import PersistentSessionStore
 from test_manual_audit_api import ConfluenceOwner, JiraOwner, _Facts, _wait
 from test_web_session import FakeAuthenticator
 
 
-def test_jira_filter_snapshot_is_one_session_scoped_record(tmp_path):
-    PersistentSessionStore(tmp_path / "web.db")
-    database = WebDatabase(tmp_path / "web.db")
+def test_jira_filter_snapshot_is_one_session_scoped_record(
+    tmp_path, *, database_factory
+):
+    PersistentSessionStore(database=database_factory())
+    database = database_factory()
     repository = JiraFilterSnapshotRepository(database, now=lambda: 100.0)
 
     repository.record("one", {"project": ["SH"], "type": ["Bug"]}, "status = Open", expires_at=200)
@@ -21,11 +22,13 @@ def test_jira_filter_snapshot_is_one_session_scoped_record(tmp_path):
     assert repository.get("two") is None
 
 
-def test_confluence_review_requires_and_consumes_existing_snapshot(tmp_path):
+def test_confluence_review_requires_and_consumes_existing_snapshot(
+    tmp_path, *, database_factory
+):
     facts, owner = _Facts(), ConfluenceOwner()
     app = create_app(
         authenticator=FakeAuthenticator,
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
+        session_store=lambda: PersistentSessionStore(database=database_factory()),
         project_facts_owner=lambda: facts,
         jira_audit_owner=lambda _username, _password: JiraOwner(),
         confluence_audit_owner=lambda _access, _password: owner,
@@ -60,11 +63,13 @@ def test_confluence_review_requires_and_consumes_existing_snapshot(tmp_path):
     assert _wait(client, "confluence", created.json()["auditId"])["status"] == "completed"
 
 
-def test_jira_filter_api_exposes_only_approved_fields_and_runs_from_snapshot(tmp_path):
+def test_jira_filter_api_exposes_only_approved_fields_and_runs_from_snapshot(
+    tmp_path, *, database_factory
+):
     owner = JiraOwner()
     app = create_app(
         authenticator=FakeAuthenticator,
-        session_store=lambda: PersistentSessionStore(tmp_path / "web.db"),
+        session_store=lambda: PersistentSessionStore(database=database_factory()),
         project_facts_owner=_Facts,
         jira_audit_owner=lambda _username, _password: owner,
         confluence_audit_owner=lambda _access, _password: ConfluenceOwner(),

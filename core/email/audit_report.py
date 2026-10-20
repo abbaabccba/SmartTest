@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from core.product_lines import PRODUCT_LINES
+from core.jira.audit.models import group_creator_issues
 from core.confluence.audit.rules import UPDATE_MATRIX_POINTS
 
 
@@ -79,11 +80,11 @@ def compare_jira_audits(original, report):
     return results
 
 
-def summarize_audit(kind, report):
+def summarize_audit(kind, report, *, period=None):
     if kind == "jira":
         issues = {issue.key: issue for issue in report.issues}
         passed = sum(issue.passed for issue in issues.values())
-        return {
+        summary = {
             "total": len(issues),
             "passed": passed,
             "failed": len(issues) - passed,
@@ -93,6 +94,8 @@ def summarize_audit(kind, report):
                     "key": issue.key,
                     "url": issue.url,
                     "creator": issue.creator,
+                    "creatorIdentity": issue.creator_identity,
+                    "creatorAccount": issue.creator_account,
                     "passed": issue.passed,
                     "summary": issue.summary,
                     "aiReviewStatus": issue.ai_review_status.value,
@@ -118,6 +121,15 @@ def summarize_audit(kind, report):
                 for issue in issues.values() for violation in issue.violations
             ],
         }
+        summary['people'] = [
+            {'identity': group[0]['creatorIdentity'], 'account': group[0]['creatorAccount'],
+             'displayName': group[0]['creator'], 'createdCount': len(group),
+             'violatedCount': sum(not issue['passed'] for issue in group)}
+            for group in group_creator_issues(summary['issues']).values()
+        ]
+        if period is not None:
+            summary['period'] = dict(period)
+        return summary
     points = {point.rule_id for point in UPDATE_MATRIX_POINTS}
     result = {line.name: [0, 0] for line in PRODUCT_LINES}
     counts = {
@@ -224,21 +236,20 @@ def render_history_report(kind: str, records: list[dict], *, current=False, reme
         if kind == "jira":
             from urllib.parse import urlsplit
 
-            groups = {}
-            for issue in summary["issues"]:
-                if not issue["passed"]:
-                    groups.setdefault(issue["creator"] or "未知创建人", []).append(
-                        issue
-                    )
+            groups = group_creator_issues(summary['issues'])
             details = '<h3>当期违规 Jira</h3><table style="border-collapse:collapse;width:100%"><tr>'
             details += (
                 "".join(
                     f'<th style="{border}background:#dbeafe">{label}</th>'
-                    for label in ("创建人", "违规 Jira 数量", "违规 Jira 号")
+                    for label in ("创建人", "违规数/创建数", "违规 Jira 号")
                 )
                 + "</tr>"
             )
-            for creator, issues in sorted(groups.items()):
+            for group in sorted(groups.values(), key=lambda items: items[0]['creator']):
+                issues = [issue for issue in group if not issue['passed']]
+                if not issues:
+                    continue
+                creator = group[0]['creator'] or '未知创建人'
                 links = []
                 for issue in issues:
                     key, url = escape(issue["key"]), issue["url"]
@@ -247,8 +258,8 @@ def render_history_report(kind: str, records: list[dict], *, current=False, reme
                         if urlsplit(url).scheme in {"http", "https"}
                         else key
                     )
-                details += f'<tr><td style="{border}">{escape(creator)}</td><td style="{border}">{len(issues)}</td><td style="{border}">{", ".join(links)}</td></tr>'
-            details += "</table>" if groups else "</table><p>本次无违规 Jira。</p>"
+                details += f'<tr><td style="{border}">{escape(creator)}</td><td style="{border}">{len(issues)}/{len(group)}</td><td style="{border}">{", ".join(links)}</td></tr>'
+            details += "</table>" if any(not issue["passed"] for issue in summary["issues"]) else "</table><p>本次无违规 Jira。</p>"
         else:
             note += " 需要更新点为实际受审查的更新点总数，包含已更新、未更新、格式有误、失败和未知。"
             details = '<h3>当期实际状态计数</h3><table style="border-collapse:collapse;width:100%"><tr>'

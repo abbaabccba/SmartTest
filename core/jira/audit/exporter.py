@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 
 from core.reporting.excel import clean_excel_value, write_excel_workbook
 
-from .models import AuditReport
+from .models import AuditReport, group_creator_issues
 from .rules import creator_names
 
 
@@ -79,11 +79,7 @@ def export_audit_xlsx(
 
 def _summary_rows(report: AuditReport) -> tuple[list[list[object]], set[int]]:
     qa_creator_names = creator_names()
-    failed_by_creator: dict[str, set[str]] = {}
-    for issue in report.issues:
-        if not issue.passed:
-            creator = str(issue.creator or "未知创建人")
-            failed_by_creator.setdefault(creator, set()).add(issue.key)
+    creator_groups = group_creator_issues(report.issues)
     passed = report.passed_count
     rows: list[list[object]] = [
         ["指标", "值"],
@@ -97,12 +93,13 @@ def _summary_rows(report: AuditReport) -> tuple[list[list[object]], set[int]]:
             f"{(passed / report.total_count * 100) if report.total_count else 0:.2f}%",
         ],
         [],
-        ["创建人", "违规 Jira 数量", "违规 Jira 号"],
+        ["创建人", "违规数/创建数", "违规 Jira 号"],
     ]
-    rows.extend(
-        [creator, len(keys), "、".join(sorted(keys))]
-        for creator, keys in sorted(failed_by_creator.items())
-    )
+    for group in sorted(creator_groups.values(), key=lambda issues: issues[0].creator):
+        failed = [issue for issue in group if not issue.passed]
+        if failed:
+            rows.append([group[0].creator or "未知创建人", f"{len(failed)}/{len(group)}",
+                         "、".join(sorted(issue.key for issue in failed))])
     rows.append([])
     whitelist_title_row = len(rows) + 1
     rows.append(

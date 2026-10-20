@@ -17,7 +17,7 @@ describe('AppShell', () => {
 
   it('owns the complete Tools shell including account hosts', () => {
     const shell = createAppShell({ pageKey: 'tools' })
-    expect([...document.querySelectorAll('.nav-menu a')].map(link => link.textContent.trim()))
+    expect([...document.querySelectorAll('.nav-menu .nav-link')].map(link => link.textContent.trim()))
       .toEqual(navigation.map(item => item.title))
     expect(document.querySelectorAll('.nav-link.active')).toHaveLength(1)
     expect(document.querySelector('.nav-link.active').getAttribute('href')).toBe('/tools.html')
@@ -26,17 +26,15 @@ describe('AppShell', () => {
     expect(shell.contentRoot.matches('main.main-content')).toBe(true)
   })
 
-  it('keeps bubble-animated navigation routes and labels accessible without decorative content', () => {
+  it('keeps text-only navigation routes and labels accessible', () => {
     createAppShell({ pageKey: 'jira' })
     for (const item of navigation) {
       const link = document.querySelector(`.nav-menu a[data-page-key="${item.pageKey}"]`)
       expect(link.getAttribute('href')).toBe(item.url)
       expect(link.textContent.trim()).toBe(item.title)
-      expect(link.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
-      expect(link.querySelector('.nav-link-text').textContent.trim()).toBe(item.title)
-      expect(link.querySelectorAll('.nav-link-drow')).toHaveLength(0)
+      expect(link.querySelector('svg')).toBeNull()
     }
-    expect(document.querySelectorAll('.mobile-menu-nav .nav-link-drow')).toHaveLength(0)
+    expect(document.querySelectorAll('.mobile-menu-nav svg')).toHaveLength(0)
   })
 
   it.each([
@@ -44,6 +42,16 @@ describe('AppShell', () => {
   ])('maps %s to the declared %s navigation owner', (pageKey, activeKey) => {
     createAppShell({ pageKey })
     expect(document.querySelector('.nav-link.active').dataset.pageKey).toBe(activeKey)
+  })
+
+  it('exposes scheduled reviews under Tools on desktop and mobile only', () => {
+    createAppShell({ pageKey: 'audit-email' })
+    const desktop = document.querySelector('.nav-menu a[href="/audit-email.html"]')
+    expect(desktop?.textContent).toBe('定期审查')
+    expect(desktop?.closest('.nav-item').querySelector('.nav-link').dataset.pageKey).toBe('tools')
+    expect(document.querySelectorAll('.nav-submenu')).toHaveLength(navigation.length)
+    expect([...document.querySelectorAll('.nav-submenu a')].map(link => link.textContent)).toEqual(['定期审查'])
+    expect(document.querySelector('.mobile-menu-nav a[href="/audit-email.html"]')?.textContent).toBe('定期审查')
   })
 
   it('fails explicitly when the required host is absent', () => {

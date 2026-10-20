@@ -1,3 +1,4 @@
+import { icon } from '../icons.js'
 const SCOPE = 'dashboard/layout'
 export const DEFAULT_DASHBOARD_LAYOUT = Object.freeze([
   Object.freeze({ id: 'role-workload-default', type: 'role-workload', x: 0, y: 0, w: 24, h: 21, config: Object.freeze({}) }),
@@ -59,7 +60,7 @@ export function createDashboardGrid({ root, registry, preferenceApi, gridFactory
     element.className = 'grid-stack-item dashboard-widget'
     element.dataset.widgetId = item.id
     element.dataset.widgetType = item.type
-    element.innerHTML = `<div class="grid-stack-item-content"><div class="card dashboard-widget-card"><header class="dashboard-widget-head"><span class="dashboard-drag-handle" title="Drag widget" aria-label="Drag widget">⋮⋮</span><strong>${definition.title}</strong><button type="button" data-remove-widget aria-label="Remove ${definition.title}">×</button></header><div class="dashboard-widget-body"></div></div></div>`
+    element.innerHTML = `<div class="grid-stack-item-content"><div class="card dashboard-widget-card"><header class="dashboard-widget-head"><span class="dashboard-drag-handle" title="Drag widget" aria-label="Drag widget">${icon('drag')}</span><strong>${definition.title}</strong><button type="button" class="icon-button" data-remove-widget aria-label="Remove ${definition.title}">${icon('close')}</button></header><div class="dashboard-widget-body"></div></div></div>`
     root.querySelector('.grid-stack').append(element)
     grid.makeWidget(element, { x: item.x, y: item.y, w: definition.defaultW, h: item.h,
       noResize: true, sizeToContent: true,

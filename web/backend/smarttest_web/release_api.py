@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled, check_cancellation
+
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Request
 
@@ -54,7 +56,7 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
         result = releases.dashboard(
             visible_ids=access.ids("project", "catalog"), project_ids=selection.project_ids, filters={},
         )
-        return {**result, "querySnapshot": {"scope": selection.scope, "updatedAt": selection.updated_at}, "syncState": "idle"}
+        return {**result, "dataState": "ready", "querySnapshot": {"scope": selection.scope, "updatedAt": selection.updated_at}, "syncState": "idle"}
 
     def refresh_jira_release_scope(value, project_ids):
         if not project_ids:
@@ -64,6 +66,7 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
         owner = resolve_jira_cache(value)
         page = 0
         while True:
+            check_cancellation()
             refreshed = owner.refresh_release_issues(query, page=page)
             page_size = max(1, int(refreshed.get("page_size") or 100))
             if (page + 1) * page_size >= int(refreshed.get("total") or 0):
@@ -91,6 +94,8 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
                 )
                 refresh_jira_release_scope(value, selection.project_ids)
                 return "ready"
+            except TaskCancelled:
+                raise
             except Exception as error:
                 return downstream_refresh_error(value, error)
         future = WEB_TASKS.submit_coordinator("release-dashboard-sync", synchronize)
@@ -100,7 +105,7 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
             visible_ids=access.ids("project", "catalog"), project_ids=selection.project_ids,
             filters={},
         )
-        return {**result, "querySnapshot": {"scope": selection.scope, "updatedAt": selection.updated_at},
+        return {**result, "dataState": "ready", "querySnapshot": {"scope": selection.scope, "updatedAt": selection.updated_at},
                 "syncState": "loading", "taskId": task_id}
 
     @router.get("/api/dashboard/releases/sync/{task_id}")
@@ -164,7 +169,7 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
             visible_ids=access.ids("project", "catalog"), project_ids=project_ids,
             filters=filters, page=page, page_size=page_size,
         )
-        return {**result, "querySnapshot": {"scope": jira.scope, "updatedAt": jira.revision}, "syncState": "idle"}
+        return {**result, "dataState": "ready", "querySnapshot": {"scope": jira.scope, "updatedAt": jira.revision}, "syncState": "idle"}
 
     @router.post("/api/jira/release-issues/sync")
     def sync_jira_release_issues(request: Request, value=Depends(authenticated_session)):
@@ -178,6 +183,8 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
             try:
                 refresh_jira_release_scope(value, confluence.project_ids)
                 return "ready"
+            except TaskCancelled:
+                raise
             except Exception as error:
                 return downstream_refresh_error(value, error)
         future = WEB_TASKS.submit_coordinator("jira-release-sync", synchronize)
@@ -187,7 +194,7 @@ def create_router(authenticated_session, sessions, cache_database, snapshots, re
             visible_ids=access.ids("project", "catalog"), project_ids=confluence.project_ids,
             filters=applied_jira_filters(jira, value.username), page=0, page_size=50,
         )
-        return {**result, "querySnapshot": {"scope": jira.scope, "updatedAt": jira.revision},
+        return {**result, "dataState": "ready", "querySnapshot": {"scope": jira.scope, "updatedAt": jira.revision},
                 "syncState": "loading", "taskId": task_id}
 
     @router.get("/api/jira/release-issues/sync/{task_id}")

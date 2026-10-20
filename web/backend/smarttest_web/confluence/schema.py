@@ -1,82 +1,120 @@
 from __future__ import annotations
 
-from ..database import WebDatabase
-from ..schema import ensure_component_schema
+from sqlalchemy import Column, ForeignKeyConstraint, Index, Integer, String, Table, Text, text
+from sqlalchemy.dialects.mysql import LONGTEXT
+from ..database import APPLICATION_METADATA
 
-
-CONFLUENCE_STATEMENTS = (
-    """CREATE TABLE IF NOT EXISTS confluence_projects (
-        confluence_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
-        name TEXT NOT NULL DEFAULT '', product_space_key TEXT NOT NULL DEFAULT '',
-        product_space_name TEXT NOT NULL DEFAULT '', product_space_url TEXT NOT NULL DEFAULT '',
-        catalog_page_id TEXT NOT NULL DEFAULT '', catalog_page_title TEXT NOT NULL DEFAULT '',
-        catalog_page_url TEXT NOT NULL DEFAULT '', catalog_page_version INTEGER NOT NULL DEFAULT 0,
-        status_id TEXT, status_name TEXT, stage_id TEXT, stage_name TEXT,
-        support_mode_id TEXT, support_mode_name TEXT, customer_summary TEXT NOT NULL DEFAULT '',
-        source_revision TEXT NOT NULL DEFAULT '', cached_at TEXT NOT NULL
-    )""",
-    "CREATE INDEX IF NOT EXISTS confluence_projects_space_idx ON confluence_projects(product_space_key)",
-    """CREATE TABLE IF NOT EXISTS project_current_releases (
-        confluence_id TEXT PRIMARY KEY REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL DEFAULT '', release_name TEXT NOT NULL DEFAULT '',
-        launch_time TEXT NOT NULL DEFAULT '', mp_time TEXT NOT NULL DEFAULT '',
-        next_target TEXT NOT NULL DEFAULT '', next_target_date TEXT NOT NULL DEFAULT '',
-        current_hw_stage TEXT NOT NULL DEFAULT '', status_summary TEXT NOT NULL DEFAULT '',
-        source_revision TEXT NOT NULL DEFAULT '', cached_at TEXT NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_owners (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        identity TEXT NOT NULL, account TEXT NOT NULL DEFAULT '', display_name TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY(confluence_id,identity)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_detail_states (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        section_name TEXT NOT NULL, state TEXT NOT NULL,
-        source_revision TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '',
-        has_value INTEGER NOT NULL DEFAULT 0, cached_at TEXT NOT NULL,
-        PRIMARY KEY(confluence_id,section_name)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_roles (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        role_id TEXT NOT NULL, role_name TEXT NOT NULL,
-        PRIMARY KEY(confluence_id,role_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_role_people (
-        confluence_id TEXT NOT NULL, role_id TEXT NOT NULL, identity TEXT NOT NULL,
-        account TEXT NOT NULL DEFAULT '', display_name TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY(confluence_id,role_id,identity),
-        FOREIGN KEY(confluence_id,role_id) REFERENCES confluence_project_roles(confluence_id,role_id) ON DELETE CASCADE
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_milestones (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        milestone_key TEXT NOT NULL, milestone_value TEXT NOT NULL,
-        PRIMARY KEY(confluence_id,milestone_key)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_fields (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        section_name TEXT NOT NULL, field_key TEXT NOT NULL, value_json TEXT NOT NULL,
-        PRIMARY KEY(confluence_id,section_name,field_key)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_project_evidence (
-        confluence_id TEXT NOT NULL REFERENCES confluence_projects(confluence_id) ON DELETE CASCADE,
-        source TEXT NOT NULL, page_id TEXT NOT NULL, page_title TEXT NOT NULL DEFAULT '',
-        page_url TEXT NOT NULL DEFAULT '', page_version INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY(confluence_id,source,page_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS confluence_sync_state (
-        scope_key TEXT PRIMARY KEY, cursor TEXT, last_synced_at TEXT, last_error TEXT
-    )""",
+confluence_projects = Table('confluence_projects', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('project_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('product_space_key', String(191), nullable=False, server_default=text("''")),
+    Column('product_space_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('product_space_url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('catalog_page_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('catalog_page_title', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('catalog_page_url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('catalog_page_version', Integer, nullable=False, server_default=text('0')),
+    Column('status_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('status_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('stage_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('stage_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('support_mode_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('support_mode_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('customer_summary', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('source_revision', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Index('confluence_projects_space_idx','product_space_key'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
 )
 
+project_current_releases = Table('project_current_releases', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('project_id', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('release_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('launch_time', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('mp_time', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('next_target', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('next_target_date', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('current_hw_stage', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('status_summary', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('source_revision', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
 
-def initialize_confluence_schema(database: WebDatabase) -> None:
-    ensure_component_schema(
-        database,
-        component="confluence_cache",
-        version=4,
-        statements=CONFLUENCE_STATEMENTS,
-        upgrade_statements=(
-            """UPDATE confluence_project_detail_states SET state='stale'
-            WHERE section_name IN ('roles','facts') AND state='loaded'""",
-        ),
-    )
+confluence_project_owners = Table('confluence_project_owners', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('identity', String(191), primary_key=True, nullable=False),
+    Column('account', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_detail_states = Table('confluence_project_detail_states', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('section_name', String(64), primary_key=True, nullable=False),
+    Column('state', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    Column('source_revision', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('error_code', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('has_value', Integer, nullable=False, server_default=text('0')),
+    Column('cached_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_roles = Table('confluence_project_roles', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('role_id', String(191), primary_key=True, nullable=False),
+    Column('role_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_role_people = Table('confluence_project_role_people', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('role_id', String(191), primary_key=True, nullable=False),
+    Column('identity', String(191), primary_key=True, nullable=False),
+    Column('account', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('display_name', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    ForeignKeyConstraint(['confluence_id', 'role_id'], ['confluence_project_roles.confluence_id', 'confluence_project_roles.role_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_milestones = Table('confluence_project_milestones', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('milestone_key', String(384), primary_key=True, nullable=False),
+    Column('milestone_value', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_fields = Table('confluence_project_fields', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('section_name', String(64), primary_key=True, nullable=False),
+    Column('field_key', String(384), primary_key=True, nullable=False),
+    Column('value_json', Text().with_variant(LONGTEXT(), "mysql"), nullable=False),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_project_evidence = Table('confluence_project_evidence', APPLICATION_METADATA,
+    Column('confluence_id', String(191), primary_key=True, nullable=False),
+    Column('source', String(191), primary_key=True, nullable=False),
+    Column('page_id', String(191), primary_key=True, nullable=False),
+    Column('page_title', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('page_url', Text().with_variant(LONGTEXT(), "mysql"), nullable=False, server_default=text("('')")),
+    Column('page_version', Integer, nullable=False, server_default=text('0')),
+    ForeignKeyConstraint(['confluence_id'], ['confluence_projects.confluence_id'], ondelete='CASCADE'),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)
+
+confluence_sync_state = Table('confluence_sync_state', APPLICATION_METADATA,
+    Column('scope_key', String(512), primary_key=True, nullable=False),
+    Column('cursor', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('last_synced_at', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    Column('last_error', Text().with_variant(LONGTEXT(), "mysql"), nullable=True),
+    mysql_charset='utf8mb4', mysql_collate='utf8mb4_0900_bin', mysql_engine='InnoDB',
+)

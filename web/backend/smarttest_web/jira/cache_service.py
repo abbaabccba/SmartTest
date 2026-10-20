@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled, check_cancellation
+
 from core.domain.detail import DetailSection, DetailState
 from core.jira.domain import Issue, IssueDetails, IssuePage
 
@@ -29,6 +31,7 @@ class JiraIssueCacheService:
         issue = self._repository.get(issue_key, details)
         if issue is None:
             issue = self._mapper.from_search(self._gateway.get_issue(issue_key))
+            check_cancellation()
             self._repository.save_core((issue,))
             issue = self._repository.get(issue_key, details)
         for section in details.sections():
@@ -45,6 +48,7 @@ class JiraIssueCacheService:
                 issues.append(self._mapper.from_search(row))
             except Exception:
                 failures.append(str(row.get("key") or row.get("id") or "mapping_failed"))
+        check_cancellation()
         self._repository.save_core(issues)
         return {
             "issues": tuple(issues),
@@ -66,6 +70,7 @@ class JiraIssueCacheService:
                 rows.append(row)
             except Exception:
                 failures.append(str(row.get("key") or row.get("id") or "mapping_failed"))
+        check_cancellation()
         self._repository.save_core(issues)
         for issue, row in zip(issues, rows):
             fields = row.get("fields") if isinstance(row.get("fields"), dict) else {}
@@ -79,6 +84,7 @@ class JiraIssueCacheService:
 
     def refresh_issue(self, issue_key: str, details: IssueDetails) -> Issue:
         core = self._mapper.from_search(self._gateway.get_issue(issue_key))
+        check_cancellation()
         self._repository.save_core((core,))
         for section in details.sections():
             self._refresh_section(issue_key, section)
@@ -102,12 +108,15 @@ class JiraIssueCacheService:
             payload = self._gateway.load_issue_sections(issue_key, (name,))
             refreshed = self._mapper.with_sections(current, payload, (name,))
             section = getattr(refreshed, name)
+        except TaskCancelled:
+            raise
         except Exception as error:
             previous = getattr(current, name)
             section = DetailSection.failed(
                 _error_code(error), value=previous.value,
                 source_revision=previous.source_revision,
             )
+        check_cancellation()
         getattr(self._repository, f"replace_{name}")(issue_key, section)
 
 

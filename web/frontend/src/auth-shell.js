@@ -16,8 +16,8 @@ export function createAuthShell({ root = document, desktopHost, mobileHost, api,
     }
     const name = document.createElement('span'); name.dataset.userName = ''; name.textContent = label
     const dropdown = document.createElement('div'); dropdown.className = 'user-dropdown'; dropdown.dataset.userDropdown = ''; dropdown.hidden = true
-    const settings = document.createElement('a'); settings.href = '/settings.html'; settings.textContent = 'Settings'
-    const logout = document.createElement('button'); logout.className = 'user-logout'; logout.dataset.logout = ''; logout.type = 'button'; logout.textContent = 'Sign out'
+    const settings = document.createElement('a'); settings.href = '/settings.html'; settings.className = 'menu-item'; settings.textContent = 'Settings'
+    const logout = document.createElement('button'); logout.className = 'user-logout menu-item'; logout.dataset.logout = ''; logout.type = 'button'; logout.textContent = 'Sign out'
     dropdown.append(settings, logout)
     trigger.append(avatar, name); menu.append(trigger, dropdown)
     return menu

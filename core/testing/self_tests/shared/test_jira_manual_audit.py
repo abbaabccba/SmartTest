@@ -51,7 +51,7 @@ def _issue(key: str, creator: str, description: str = GOOD_DESCRIPTION) -> Issue
 
 @pytest.mark.parametrize('channel,test_case,failed', [
     ('Self-Test', None, True), ('Self-Test', '', True), ('Self-Test', '  ', True),
-    ('Self-Test', 'CASE-1', False), ('Customer-Feedback', None, False), ('', None, False),
+    ('Self-Test', 'TV-CATEGORY-CASE', False), ('Customer-Feedback', None, False), ('', None, False),
 ])
 def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, failed):
     issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
@@ -62,7 +62,24 @@ def test_self_test_requires_test_case_id_only_for_self_test(channel, test_case, 
     assert result.passed is not failed
     if failed:
         assert findings[0].field == 'Test Case ID'
-        assert '缺少 Test Case ID' in findings[0].reason
+        assert 'Test Case ID 为空' in findings[0].reason
+
+
+@pytest.mark.parametrize('value,passed', [
+    ('TV-VIDEO-PLAY', True), ('IPTV_VIDEO_PLAY', True), ('OTT-video-play', True),
+    ('NONE', True), ('None', True), ('CASE-1', False), ('TV-VIDEO_PLAY', False),
+    ('TV--PLAY', False), ('TV-VIDEO-PLAY-EXTRA', False), ('TV-VIDEO-123', True),
+    ('IPTV_Camera_012', True), ('IPTV-Camera-012', True), ('TV2_VIDEO2_CASE012', True),
+    ('none', False),
+])
+def test_self_test_case_id_accepts_three_alphanumeric_segments_or_none(value, passed):
+    issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': value})))
+    result = audit_issue(issue)
+    assert result.passed is passed
+    if not passed:
+        assert result.violations[0].rule_id == 'TEST_CASE_ID.REQUIRED'
+        assert result.violations[0].observed == value
 
 
 def test_other_channels_do_not_require_test_case_field_mapping():
@@ -74,26 +91,32 @@ def test_other_channels_do_not_require_test_case_field_mapping():
     result = audit_issue(issue)
     assert not result.passed
     assert [item.rule_id for item in result.violations] == ['TEST_CASE_ID.REQUIRED']
-    assert '缺少 Test Case ID' in result.violations[0].reason
+    assert result.violations[0].reason == '当前 Jira 未提供 Test Case ID 参数。'
     assert audit_issue(replace(issue, custom_fields=DetailSection())).passed
 
 
-def test_self_test_missing_case_id_uses_existing_export_and_remediation(tmp_path):
+@pytest.mark.parametrize('fields,reason', [
+    ({}, '当前 Jira 未提供 Test Case ID 参数。'),
+    ({'Test Case ID': None}, 'Test Case ID 为空。'),
+    ({'Test Case ID': 'invalid'}, 'Test Case ID 格式不符合要求'),
+])
+def test_self_test_missing_case_id_uses_existing_export_and_remediation(tmp_path, fields, reason):
     from core.email.audit_report import summarize_audit, compare_jira_audits
     from core.jira.audit.models import AuditReport, JiraAuditScope
     issue = replace(_issue('SH-1', 'Chao Li'), custom_fields=DetailSection.loaded(FieldBag.from_mapping(
-        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': None})))
+        {'Channel of Reporter': {'value': 'Self-Test'}, **fields})))
     from core.jira.audit.rules import active_rules
     report = AuditReport(JiraAuditScope('jql', '', 'key=SH-1'), datetime.now(timezone.utc), active_rules(), (audit_issue(issue),))
     summary = summarize_audit('jira', report)
     assert summary['failed'] == 1
     assert summary['findings'][0]['ruleId'] == 'TEST_CASE_ID.REQUIRED'
+    assert reason in summary['findings'][0]['reason']
     path = export_audit_xlsx(report, output_path=tmp_path / 'jira.xlsx')
     workbook = load_workbook(path)
-    assert any('TEST_CASE_ID.REQUIRED' in row and any('缺少 Test Case ID' in str(value) for value in row)
+    assert any('TEST_CASE_ID.REQUIRED' in row and any(reason in str(value) for value in row)
                for row in workbook['违规明细'].values)
     fixed = replace(issue, custom_fields=DetailSection.loaded(FieldBag.from_mapping(
-        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': 'CASE-1'})))
+        {'Channel of Reporter': {'value': 'Self-Test'}, 'Test Case ID': 'TV-CATEGORY-CASE'})))
     rerun = replace(report, issues=(audit_issue(fixed),))
     assert compare_jira_audits(summary['findings'], rerun)[0]['state'] == 'fixed'
 
@@ -209,7 +232,7 @@ def test_jira_exporter_creates_summary_and_violation_workbook(tmp_path) -> None:
     workbook = load_workbook(path)
 
     assert workbook.sheetnames == ["汇总", "违规明细"]
-    assert tuple(workbook["汇总"].values)[8] == ("创建人", "违规 Jira 数量", "违规 Jira 号")
+    assert tuple(workbook["汇总"].values)[8] == ("创建人", "违规数/创建数", "违规 Jira 号")
     detail = workbook['违规明细']
     assert detail['B1'].value == '人员（Creator）'
     assert detail['B2'].value == 'Chao Li'

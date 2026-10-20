@@ -27,7 +27,6 @@ from core.weekly_audit import fixed_weekly_audit_scope
 from smarttest_web.audit.confluence_adapter import WebConfluenceAuditOwner
 from smarttest_web.audit.jira_adapter import WebJiraAuditOwner
 from smarttest_web.audit.registry import AuditCancelled
-from smarttest_web.database import WebDatabase
 from smarttest_web.confluence.cache_service import ConfluenceProjectCacheService
 from smarttest_web.confluence.project_repository import ConfluenceProjectRepository
 from smarttest_web.project_facts_api import _ProjectFactsGateway
@@ -35,7 +34,48 @@ from smarttest_web.jira.cache_service import JiraIssueCacheService
 from smarttest_web.jira.issue_repository import JiraIssueRepository
 
 
-def test_fixed_confluence_scope_excludes_stage_four_and_out_of_year(tmp_path):
+def test_confluence_child_metadata_grants_reuse_parent_scope_and_version_reader():
+    calls = []
+    class Access:
+        def __init__(self): self.grants = {('page', 'parent', 'metadata', 'P1:evidence')}
+        def require_active(self): pass
+        def require(self, kind, key, capability):
+            assert any(row[:3] == (kind, key, capability) for row in self.grants)
+        def scopes(self, kind, key, capability):
+            return {row[3] for row in self.grants if row[:3] == (kind, key, capability)}
+        def publish(self, grants, write):
+            self.grants.update(grants)
+            write()
+    class Gateway:
+        def get_page_children(self, page_id):
+            calls.append(('children', page_id))
+            return [ConfluencePage('child', 'Child', 'https://c/child', version=2)]
+        def get_page(self, page_id):
+            calls.append(('current', page_id))
+            return ConfluencePage('child', 'Child', 'https://c/child', body='<p>new</p>', version=2,
+                                  updated_at=datetime(2026, 8, 20, tzinfo=ZoneInfo('Asia/Shanghai')))
+        def get_page_version(self, page_id, version):
+            calls.append(('version', page_id, version))
+            return ConfluencePage('child', 'Child', 'https://c/child', body='<p>old</p>', version=1,
+                                  updated_at=datetime(2026, 8, 10, tzinfo=ZoneInfo('Asia/Shanghai')))
+    from core.confluence.audit.models import AuditPeriod
+    access = Access()
+    owner = WebConfluenceAuditOwner(None, None, Gateway(), access=access)
+    token = type('Token', (), {'raise_if_cancelled': lambda self: None})()
+    children = owner.load_child_pages('parent', token)
+    assert children == (ConfluencePageRef('child', 'Child', 'https://c/child', 2),)
+    assert ('page', 'child', 'metadata', 'P1:evidence') in access.grants
+    current = owner.load_current_page('child', token)
+    period = AuditPeriod(datetime(2026, 8, 17, tzinfo=ZoneInfo('Asia/Shanghai')),
+                         datetime(2026, 8, 24, tzinfo=ZoneInfo('Asia/Shanghai')))
+    assert [page.version for page in owner.load_page_versions('child', period, current, token)] == [1, 2]
+    assert ('page', 'child', 'body', 'P1:evidence') in access.grants
+    assert calls == [('children', 'parent'), ('current', 'child'), ('version', 'child', 1)]
+
+
+def test_fixed_confluence_scope_excludes_stage_four_and_out_of_year(
+    tmp_path, *, database_factory
+):
     base = Project(ProjectIdentity('1', 'P1'), 'Project', ProductSpaceRef('TV'), ConfluencePageRef('1'))
     def candidate(identity, stage, year):
         return replace(
@@ -51,9 +91,16 @@ def test_fixed_confluence_scope_excludes_stage_four_and_out_of_year(tmp_path):
             return type('Page', (), {'projects': projects})()
         def load_many(self, rows, details):
             return rows
-    owner = WebConfluenceAuditOwner(None, Repository(), None, access=confirmed_access(
-        WebDatabase(tmp_path / 'access.db'), tuple(project.identity.project_id for project in projects), (),
-    ))
+    owner = WebConfluenceAuditOwner(
+        None,
+        Repository(),
+        None,
+        access=confirmed_access(
+            database_factory(),
+            tuple((project.identity.project_id for project in projects)),
+            (),
+        ),
+    )
     resolved = owner.resolve({
         'startDate': '2026-09-04T00:00:00+08:00', 'endDate': '2026-09-08T10:00:00+08:00',
         'filters': {'date of commercial approval': ['2025', '2026'], 'support mode': ['A', 'B'],
@@ -63,7 +110,9 @@ def test_fixed_confluence_scope_excludes_stage_four_and_out_of_year(tmp_path):
     assert [project.identity.project_id for project in resolved.projects] == ['P1']
 
 
-def test_fixed_confluence_scope_excludes_support_mode_b_only_from_sdpl(tmp_path):
+def test_fixed_confluence_scope_excludes_support_mode_b_only_from_sdpl(
+    tmp_path, *, database_factory
+):
     base = Project(ProjectIdentity('1', 'P1'), 'Project', ProductSpaceRef('TV'), ConfluencePageRef('1'),
                    status=NamedValue('NORMAL', 'NORMAL'), stage=NamedValue('3', '3 EVT'),
                    facts=DetailSection.loaded(FieldBag.from_mapping({'date of commercial approval': '2026-06-01'})))
@@ -79,9 +128,16 @@ def test_fixed_confluence_scope_excludes_support_mode_b_only_from_sdpl(tmp_path)
             return type('Page', (), {'projects': projects})()
         def load_many(self, rows, details):
             return rows
-    owner = WebConfluenceAuditOwner(None, Repository(), None, access=confirmed_access(
-        WebDatabase(tmp_path / 'access.db'), tuple(project.identity.project_id for project in projects), (),
-    ))
+    owner = WebConfluenceAuditOwner(
+        None,
+        Repository(),
+        None,
+        access=confirmed_access(
+            database_factory(),
+            tuple((project.identity.project_id for project in projects)),
+            (),
+        ),
+    )
     scope = fixed_weekly_audit_scope(
         datetime(2026, 9, 18, 18, tzinfo=ZoneInfo('Asia/Shanghai')),
     )['confluence']
@@ -93,9 +149,11 @@ def test_fixed_confluence_scope_excludes_support_mode_b_only_from_sdpl(tmp_path)
     assert [project.identity.project_id for project in resolved.projects] == ['TV-B', 'SDPL-A']
 
 
-def test_weekly_manual_china_projects_bypass_all_filters_and_load_without_catalog(tmp_path):
+def test_weekly_manual_china_projects_bypass_all_filters_and_load_without_catalog(
+    tmp_path, *, database_factory
+):
     from core.product_lines import PRODUCT_LINES
-    database = WebDatabase(tmp_path / 'manual.db')
+    database = database_factory()
     repository = ConfluenceProjectRepository(database)
     access = confirmed_access(database, (), ())
     scope = fixed_weekly_audit_scope(datetime(2026, 10, 9, 18))
@@ -175,7 +233,9 @@ def _jira_payload(key, creator, revision="2026-08-29T00:00:00+00:00"):
     }
 
 
-def test_jira_adapter_refreshes_every_page_and_only_eligible_audit_details(tmp_path) -> None:
+def test_jira_adapter_refreshes_every_page_and_only_eligible_audit_details(
+    tmp_path, *, database_factory
+) -> None:
     class Gateway:
         config = type("Config", (), {"base_url": "https://jira.example", "page_size": 1})()
         def __init__(self): self.search_calls = []; self.detail_calls = []
@@ -191,7 +251,7 @@ def test_jira_adapter_refreshes_every_page_and_only_eligible_audit_details(tmp_p
         def search_payload(self, query, **_kwargs): return {"issues": [], "total": 0}
 
     gateway = Gateway()
-    repository = JiraIssueRepository(WebDatabase(tmp_path / "web.db"))
+    repository = JiraIssueRepository(database_factory())
     service = JiraIssueCacheService(gateway, JiraIssueMapper("https://jira.example"), repository)
     owner = WebJiraAuditOwner(gateway, service)
 
@@ -205,7 +265,9 @@ def test_jira_adapter_refreshes_every_page_and_only_eligible_audit_details(tmp_p
     assert cached.components[0].name == "Video"
 
 
-def test_jira_adapter_stops_before_the_next_page_after_cancellation(tmp_path) -> None:
+def test_jira_adapter_stops_before_the_next_page_after_cancellation(
+    tmp_path, *, database_factory
+) -> None:
     class Token:
         cancelled = False
         def raise_if_cancelled(self):
@@ -222,10 +284,14 @@ def test_jira_adapter_stops_before_the_next_page_after_cancellation(tmp_path) ->
             return {"issues": [_jira_payload("SH-1", "Chao Li")], "total": 2, "maxResults": 1}
 
     gateway = Gateway()
-    owner = WebJiraAuditOwner(gateway, JiraIssueCacheService(
-        gateway, JiraIssueMapper("https://jira.example"),
-        JiraIssueRepository(WebDatabase(tmp_path / "web.db")),
-    ))
+    owner = WebJiraAuditOwner(
+        gateway,
+        JiraIssueCacheService(
+            gateway,
+            JiraIssueMapper("https://jira.example"),
+            JiraIssueRepository(database_factory()),
+        ),
+    )
 
     with pytest.raises(AuditCancelled):
         owner.run(type("Scope", (), {"jql": "project=SH"})(), token, lambda *_: None)
@@ -353,9 +419,11 @@ def _project(project_id="P1"):
 
 @pytest.mark.parametrize("old_evidence_loaded", [False, True])
 def test_confluence_review_discovers_and_persists_audit_pages_even_with_old_loaded_cache(
-    tmp_path, old_evidence_loaded,
+    tmp_path, old_evidence_loaded, *, database_factory
 ) -> None:
-    repository, client, cache = _discovery_cache(tmp_path)
+    repository, client, cache = _discovery_cache(
+        tmp_path, database_factory=database_factory
+    )
     if old_evidence_loaded:
         repository.replace_roles("P1", DetailSection.loaded(()))
         repository.replace_evidence("P1", DetailSection.loaded((
@@ -383,8 +451,12 @@ def test_confluence_review_discovers_and_persists_audit_pages_even_with_old_load
     }
 
 
-def test_confluence_review_does_not_invent_missing_discovered_page(tmp_path) -> None:
-    repository, client, cache = _discovery_cache(tmp_path)
+def test_confluence_review_does_not_invent_missing_discovered_page(
+    tmp_path, *, database_factory
+) -> None:
+    repository, client, cache = _discovery_cache(
+        tmp_path, database_factory=database_factory
+    )
     del client.pages["14"]
     owner = WebConfluenceAuditOwner(cache, repository, client, access=cache._access)
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
@@ -400,7 +472,7 @@ def _audit_token():
     return type("Token", (), {"raise_if_cancelled": lambda self: None})()
 
 
-def _discovery_cache(tmp_path):
+def _discovery_cache(tmp_path, *, database_factory):
     class PageClient:
         def __init__(self):
             titles = {
@@ -431,7 +503,7 @@ def _discovery_cache(tmp_path):
             return replace(self.pages[page_id], body=_body(page_id, "old"), version=version,
                            updated_at=datetime(2026, 8, 10, tzinfo=ZoneInfo("Asia/Shanghai")))
 
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "audit.db"))
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(ProjectIdentity("1", "P1"), "P1", ProductSpaceRef("DOPL"),
                       ConfluencePageRef("1", "P1", "https://c/1"))
     repository.save_core((project,))
@@ -440,7 +512,9 @@ def _discovery_cache(tmp_path):
     return repository, client, cache
 
 
-def test_confluence_adapter_uses_applied_ids_and_keeps_versions_temporary(tmp_path) -> None:
+def test_confluence_adapter_uses_applied_ids_and_keeps_versions_temporary(
+    tmp_path, *, database_factory
+) -> None:
     project = _project()
     unselected = _project("P2")
     cache_calls = []
@@ -465,7 +539,14 @@ def test_confluence_adapter_uses_applied_ids_and_keeps_versions_temporary(tmp_pa
             return ConfluencePage(page_id, page_id, f"https://c/{page_id}", _body(page_id, "old"), _body(page_id, "old"), version, datetime(2026, 8, 10, tzinfo=ZoneInfo("Asia/Shanghai")))
 
     gateway = Gateway()
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), gateway, access=confirmed_access(WebDatabase(tmp_path / 'access.db'), ('P1', 'P2'), ('10', '11', '12', '13', '14')))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        gateway,
+        access=confirmed_access(
+            database_factory(), ("P1", "P2"), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     batch = owner.run(resolved, type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
 
@@ -476,7 +557,9 @@ def test_confluence_adapter_uses_applied_ids_and_keeps_versions_temporary(tmp_pa
     assert len([call for call in gateway.calls if call[0] == "current"]) == 5
 
 
-def test_confluence_adapter_stops_after_refresh_when_cancelled(tmp_path) -> None:
+def test_confluence_adapter_stops_after_refresh_when_cancelled(
+    tmp_path, *, database_factory
+) -> None:
     token = type("Token", (), {"cancelled": False})()
     def raise_if_cancelled():
         if token.cancelled:
@@ -492,13 +575,22 @@ def test_confluence_adapter_stops_after_refresh_when_cancelled(tmp_path) -> None
     class Gateway:
         def get_page(self, _page_id): raise AssertionError("no page request after cancellation")
 
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), Gateway(), access=confirmed_access(WebDatabase(tmp_path / 'access.db'), ('P1', 'P2'), ('10', '11', '12', '13', '14')))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        Gateway(),
+        access=confirmed_access(
+            database_factory(), ("P1", "P2"), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     with pytest.raises(AuditCancelled):
         owner.run(resolved, token, lambda *_: None)
 
 
-def test_confluence_failed_required_details_create_project_failure(tmp_path) -> None:
+def test_confluence_failed_required_details_create_project_failure(
+    tmp_path, *, database_factory
+) -> None:
     project = _project()
     failed = replace(
         project, roles=DetailSection.failed("remote_unavailable"),
@@ -512,7 +604,14 @@ def test_confluence_failed_required_details_create_project_failure(tmp_path) -> 
     class Gateway:
         def get_page(self, _page_id): raise AssertionError("no page request after required detail failure")
 
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), Gateway(), access=confirmed_access(WebDatabase(tmp_path / 'access.db'), ('P1', 'P2'), ('10', '11', '12', '13', '14')))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        Gateway(),
+        access=confirmed_access(
+            database_factory(), ("P1", "P2"), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     batch = owner.run(resolved, type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
 
@@ -521,7 +620,9 @@ def test_confluence_failed_required_details_create_project_failure(tmp_path) -> 
     assert batch.projects[0].findings[0].reason == "remote_unavailable"
 
 
-def test_confluence_exact_refresh_failure_does_not_stop_next_project(tmp_path) -> None:
+def test_confluence_exact_refresh_failure_does_not_stop_next_project(
+    tmp_path, *, database_factory
+) -> None:
     failed_project, good_project = _project("P1"), _project("P2")
     projects = {"P1": failed_project, "P2": good_project}
     class Repository:
@@ -535,7 +636,14 @@ def test_confluence_exact_refresh_failure_does_not_stop_next_project(tmp_path) -
         def get_page(self, page_id):
             return ConfluencePage(page_id, page_id, f"https://c/{page_id}", _body(page_id, "new"), _body(page_id, "new"), 1, datetime(2026, 8, 20, tzinfo=ZoneInfo("Asia/Shanghai")))
 
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), Gateway(), access=confirmed_access(WebDatabase(tmp_path / 'access.db'), ('P1', 'P2'), ('10', '11', '12', '13', '14')))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        Gateway(),
+        access=confirmed_access(
+            database_factory(), ("P1", "P2"), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1", "P2"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     batch = owner.run(resolved, type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
 
@@ -543,7 +651,9 @@ def test_confluence_exact_refresh_failure_does_not_stop_next_project(tmp_path) -
     assert len(batch.projects[1].findings) == 8
 
 
-def test_confluence_adapter_stops_before_version_requests_after_cancellation(tmp_path) -> None:
+def test_confluence_adapter_stops_before_version_requests_after_cancellation(
+    tmp_path, *, database_factory
+) -> None:
     project = _project()
     token = type("Token", (), {"cancelled": False})()
     def raise_if_cancelled():
@@ -565,14 +675,23 @@ def test_confluence_adapter_stops_before_version_requests_after_cancellation(tmp
             self.calls.append(("version", page_id, version)); raise AssertionError("no version request")
 
     gateway = Gateway()
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), gateway, access=confirmed_access(WebDatabase(tmp_path / 'access.db'), ('P1', 'P2'), ('10', '11', '12', '13', '14')))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        gateway,
+        access=confirmed_access(
+            database_factory(), ("P1", "P2"), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     with pytest.raises(AuditCancelled):
         owner.run(resolved, token, lambda *_: None)
     assert gateway.calls == [("current", "10")]
 
 
-def test_confluence_review_records_project_page_and_total_timings(tmp_path, monkeypatch) -> None:
+def test_confluence_review_records_project_page_and_total_timings(
+    tmp_path, monkeypatch, *, database_factory
+) -> None:
     import smarttest_web.audit.confluence_adapter as adapter_module
 
     records = []
@@ -586,7 +705,14 @@ def test_confluence_review_records_project_page_and_total_timings(tmp_path, monk
         def get_page(self, page_id):
             return ConfluencePage(page_id, page_id, "https://c", "<p>x</p>", "<p>x</p>", 1, datetime(2026, 8, 20, tzinfo=ZoneInfo("Asia/Shanghai")))
 
-    owner = WebConfluenceAuditOwner(Cache(), Repository(), Gateway(), access=confirmed_access(WebDatabase(tmp_path / "access.db"), ("P1",), ("10", "11", "12", "13", "14")))
+    owner = WebConfluenceAuditOwner(
+        Cache(),
+        Repository(),
+        Gateway(),
+        access=confirmed_access(
+            database_factory(), ("P1",), ("10", "11", "12", "13", "14")
+        ),
+    )
     resolved = owner.resolve({"projectIds": ["P1"], "startDate": "2026-08-17", "endDate": "2026-08-24"})
     owner.run(resolved, type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
 

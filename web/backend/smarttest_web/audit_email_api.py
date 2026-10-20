@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query, Request
@@ -21,6 +22,15 @@ def create_router(authenticated_session, email_history, email_job, sessions, cac
     @router.get("/api/audit-email/runs")
     def list_audit_email_runs(offset: int = Query(0, ge=0), value=Depends(authenticated_session)):
         return email_history.list_runs(value.username, offset)
+
+    @router.get("/api/audit-email/history/{kind}")
+    def browse_audit_email_history(kind: Literal['jira', 'confluence'],
+                                  offset: int = Query(0, ge=0),
+                                  start_date: date | None = None, end_date: date | None = None,
+                                  value=Depends(authenticated_session)):
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=422, detail='开始日期不能晚于结束日期')
+        return email_history.browse(value.username, kind, offset, start_date, end_date)
 
     @router.get("/api/audit-email/runs/{run_id}")
     def get_audit_email_run(run_id: str, value=Depends(authenticated_session)):

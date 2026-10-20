@@ -11,38 +11,16 @@
     <header class="login-brand">__SMARTTEST_WEB_BRAND__</header>
     <!-- Theme Toggle (Fixed Position) -->
     <div class="login-theme-toggle">
-        <label class="login-background-control">Background
-            <select data-login-background-switch aria-label="Login background">
-                <option value="pcb">PCB</option>
-                <option value="globe">Globe</option>
-            </select>
-        </label>
-        <div class="theme-toggle">
-            <button type="button" class="theme-btn theme-btn-light active" onclick="setTheme('light')" title="Light theme">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/>
-                    <line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/>
-                    <line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-            </button>
-            <button type="button" class="theme-btn theme-btn-dark" onclick="setTheme('dark')" title="Dark theme">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
-            </button>
+        <div class="role-segments" role="group" aria-label="Appearance">
+            <button type="button" class="theme-btn theme-btn-light active" onclick="setTheme('light')" aria-label="Light theme"><span data-icon="sun"></span></button>
+            <button type="button" class="theme-btn theme-btn-dark" onclick="setTheme('dark')" aria-label="Dark theme"><span data-icon="moon"></span></button>
         </div>
     </div>
 
     <!-- Login Page -->
     <main class="login-page" data-login-board data-motion="vivid">
         <section class="login-container" aria-labelledby="login-title">
-            <div class="login-card">
+            <div class="card login-card">
                 <div class="login-header">
                     <h1 id="login-title" class="login-title">Welcome back</h1>
                     <p class="login-subtitle">Sign in to your account to continue</p>
@@ -51,16 +29,16 @@
                 <form class="login-form" data-login-form>
                     <div class="form-group">
                         <label class="form-label" for="account-name">Account name</label>
-                        <input id="account-name" name="username" type="text" class="form-input" autocomplete="username" placeholder="Enter your account name" required>
+                        <input id="account-name" name="username" type="text" class="form-control" autocomplete="username" placeholder="Enter your account name" required>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label" for="account-password">Password</label>
-                        <input id="account-password" name="password" type="password" class="form-input" autocomplete="current-password" placeholder="Enter your password" required>
+                        <input id="account-password" name="password" type="password" class="form-control" autocomplete="current-password" placeholder="Enter your password" required>
                     </div>
 
                     <div class="inline-status" data-auth-status aria-live="polite"></div>
-                    <button type="submit" class="btn btn-primary login-sign-in">Sign in</button>
+                    <button type="submit" class="button button-primary login-sign-in">Sign in</button>
                 </form>
                 <footer class="login-footer">&copy; 2026 __SMARTTEST_WEB_BRAND__</footer>
             </div>

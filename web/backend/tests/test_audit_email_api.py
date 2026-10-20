@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 
 from fastapi.testclient import TestClient
@@ -70,14 +70,16 @@ def make_app(**kwargs):
 
 
 @pytest.mark.parametrize('has_findings', [True, False])
-def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_confluence_remediation(tmp_path, no_real_weekly_email, has_findings):
+def test_previous_completed_audit_reuses_database_filter_without_delivery_and_confluence_remediation(
+    tmp_path, no_real_weekly_email, has_findings, *, database_factory
+):
     from core.weekly_audit import fixed_weekly_audit_scope
     from core.jira.audit.models import AuditRule
     from smarttest_web.audit.email_history import AuditEmailHistory
     from smarttest_web.audit.email_job import AuditEmailJob
     from smarttest_web.database import WebDatabase
     from zoneinfo import ZoneInfo
-    history = AuditEmailHistory(WebDatabase(tmp_path / 'audit.db'))
+    history = AuditEmailHistory(database_factory())
     current_scope = fixed_weekly_audit_scope(datetime(2026, 9, 18, 18, tzinfo=ZoneInfo('Asia/Shanghai')))
     old = history.create('qa', current_scope['previousPeriod'])
     old['createdAt'] = '2026-09-14T07:00:00+00:00'
@@ -98,7 +100,7 @@ def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_conf
     class Access:
         def require_active(self): pass
     owner = Owner()
-    job = AuditEmailJob(history)
+    job = AuditEmailJob(history, reports_root=tmp_path / "audit-email-reports")
     try:
         result = job.trigger('qa', current_scope, Access(), 'secret', 0, None,
                              lambda *_: owner, lambda *_: Confluence(), trigger_source='manual')
@@ -119,9 +121,11 @@ def test_previous_completed_audit_reuses_sqlite_filter_without_delivery_and_conf
         assert 'Previous_Audit_Remediation.xlsx' in result['reports']['jira']['attachments']
         assert result['reports']['confluence']['state'] == 'completed'
         assert 'remediation' not in result['reports']['confluence']
-        persisted = AuditEmailHistory(WebDatabase(tmp_path / 'audit.db')).get('qa', result['id'])
+        persisted = AuditEmailHistory(database_factory()).get("qa", result["id"])
         assert persisted['summary']['confluence']['projects'][0]['rules'][0]['status'] == 'updated'
         assert persisted['summary']['jira']['issues'][0]['aiReviewStatus'] == 'not_required'
+        assert persisted['summary']['jira']['period'] == {key: current_scope[key] for key in ('startDate', 'endDate')}
+        assert persisted['reports']['jira']['remediation']['currentSummary']['period'] == current_scope['previousPeriod']
         assert persisted['reports']['jira']['remediation']['currentSummary']['rules'][0]['ruleId'] == 'r1'
     finally:
         job.close()
@@ -150,17 +154,17 @@ def test_real_dual_runs_keep_five_records_and_attachments_after_restart():
         assert client.post('/api/audit-email/runs').status_code == 401
         assert client.get('/api/audit-email/runs').status_code == 401
         login(client)
-        assert len(client.get('/api/audit-email/runs').json()['runs']) == 4
+        assert len(client.get('/api/audit-email/runs').json()['runs']) == 0
         runs = [trigger(client) for _ in range(5)]
         assert len({run['id'] for run in runs}) == 5
-        for run in runs:
+        for index, run in enumerate(runs):
             assert run['state'] == 'completed', run['evidence']
             assert run['summary']['jira']['total'] == 1
             assert run['summary']['confluence']['TV'] == [1, 1]
             assert run['reports']['jira']['sourceIds'][0] == run['id']
-            assert len(run['reports']['jira']['sourceIds']) == 4
+            assert len(run['reports']['jira']['sourceIds']) == min(index + 1, 4)
             assert 'project in (IPTV, SH, TV, OTT,RK)' in run['reports']['jira']['html']
-        assert len(runs[0]['reports']['confluence']['sourceIds']) == 3
+        assert len(runs[0]['reports']['confluence']['sourceIds']) == 1
         assert len(runs[-1]['reports']['confluence']['sourceIds']) == 4
         first = runs[0]
         for kind in ('jira', 'confluence'):
@@ -171,26 +175,13 @@ def test_real_dual_runs_keep_five_records_and_attachments_after_restart():
         login(client)
         assert client.get(f'/api/audit-email/runs/{first["id"]}').json() == first
         listing = client.get('/api/audit-email/runs').json()
-        assert listing['total'] == 9
+        assert listing['total'] == 5
         assert len(listing['runs']) == 4
-        assert len(client.get('/api/audit-email/runs?offset=4').json()['runs']) == 4
+        assert len(client.get('/api/audit-email/runs?offset=4').json()['runs']) == 1
         name = first['reports']['jira']['attachments'][0]
         assert client.get(f'/api/audit-email/runs/{first["id"]}/attachments/jira/{name}').content[:2] == b'PK'
         assert client.get(f'/api/audit-email/runs/{first["id"]}/attachments/jira/no.xlsx').status_code == 404
         assert client.get('/api/audit-email/runs/missing').status_code == 404
-
-
-def test_seed_details_never_invent_missing_history():
-    with TestClient(make_app(), base_url='https://testserver') as client:
-        login(client)
-        rows = client.get('/api/audit-email/runs').json()['runs']
-        detail = client.get(f'/api/audit-email/runs/{rows[-1]["id"]}').json()
-        assert detail['label'] == '0807'
-        assert detail['reports']['confluence']['state'] == 'unavailable'
-        assert detail['reports']['confluence']['html'] == ''
-        latest = client.get(f'/api/audit-email/runs/{rows[0]["id"]}').json()
-        assert '12 / 168' in latest['reports']['confluence']['html']
-        assert '49.15%' in latest['reports']['jira']['html']
 
 
 def test_trigger_uses_fixed_scope_sends_two_emails_without_creating_global_filter_snapshots(no_real_weekly_email):
@@ -230,7 +221,7 @@ def test_one_mail_failure_does_not_prevent_the_other_delivery(monkeypatch):
     assert 'private transport detail' not in result['evidence']
 
 
-def test_another_account_cannot_read_run_or_attachment():
+def test_authenticated_accounts_share_history_details_and_attachments_without_retriggering(no_real_weekly_email):
     auth = FakeAuthenticator()
     app = create_app(authenticator=lambda: auth, project_facts_owner=Facts,
                      jira_audit_owner=lambda *_: ActualJira(), confluence_audit_owner=lambda *_: Confluence())
@@ -240,10 +231,19 @@ def test_another_account_cannot_read_run_or_attachment():
         client.post('/api/auth/logout')
         auth.result = {'success': True, 'username': 'other', 'display_name': 'Other', 'avatar_bytes': b''}
         client.post('/api/auth/login', json={'username': 'other', 'password': 'secret'})
-        assert client.get(f'/api/audit-email/runs/{result["id"]}').status_code == 404
+        assert client.get(f'/api/audit-email/runs/{result["id"]}').json() == result
         name = result['reports']['jira']['attachments'][0]
-        assert client.get(f'/api/audit-email/runs/{result["id"]}/attachments/jira/{name}').status_code == 404
-        assert client.get('/api/audit-email/runs').json()['total'] == 4
+        assert client.get(f'/api/audit-email/runs/{result["id"]}/attachments/jira/{name}').content[:2] == b'PK'
+        assert client.get('/api/audit-email/history/jira').json()['total'] == 1
+        assert client.get('/api/audit-email/history/confluence').json()['total'] == 1
+        assert len(no_real_weekly_email) == 2
+        client.post('/api/auth/logout')
+        for path in ('/api/audit-email/runs', '/api/audit-email/history/jira',
+                     f'/api/audit-email/runs/{result["id"]}',
+                     f'/api/audit-email/runs/{result["id"]}/attachments/jira/{name}'):
+            assert client.get(path).status_code == 401
+        client.post('/api/auth/login', json={'username': 'other', 'password': 'secret'})
+        assert client.get('/api/audit-email/runs').json()['total'] == 1
 
 
 def test_trigger_ignores_singleton_snapshots_and_legacy_jira_preference():
@@ -274,3 +274,17 @@ def test_obsolete_event_and_editable_schedule_routes_are_removed():
                              ('get', '/api/audit-email/schedule'), ('put', '/api/audit-email/schedule'),
                              ('delete', '/api/audit-email/schedule')]:
             assert getattr(client, method)(path).status_code == 404
+
+
+def test_history_browser_gets_only_saved_account_data_and_validates_date_ranges(no_real_weekly_email):
+    with TestClient(make_app(), base_url='https://testserver') as client:
+        assert client.get('/api/audit-email/history/jira').status_code == 401
+        client.post('/api/auth/login', json={'username': 'coco', 'password': 'secret'})
+        result = client.get('/api/audit-email/history/jira').json()
+        assert result == {'rows': [], 'total': 0}
+        assert client.get('/api/audit-email/history/confluence').json()['total'] == 0
+        assert client.get('/api/audit-email/history/jira?start_date=2026-01-01').json()['total'] == 0
+        assert client.get('/api/audit-email/history/jira?offset=-1').status_code == 422
+        assert client.get('/api/audit-email/history/jira?start_date=2026-10-20&end_date=2026-10-01').status_code == 422
+        assert client.get('/api/audit-email/history/unknown').status_code == 422
+        assert no_real_weekly_email == []

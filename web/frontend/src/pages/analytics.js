@@ -1,3 +1,4 @@
+import { icon } from '../icons.js'
 export function mount(root) {
   root.innerHTML = `
             <!-- Page Header -->
@@ -7,14 +8,14 @@ export function mount(root) {
                     <p class="greeting-sub">Detailed insights and performance metrics</p>
                 </div>
                 <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                    <div class="date-picker">
+                    <div class="date-picker role-segments">
                         <button class="date-btn" onclick="setDateRange('7d', this)">7D</button>
                         <button class="date-btn active" onclick="setDateRange('30d', this)">30D</button>
                         <button class="date-btn" onclick="setDateRange('90d', this)">90D</button>
                         <button class="date-btn" onclick="setDateRange('12m', this)">12M</button>
                     </div>
-                    <button class="btn btn-secondary">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <button class="button button-secondary">
+                        ${icon('download')}
                         Export
                     </button>
                 </div>
@@ -25,22 +26,22 @@ export function mount(root) {
                 <div class="stat-card">
                     <div class="stat-label">Page Views</div>
                     <div class="stat-value">128,450</div>
-                    <div class="stat-change positive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>+18.2% vs last period</div>
+                    <div class="stat-change positive">${icon('trend-up')}+18.2% vs last period</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Unique Visitors</div>
                     <div class="stat-value">45,230</div>
-                    <div class="stat-change positive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>+12.5% vs last period</div>
+                    <div class="stat-change positive">${icon('trend-up')}+12.5% vs last period</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Avg. Session</div>
                     <div class="stat-value">4m 32s</div>
-                    <div class="stat-change positive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>+8.7% vs last period</div>
+                    <div class="stat-change positive">${icon('trend-up')}+8.7% vs last period</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Bounce Rate</div>
                     <div class="stat-value">32.4%</div>
-                    <div class="stat-change negative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>+2.1% vs last period</div>
+                    <div class="stat-change negative">${icon('trend-down')}+2.1% vs last period</div>
                 </div>
             </div>
 
@@ -131,7 +132,7 @@ export function mount(root) {
                         <h3 class="card-title">Top Pages</h3>
                         <p class="card-subtitle">Most visited pages this period</p>
                     </div>
-                    <button class="btn btn-ghost">View All</button>
+                    <button class="button button-ghost">View All</button>
                 </div>
                 <div class="table-container">
                     <table>

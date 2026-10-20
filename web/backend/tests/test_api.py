@@ -48,8 +48,10 @@ def test_health_does_not_resolve_database_owner():
 def test_default_app_session_database_is_isolated_by_backend_fixture(isolate_server_credentials):
     app = create_app(query_owner=lambda: (_ for _ in ()).throw(AssertionError("DB resolved")))
     assert TestClient(app).get("/health").status_code == 200
-    assert isolate_server_credentials.database_path.exists()
-    assert isolate_server_credentials.database_path.parent == isolate_server_credentials.root
+    assert not isolate_server_credentials.database_path.exists()
+    assert set(isolate_server_credentials.credential_stores) == {
+        "smarttest_preparation_test"
+    }
 
 
 def test_importing_backend_app_does_not_create_default_app_data(tmp_path):
@@ -73,7 +75,7 @@ def test_default_asgi_app_is_initialized_once_under_concurrency(monkeypatch):
         sleep(.02)
         value = object(); created.append(value); return value
 
-    monkeypatch.setattr(app_module, "create_app", factory)
+    monkeypatch.setattr(app_module, "create_configured_app", factory)
     with ThreadPoolExecutor(max_workers=8) as pool:
         values = list(pool.map(lambda _index: app_module._get_default_app(), range(16)))
     assert len(created) == 1

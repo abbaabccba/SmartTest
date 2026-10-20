@@ -19,7 +19,7 @@ it.each(['changing', 'ready'])('shared authenticated page ignores old bootstrap 
       expect(currentPage).not.toBeNull()
       const widget = document.querySelector('[data-page-widget="jira-self-test"]')
       expect(widget).not.toBeNull()
-      expect(widget.querySelector('strong').textContent).toBe('Self-Test Jira Statistics by Product Line')
+      expect(widget.querySelector('strong').textContent).toBe('Self Test Jira Statistics by Product Line')
       const customer = document.querySelector('[data-page-widget="jira-customer-feedback"]')
       expect(customer.querySelector('strong').textContent).toBe('Customer Feedback Jira Statistics by Product Line')
       expect(customer.querySelector('[data-widget-body]').textContent).toContain('WeeklyMonthlyQuarterlyYearly')

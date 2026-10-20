@@ -46,6 +46,16 @@ const fixedFacets = [
 describe('Projects', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="app"></div>'; localStorage.clear(); sessionStorage.clear() })
 
+  it('keeps matching database projects usable after refresh failure', async () => {
+    const page = createProjects({ root: document.querySelector('#app'), api: {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, state: 'failed', dataState: 'ready', sync: { state: 'failed' } }),
+    } })
+    await page.start()
+    expect(document.querySelector('[data-projects]').textContent).toContain('Apollo')
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
+    page.destroy()
+  })
+
   it('does not render Role workload on the Projects page', async () => {
     await createProjects({ root: document.querySelector('#app'), api: {
       getProjectFacts: vi.fn().mockResolvedValue(payload),
@@ -179,8 +189,9 @@ describe('Projects', () => {
     const statusSummary = groups[0].querySelector('[data-project-status-summary]')
     expect(statusSummary.textContent).not.toContain('Current Stage')
     const stageContainer = groups[0].querySelector('.stage-groups')
-    expect(statusSummary.parentElement).toBe(toggles[0])
-    expect([...groups[0].children]).toEqual([toggles[0], stageContainer])
+    expect(statusSummary.parentElement).toBe(toggles[0].parentElement)
+    expect(toggles[0].querySelector('[role="button"]')).toBeNull()
+    expect([...groups[0].children]).toEqual([toggles[0].parentElement, stageContainer])
     expect([...statusSummary.querySelectorAll('[data-project-status-count]')].map(item => item.textContent)).toEqual([
       'BLOCK1', 'NORMAL1',
     ])
@@ -189,7 +200,7 @@ describe('Projects', () => {
     toggles[0].click()
     expect(toggles[0].getAttribute('aria-expanded')).toBe('false')
     expect(stageContainer.hidden).toBe(true)
-    expect(statusSummary.closest('[data-product-space-toggle]')).toBe(toggles[0])
+    expect(statusSummary.closest('.product-space-summary')).toBe(toggles[0].parentElement)
     expect([...groups[1].querySelectorAll('[data-project-status-count]')].map(item => item.textContent)).toEqual(['Unspecified1'])
     const statusLabels = [...document.querySelectorAll('[data-project-status-count]')]
     const normalSlots = statusLabels.filter(label => label.firstElementChild.textContent === 'NORMAL')
@@ -441,6 +452,20 @@ describe('Projects', () => {
     expect(document.querySelector('.project-card-details').textContent).not.toContain('WIFI Module')
   })
 
+  it('preserves nonempty role values and uses Unknown only for empty members', async () => {
+    const values = ['NA', 'N/A', '-', '<TBD>', 'TBD', 'fan.xu', 'Fan Xu']
+    const roles = values.map(name => ({ name, identity: name }))
+    roles.push({ name: ' ', identity: 'account-only' }, { name: ' ', identity: ' ' })
+    await createProjects({ root: document.querySelector('#app'), api: {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, projects: [{ ...payload.projects[0],
+        roles: { 'Major FAE QA': roles } }] }),
+    } }).start()
+    const fact = [...document.querySelectorAll('.project-detail-item')]
+      .find(item => item.querySelector('.project-card-label').textContent === 'Major FAE QA')
+    expect(fact.querySelector('.project-card-value').textContent)
+      .toBe([...values, 'account-only', 'Unknown'].join(', '))
+  })
+
   it('keeps every declared preview attribute visible as Unknown when unavailable', async () => {
     const missing = { ...payload, projects: [{
       identity: 'DOPL:A-1', name: 'Apollo', page_url: '', space_key: 'DOPL',
@@ -483,8 +508,8 @@ describe('Projects', () => {
     expect(link.href).toBe('https://confluence.example/pages/1')
     expect(link.target).toBe('_blank')
     expect(link.rel).toBe('noopener noreferrer')
-    const icon = link.querySelector('img[aria-hidden="true"]')
-    expect(icon.getAttribute('src')).toBe('/icons/external-link.svg')
+    const icon = link.querySelector('[aria-hidden="true"]')
+    expect(icon).not.toBeNull()
     expect(link.firstElementChild).toBe(icon)
     expect(link.textContent).toBe('Apollo')
     expect(cards[1].querySelector('.kanban-card-title').textContent).toBe('Blank URL')
@@ -663,7 +688,7 @@ describe('Projects', () => {
     expect(document.querySelector('[name="search"]').disabled).toBe(true)
     expect([...document.querySelectorAll('[data-main-facets] select')].every(item => item.disabled)).toBe(true)
     expect([...document.querySelectorAll('[data-main-facets] .multi-select__control')].every(item => item.disabled)).toBe(true)
-    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => item.textContent === 'Loading…')).toBe(true)
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
   })
 
   it('renders all four supported filters from the immediate loading payload then polls to ready', async () => {
@@ -736,10 +761,41 @@ describe('Projects', () => {
     const component = createProjects({ root: document.querySelector('#app'), api, pollDelay: () => Promise.resolve() })
     await component.start()
     await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('failed'))
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
     expect(api.getProjectFacts).toHaveBeenCalledTimes(2)
     component.destroy()
     await Promise.resolve()
     expect(api.getProjectFacts).toHaveBeenCalledTimes(2)
+  })
+
+  it('ends catalog loading after a poll network failure and leaves Apply available to retry', async () => {
+    const api = {
+      getProjectFacts: vi.fn().mockResolvedValue({ ...payload, state: 'loading', facets: fixedFacets }),
+      getProjectFactsStatus: vi.fn().mockRejectedValue(new Error('offline')),
+      applyConfluenceFilterSnapshot: vi.fn().mockResolvedValue(payload),
+    }
+    const component = createProjects({ root: document.querySelector('#app'), api, pollDelay: () => Promise.resolve() })
+    await component.start()
+    await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('unavailable'))
+    expect(document.querySelector('[role="status"]').hidden).toBe(false)
+    expect([...document.querySelectorAll('[data-main-facets] .multi-select__summary')].every(item => !item.textContent.includes('Loading'))).toBe(true)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
+    document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(api.applyConfluenceFilterSnapshot).toHaveBeenCalledOnce())
+    component.destroy()
+  })
+
+  it('shows Apply transport errors and enables an explicit retry', async () => {
+    const api = {
+      getProjectFacts: vi.fn().mockResolvedValue(payload),
+      applyConfluenceFilterSnapshot: vi.fn().mockRejectedValue(new Error('offline')),
+    }
+    await createProjects({ root: document.querySelector('#app'), api }).start()
+    document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(document.querySelector('[role="status"]').textContent).toContain('apply failed'))
+    expect(document.querySelector('[role="status"]').hidden).toBe(false)
+    expect(document.querySelector('[type="submit"]').disabled).toBe(false)
   })
 
   it('polls catalog status without restarting catalog or requesting details', async () => {
@@ -1001,17 +1057,17 @@ describe('Projects', () => {
   })
 })
 
-it('binds each Projects product layout as the single product background owner', async () => {
+it('keeps Projects titles themed without binding data groups to product backgrounds', async () => {
   const root = document.createElement('div')
   const page = createProjects({ root, api: { getProjectFacts: vi.fn().mockResolvedValue(payload) } })
   try {
     await page.start()
     const groups = [...root.querySelectorAll('[data-product-space-group]')]
-    expect(groups.map(group => group.dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
-    expect(groups.every(group => group.dataset.productSurface === 'layout')).toBe(true)
+    expect(groups.every(group => !group.hasAttribute('data-product-line') && !group.hasAttribute('data-product-surface'))).toBe(true)
+    expect(groups.map(group => group.querySelector('.product-space-summary').dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB'])
     const toggle = groups[0].querySelector('[data-product-space-toggle]')
-    expect(toggle.dataset.productLine).toBe('China Operator')
-    expect(toggle.dataset.productSurface).toBe('button')
+    expect(toggle.parentElement.dataset.productLine).toBe('China Operator')
+    expect(toggle.parentElement.dataset.productSurface).toBe('button')
     expect(toggle.textContent).toContain('China Operator')
     expect(toggle.textContent).not.toContain('DOPL')
     toggle.click()
@@ -1020,7 +1076,7 @@ it('binds each Projects product layout as the single product background owner', 
   } finally { page.destroy() }
 })
 
-it('binds each project disclosure to its catalog name without changing hover details or stage semantics', async () => {
+it('keeps project rows plain without changing hover details or stage semantics', async () => {
   const root = document.createElement('div')
   const page = createProjects({ root, api: { getProjectFacts: vi.fn().mockResolvedValue({ ...payload,
     projects: [
@@ -1032,9 +1088,7 @@ it('binds each project disclosure to its catalog name without changing hover det
     await page.start()
     const speaker = root.querySelector('[data-project-id="SD-1"]')
     const tv = root.querySelector('[data-project-id="TV-1"]')
-    expect(speaker.dataset.productLine).toBe('Smart Device')
-    expect(tv.dataset.productLine).toBe('TV')
-    expect([speaker, tv].map(row => row.dataset.productSurface)).toEqual(['disclosure', 'disclosure'])
+    expect([speaker, tv].every(row => !row.hasAttribute('data-product-line') && !row.hasAttribute('data-product-surface'))).toBe(true)
     expect(speaker.tagName).toBe('ARTICLE')
     expect(speaker.querySelector('.project-card-details').textContent).toContain('Alice')
     expect(speaker.querySelector('a').href).toBe('https://example.com/speaker')
@@ -1044,4 +1098,20 @@ it('binds each project disclosure to its catalog name without changing hover det
     expect(stage.querySelector('summary').dataset.projectStage).toBe('2 IN DEVELOPMENT')
     expect(stage.hasAttribute('data-product-surface')).toBe(false)
   } finally { page.destroy() }
+})
+
+it('opens applied project records and leaves group expansion and filters unchanged', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  const api = { getProjectFacts: vi.fn().mockResolvedValue(payload) }
+  const page = createProjects({ root: document.querySelector('#app'), api })
+  await page.start()
+  const group = document.querySelector('[data-product-space-toggle]')
+  const expanded = group.getAttribute('aria-expanded')
+  group.closest('.product-space-summary').querySelector('[data-product-count]').click()
+  expect(document.querySelector('dialog tbody').textContent).toContain('Apollo')
+  expect(group.getAttribute('aria-expanded')).toBe(expanded)
+  expect(api.getProjectFacts).toHaveBeenCalledOnce()
+  page.destroy()
+  expect(document.querySelector('dialog')).toBeNull()
 })

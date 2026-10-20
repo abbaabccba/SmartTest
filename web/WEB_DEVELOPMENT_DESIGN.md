@@ -1,5 +1,7 @@
 # SmartTest Web 长期开发设计
 
+> 当前状态（2026-10-16）：Web 已正式切换为 MySQL 持久存储与 Redis 可丢弃缓存。当前运行配置、迁移和测试入口见 [backend README](backend/README.md)，长期数据库与缓存规则见 [AGENTS.md](../AGENTS.md)。以下各阶段设计保留历史原文；其中 SQLite 描述仅反映当时实现，不代表当前运行架构。
+
 ## 1. 文档定位
 
 本文档是 SmartTest Web 长期开发的产品与架构基线，记录已经由 Coco 确认的目标、数据权威、权限原则、模块边界、交付顺序和验收标准。后续采用“单模块设计、单模块实现、单模块验收，最后整合”的方式推进，不反复重新整理已经确认的共同背景。
@@ -89,7 +91,7 @@ Web Frontend
 - 通过 API 获取已经过权限过滤的数据；
 - 显示加载、空数据、部分可用、失败和无权限状态；
 - 不推导管理范围，不自行拼接第三方业务关系，不保存权威业务结果；
-- 使用接近 Fluent UI 的统一视觉体系。
+- 使用统一 Apple 风格视觉体系；外观、图标、动画、五个产品线专属风格及复合/切换边界统一遵循 `docs/superpowers/specs/2026-10-18-web-apple-design-system.md`。
 
 ## 5. 数据权威与读写边界
 
@@ -290,9 +292,10 @@ Home 是上述模块的权限化聚合视图，不独立拥有业务数据。
 
 ## 10. 前端设计体系
 
-- 整体视觉接近 Fluent UI：中性背景、清晰层级、轻边框、低阴影和语义色；
-- 当前视觉基础采用已确认的 TemplateMo 608 布局与样式，并在运行代码中统一使用 SmartTest 命名；
-- 复用 SmartTest 主题样式和语义 token，避免同时存在两套组件语言；
+- Web 唯一公共视觉基线为 Apple 风格，规范与未统一清单见 `docs/superpowers/specs/2026-10-18-web-apple-design-system.md`；此前模板不再作为视觉或布局验收依据；
+- 公共控件外观只定义一份，页面与业务组件仅声明布局和业务状态，不重定义按钮、输入、卡片、分段控件、图标或动效外观；
+- 产品线专属风格保留 China Operator、Smart Device、TV、Global Operator & STB、Wireless Connection；既有登录 PCB/globe 背景动画及选择/主题/启停/销毁机制同样明确保留，禁止作为冗余公共装饰误删（见 Apple 规范第 4.1 节）；登录不是第六产品线皮肤，表单控件继续统一；只在产品线身份视觉层与公共 Apple 基础复合，不形成五套公共控件；
+- 图标形态和交互动效同属复刻范围，复用公共图标与动画 owner，不能仅替换颜色、圆角后宣称完成；
 - 建立统一的导航、页面标题、筛选栏、统计卡、表格、状态标记、图表、空状态、错误状态和详情布局；
 - 支持明暗主题时使用统一语义色；
 - 桌面优先并保留合理响应式布局；
@@ -798,9 +801,9 @@ Web SQLite 增加 Confluence 当前态存储，至少包含以下逻辑实体；
 - 各 Jira 卡片在产品线下提供 Week / Month / Quarter，默认 Month，互不影响产品线和统计维度。
 - Core `JIRA_PERIOD_CONDITIONS` 集中声明最近 7 天、30 天和 3 个月；季度使用 Jira `startOfDay("-3M")`，由 Jira 自身时区确定日起边界，不换成 90 天、不自行计算日期。
 - 用户条件与卡片固定条件/时间边界只经 `compose_jql` 生成 effective JQL，校验、执行、SQLite 保存使用同一字符串。
-- 时间选择复用账号+卡片的 SQLite 偏好 owner；Dashboard/Jira 同卡片共用接口和结果 owner。GET 只恢复，不查询远端；旧年度/其他时间范围快照按 effective JQL 判无效。
+- Dashboard/Jira 同卡片共用接口和结果 owner。GET 从同一有效年度 snapshot 一次返回四周期本地视图且不查询远端；前端不保存 period preference。
 - Customer 仍只占位，时间控件复用偏好 owner，不注册查询业务。Confluence 卡片不变。
-- 周期切换发送 reuse 意图，优先精确复用同账号+卡片+已发布用户条件的 effective JQL+roster fingerprint 对应 SQLite 有效历史快照；未命中才校验并查询远端，不新增 TTL。Search 发送 refresh 意图，强制刷新当前周期。命中路径只读已编译 userJql、Core 组合及 SQLite，不访问 fields/validate/gateway。当前选择/最后 attempt 由现 query 的 last_snapshot_id 维护，不篡改采集时间、不删失败历史，旧运行任务不得覆盖新选择。
+- 显式 Apply 调用 POST query 刷新最大年度 snapshot；周期切换只在前端已有 payload 中同步选择数据与 Current JQL，零 API、无 reuse。GET 的命中路径只读已编译 userJql、Core 组合及 SQLite，不访问 fields/validate/gateway。当前有效 snapshot/最后 attempt 仍由现 query owner 维护，不篡改采集时间、不删失败历史，旧运行任务不得覆盖新选择。
 - [x] 集中时间声明、选择恢复、共享查询、布局与耐久测试。
 - [x] 完整前后端测试、lint、build、diffcheck 验收。
 

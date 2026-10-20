@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import ProxyHandler, build_opener
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -24,6 +24,12 @@ PORT = 8000
 HEALTH_URL = f"http://{HOST}:{PORT}/health"
 MANAGED_PYTHON = ROOT / ".venv" / (
     "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"
+)
+MACOS_DB_PASSWORD_SERVICE = "SmartTest/WebStorage/mysql-local-app"
+MACOS_WEB_CREDENTIAL_KEY_SERVICE = "SmartTest/WebStorage/web-credential-key-local"
+MACOS_KEYCHAIN_SECRETS = (
+    ("SMARTTEST_DB_PASSWORD", "smarttest_web", MACOS_DB_PASSWORD_SERVICE),
+    ("SMARTTEST_WEB_CREDENTIAL_KEY", "smarttest_web", MACOS_WEB_CREDENTIAL_KEY_SERVICE),
 )
 
 
@@ -47,6 +53,36 @@ def resolve_runtime_tools(
     if system_npm:
         return python, Path(system_npm).resolve()
     raise FileNotFoundError(f"{npm_name} was not found beside Python or on PATH")
+
+
+def resolve_backend_environment(
+    *, environment=None, platform: str = sys.platform, run=subprocess.run,
+) -> dict[str, str]:
+    resolved = dict(os.environ if environment is None else environment)
+    if not platform.startswith("darwin"):
+        return resolved
+    for variable, account, service in MACOS_KEYCHAIN_SECRETS:
+        if resolved.get(variable):
+            continue
+        try:
+            result = run(
+                [
+                    "/usr/bin/security", "find-generic-password",
+                    "-a", account, "-s", service, "-w",
+                ],
+                check=True, capture_output=True, text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise OSError(
+                f"{variable} is missing and its macOS Keychain item is unavailable"
+            ) from error
+        value = result.stdout.strip()
+        if not value:
+            raise OSError(
+                f"{variable} is missing and its macOS Keychain item is unavailable"
+            )
+        resolved[variable] = value
+    return resolved
 
 
 def _log(message: str, *, level: str = "info", **extra) -> None:
@@ -144,20 +180,27 @@ def clear_existing_backend_processes(
 
 
 def wait_for_backend_health(
-    processes, *, timeout_seconds: float = 30.0, urlopen=urlopen,
+    processes, *, timeout_seconds: float = 30.0, urlopen=None,
     monotonic=time.monotonic, sleep=time.sleep,
 ) -> bool:
     deadline = monotonic() + timeout_seconds
+    open_health = urlopen if urlopen is not None else build_opener(ProxyHandler({})).open
+    last_error_type, last_http_status = '', None
     while True:
         if any(process.poll() is not None for process in processes):
             return False
         try:
-            with urlopen(HEALTH_URL, timeout=0.5) as response:
+            with open_health(HEALTH_URL, timeout=0.5) as response:
                 if response.status == 200:
                     return True
-        except (OSError, URLError, TimeoutError):
-            pass
+                last_error_type, last_http_status = '', response.status
+        except (OSError, URLError, TimeoutError) as error:
+            last_error_type, last_http_status = type(error).__name__, getattr(error, 'code', None)
         if monotonic() >= deadline:
+            _log(f"Web backend health deadline expired: url={HEALTH_URL} "
+                 f"last_error_type={last_error_type} last_http_status={last_http_status}",
+                 level="error", health_url=HEALTH_URL, timeout_seconds=timeout_seconds,
+                 last_error_type=last_error_type, last_http_status=last_http_status)
             return False
         sleep(0.1)
 
@@ -205,6 +248,7 @@ def run(
     wait_for_health=wait_for_backend_health,
     terminate_tree=terminate_owned_process,
     wait_for_port_release=wait_for_backend_port_release, sleep=time.sleep,
+    backend_environment=None,
 ) -> int:
     if port_in_use():
         cleared = clear_existing_backend_processes(
@@ -228,6 +272,9 @@ def run(
     processes = []
     try:
         python, npm = resolve_runtime_tools()
+        backend_env = dict(
+            os.environ if backend_environment is None else backend_environment
+        )
         npm_env = os.environ.copy()
         npm_env["PATH"] = os.pathsep.join(
             part for part in (str(npm.parent), npm_env.get("PATH", "")) if part
@@ -239,6 +286,7 @@ def run(
                 "web/backend", "--port", str(PORT), "--no-access-log",
             ],
             cwd=ROOT,
+            env=backend_env,
             **backend_process_kwargs(),
         )
         processes.append(backend)
@@ -300,7 +348,15 @@ def run(
 
 
 def main() -> int:
-    return run(popen=subprocess.Popen)
+    try:
+        backend_environment = resolve_backend_environment()
+    except OSError as error:
+        _log(
+            f"Web development environment unavailable: error_type={type(error).__name__}",
+            level="error", error_type=type(error).__name__,
+        )
+        return 1
+    return run(popen=subprocess.Popen, backend_environment=backend_environment)
 
 
 if __name__ == "__main__":

@@ -28,17 +28,6 @@ export function applyLoginBackground({ root = document, backgrounds = LOGIN_BACK
   const surface = root.querySelector('[data-login-board]')
   if (!surface) return ''
   const id = selectLoginBackground({ backgrounds, storage: storage ?? sessionStorage, random })
-  const control = root.querySelector('[data-login-background-switch]')
-  if (control) {
-    control.value = id
-    const onChange = () => {
-      const selected = backgrounds.filter(background => background.id === control.value)
-      applyLoginBackground({ root, backgrounds: selected, storage, random })
-      // Restore the complete choices for the next user selection.
-      control.onchange = onChange
-    }
-    control.onchange = onChange
-  }
   if (mounted.get(surface)?.id === id) return id
   disposeLoginBackground(surface)
   surface.dataset.loginBackground = id
@@ -50,16 +39,14 @@ export function applyLoginBackground({ root = document, backgrounds = LOGIN_BACK
 function mountLoginGlobe(surface) {
   const layer = document.createElement('div')
   layer.className = 'login-globe'
-  layer.dataset.productLine = 'Global Operator & STB'
-  layer.dataset.productSurface = 'background'
   layer.dataset.globeFraming = 'login'
   layer.setAttribute('aria-hidden', 'true')
   surface.prepend(layer)
   let disposed = false
   let stop
   // Keep geography data and renderer out of the PCB's initial module graph.
-  import('./product-line-motion.js').then(({ initializeProductLineMotion }) => {
-    if (!disposed) stop = initializeProductLineMotion({ root: surface })
+  import('./login-globe.js').then(({ initializeLoginGlobe }) => {
+    if (!disposed) stop = initializeLoginGlobe({ root: surface })
   }).catch(error => {
     if (disposed) return
     layer.removeAttribute('aria-hidden')

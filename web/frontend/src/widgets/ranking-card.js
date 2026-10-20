@@ -7,20 +7,16 @@ export function createRankingCard({ chartFactory } = {}) {
   let root, chart, config
   let activeProductLine = ''
   let activeMode = ''
-  let medalSignature = ''
-  const medalLayout = {
-    id: 'ranking-medals',
+  let positionSignature = ''
+  const positionLayout = {
+    id: 'ranking-positions',
     beforeUpdate(current) { applyPalette(current.data.datasets) },
     afterLayout(current) {
-      root.querySelectorAll('[data-ranking-medal]').forEach((medal, index) => {
-        medal.style.top = `${current.scales.y.getPixelForValue(index)}px`
+      root.querySelectorAll('[data-ranking-position]').forEach((position, index) => {
+        position.style.top = `${current.scales.y.getPixelForValue(index)}px`
       })
     },
   }
-  const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
-    if (root) positionModeBackground(root.querySelector('[data-mode-segments]'))
-  }) : null
-
   function segments(target, options, active, setActive, className) {
     const buttons = [...target.children]
     if (buttons.length !== options.length || buttons.some((button, index) => button.dataset.value !== String(options[index].value))) {
@@ -51,22 +47,13 @@ export function createRankingCard({ chartFactory } = {}) {
       button.classList.toggle('active', selected)
       button.setAttribute('aria-pressed', String(selected))
     }
-    if (target.matches('[data-mode-segments]')) positionModeBackground(target)
-  }
-
-  function positionModeBackground(target) {
-    const selected = target.querySelector('.active')
-    if (!selected) return
-    target.style.setProperty('--segment-left', `${selected.offsetLeft}px`)
-    target.style.setProperty('--segment-width', `${selected.offsetWidth}px`)
   }
 
   function applyPalette(datasets) {
-    if (config.palette !== 'jira') return
     const styles = getComputedStyle(root)
     // Indexable colors avoid Chart.js retaining shared bar options on update('none').
-    datasets[0].backgroundColor = [styles.getPropertyValue('--jira-current-bar').trim()]
-    if (datasets[1]) datasets[1].backgroundColor = [styles.getPropertyValue('--jira-previous-bar').trim()]
+    datasets[0].backgroundColor = [styles.getPropertyValue('--ranking-current-bar').trim()]
+    if (datasets[1]) datasets[1].backgroundColor = [styles.getPropertyValue('--ranking-previous-bar').trim()]
   }
 
   function render() {
@@ -80,14 +67,28 @@ export function createRankingCard({ chartFactory } = {}) {
   }
 
   function renderChart() {
-    bindProductLine(root.querySelector('.workload-chart-scroll'),
-      config.productLines?.find(item => item.value === activeProductLine)?.productLine, 'card')
+    config.onSelectionChange?.({ productLine: activeProductLine, mode: activeMode })
     const summary = config.summaryRowsFor?.(activeProductLine, activeMode)
     const rows = summary ?? (config.rowsFor?.(activeProductLine, activeMode) ?? [])
       .filter(row => row.count || row.previousCount)
       .sort((left, right) => right.count - left.count
         || Number(right.previousCount || 0) - Number(left.previousCount || 0)
         || left.name.localeCompare(right.name))
+    const openRow = (index, datasetIndex, trigger) => config.onDataClick?.({
+      productLine: activeProductLine, mode: activeMode, row: rows[index],
+      periodKind: datasetIndex === 1 ? 'previous' : 'current', trigger,
+    })
+    const access = root.querySelector('[data-ranking-details]')
+    access.replaceChildren()
+    if (config.onDataClick && config.detailsEnabled?.(activeMode) !== false) {
+      rows.forEach((row, index) => {
+        for (const datasetIndex of Object.hasOwn(row, 'previousCount') ? [0, 1] : [0]) {
+          const button = element('button', 'button button-secondary', `${row.name} · ${datasetIndex ? 'Previous' : 'Current'}: ${datasetIndex ? row.previousCount : row.count}`)
+          button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog')
+          button.addEventListener('click', () => openRow(index, datasetIndex, button)); access.append(button)
+        }
+      })
+    }
     const total = rows.reduce((sum, row) => sum + row.count, 0)
     const previousTotal = rows.reduce((sum, row) => sum + (row.previousCount || 0), 0)
     const surface = root.querySelector('.workload-chart-surface')
@@ -98,18 +99,17 @@ export function createRankingCard({ chartFactory } = {}) {
     empty.textContent = config.error || config.emptyTextFor?.(activeMode) || config.emptyText || 'No data in this product line.'
     const canvas = root.querySelector('[data-ranked-chart]')
     canvas.hidden = !rows.length
-    const medalRows = summary || !chartFactory ? [] : rows.slice(0, 3)
-    const signature = JSON.stringify([activeProductLine, activeMode, medalRows.map(row => row.name)])
-    if (signature !== medalSignature) {
-      const medals = root.querySelector('[data-ranking-medals]')
-      medals.replaceChildren(...medalRows.map((row, index) => {
-        const medal = element('span', `ranking-medal ranking-medal--${['gold', 'silver', 'bronze'][index]}`, String(index + 1))
-        medal.dataset.rankingMedal = String(index + 1)
-        medal.setAttribute('aria-label', `Rank ${index + 1}: ${row.name}`)
-        medal.style.setProperty('--rank-delay', `${index * 40}ms`)
-        return medal
+    const positionRows = summary || !chartFactory ? [] : rows.slice(0, 3)
+    const signature = JSON.stringify([activeProductLine, activeMode, positionRows.map(row => row.name)])
+    if (signature !== positionSignature) {
+      const positions = root.querySelector('[data-ranking-positions]')
+      positions.replaceChildren(...positionRows.map((row, index) => {
+        const position = element('span', 'ranking-position', String(index + 1))
+        position.dataset.rankingPosition = String(index + 1)
+        position.setAttribute('aria-label', `Rank ${index + 1}: ${row.name}`)
+        return position
       }))
-      medalSignature = signature
+      positionSignature = signature
     }
     if (!rows.length || !chartFactory) {
       chart?.destroy()
@@ -127,7 +127,7 @@ export function createRankingCard({ chartFactory } = {}) {
       if (summary) return rows[context.dataIndex].valueLabel
       if (!value) return null
       const periodTotal = context?.datasetIndex === 1 ? previousTotal : total
-      return `${value} · ${periodTotal ? Math.round(value / periodTotal * 100) : 0}%`
+      return `${periodTotal ? Math.round(value / periodTotal * 100) : 0}%（${value}/${periodTotal}）`
     }
     const overflowLabelWidth = context => {
       const value = context.dataset.data[context.dataIndex]
@@ -142,21 +142,27 @@ export function createRankingCard({ chartFactory } = {}) {
       return barWidth < width + 4 ? width : 0
     }
     const datasets = [{ label: config.datasetLabel || '', data: rows.map(row => row.count),
-      grouped: comparison, barThickness: comparison ? 12 : undefined, order: 1 }]
+      grouped: comparison, barThickness: comparison ? 10 : 12, borderRadius: 999, borderSkipped: false, order: 1 }]
     if (comparison) datasets.push({ label: config.comparisonLabel || 'Previous', data: rows.map(row => row.previousCount),
-      grouped: true, barThickness: 12, order: 2 })
+      grouped: true, barThickness: 10, borderRadius: 999, borderSkipped: false, order: 2 })
     applyPalette(datasets)
     const next = {
       type: 'bar', data: { labels: rows.map(row => row.name), datasets },
-      plugins: [medalLayout],
+      plugins: [positionLayout],
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        onHover: (_event, elements) => { canvas.style.cursor = config.onDataClick && config.detailsEnabled?.(activeMode) !== false && elements.length ? 'pointer' : '' },
+        onClick: (_event, elements) => {
+          if (!config.onDataClick || config.detailsEnabled?.(activeMode) === false || !elements.length) return
+          if (document.querySelector('dialog.data-details')) return
+          const hit = elements[0]; canvas.focus(); openRow(hit.index, hit.datasetIndex, canvas)
+        },
         animation: reducedMotion ? false : { duration: 500, easing: 'easeOutQuart',
           delay: context => context.type === 'data' ? Math.min(context.dataIndex * 40, 400) : 0 },
         transitions: { resize: { animation: { duration: reducedMotion ? 0 : 500 } } },
         animations: { y: { duration: 0 }, width: {
           from: context => Number.isFinite(context.element?.width) ? context.element.width : 0,
         } },
-        layout: { padding: { left: medalRows.length ? 32 : 0, right: 28 } }, scales: {
+        layout: { padding: { left: positionRows.length ? 32 : 0, right: 28 } }, scales: {
           x: { beginAtZero: true, ticks: { precision: 0 }, grid: { display: false }, border: { display: false } },
           y: { ticks: { autoSkip: false }, grid: { display: false }, border: { display: false } },
         },
@@ -167,6 +173,14 @@ export function createRankingCard({ chartFactory } = {}) {
             return `Current: ${rangeText(config.ranges?.current)} · ${row.count}\nPrevious: ${rangeText(config.ranges?.previous)} · ${row.previousCount}\nChange: ${comparisonText(row.count, row.previousCount)}`
           },
         } }, datalabels: {
+          listeners: {
+            click: context => {
+              if (!config.onDataClick || config.detailsEnabled?.(activeMode) === false || document.querySelector('dialog.data-details')) return
+              canvas.focus(); openRow(context.dataIndex, context.datasetIndex, canvas)
+            },
+            enter: () => { if (config.onDataClick && config.detailsEnabled?.(activeMode) !== false) canvas.style.cursor = 'pointer' },
+            leave: () => { canvas.style.cursor = '' },
+          },
           color: () => getComputedStyle(root).getPropertyValue('--text-primary').trim(),
           font: context => context.chart.options.font,
           labels: {
@@ -201,12 +215,11 @@ export function createRankingCard({ chartFactory } = {}) {
   return {
     mount(target, value) {
       root = target; config = value
-      medalSignature = ''
-      root.innerHTML = `<div class="segmented-ranking"><header class="report-preview-toolbar"><div class="workload-heading">${config.headingHtml || ''}<div class="product-line-segments" data-product-line-segments></div></div><div class="role-segments" data-mode-segments></div></header><div class="workload-chart-scroll"><div class="workload-chart-surface"><canvas data-ranked-chart></canvas><div data-ranking-medals></div><div class="product-space-empty" data-ranked-empty data-workload-empty hidden></div></div></div></div>`
+      positionSignature = ''
+      root.innerHTML = `<div class="segmented-ranking"><header class="report-preview-toolbar"><div class="workload-heading">${config.headingHtml || ''}<div class="product-line-segments" data-product-line-segments></div></div><div class="role-segments" data-mode-segments></div></header><div class="workload-chart-scroll"><div class="workload-chart-surface"><canvas data-ranked-chart tabindex="0" aria-label="Statistics chart"></canvas><div class="ranking-detail-access" data-ranking-details></div><div data-ranking-positions></div><div class="product-space-empty" data-ranked-empty data-workload-empty hidden></div></div></div></div>`
       render()
-      resizeObserver?.observe(root.querySelector('[data-mode-segments]'))
     },
     update(value) { config = value; if (root) render() },
-    destroy() { resizeObserver?.disconnect(); chart?.destroy(); chart = null; root?.replaceChildren(); root = null },
+    destroy() { chart?.destroy(); chart = null; root?.replaceChildren(); root = null },
   }
 }

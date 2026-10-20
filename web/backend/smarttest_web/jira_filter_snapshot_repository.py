@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from sqlalchemy import select, text, func
+from .jira.schema import jira_issues
+
+from .database import upsert, WebDatabase
+from .schema import web_query_snapshots
+
 from dataclasses import dataclass
 import json
 import time
 
-from .database import WebDatabase
 
 
 JIRA_FILTER_FIELDS = ("project", "type", "status", "currentUser", "resolution")
@@ -33,41 +38,54 @@ class JiraFilterSnapshotRepository:
         }
         now = self._now()
         with self.database.transaction() as connection:
-            connection.execute("DELETE FROM web_query_snapshots WHERE expires_at<=?", (now,))
-            connection.execute("""INSERT INTO web_query_snapshots
-                (session_hash,scope,filters_json,search,project_ids_json,facts_version,created_at,updated_at,expires_at)
-                VALUES(?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(session_hash,scope) DO UPDATE SET filters_json=excluded.filters_json,
-                search=excluded.search,updated_at=excluded.updated_at,expires_at=excluded.expires_at""",
-                (str(session_hash), self.scope, json.dumps(normalized, sort_keys=True), str(jql or "").strip(),
-                 "[]", "", now, now, float(expires_at)))
+            connection.execute(
+                text("DELETE FROM web_query_snapshots WHERE expires_at<=:expires_at"), {"expires_at": now}
+            )
+            upsert(
+                connection,
+                web_query_snapshots,
+                {
+                    "session_hash": str(session_hash),
+                    "scope": self.scope,
+                    "filters_json": json.dumps(normalized, sort_keys=True),
+                    "search": str(jql or "").strip(),
+                    "project_ids_json": "[]",
+                    "facts_version": "",
+                    "created_at": now,
+                    "updated_at": now,
+                    "expires_at": float(expires_at),
+                },
+                conflict_columns=("session_hash", "scope"),
+                updates=("filters_json", "search", "updated_at", "expires_at"),
+            )
 
     def get(self, session_hash):
         now = self._now()
         with self.database.connect() as connection:
-            row = connection.execute("""SELECT filters_json,search,updated_at,expires_at
-                FROM web_query_snapshots WHERE session_hash=? AND scope=? AND expires_at>?""",
-                (str(session_hash), self.scope, now)).fetchone()
+            row = connection.execute(
+                text(
+                    "SELECT filters_json,search,updated_at,expires_at\n                FROM web_query_snapshots WHERE session_hash=:session_hash AND scope=:scope AND expires_at>:expires_at"
+                ),
+                {"session_hash": str(session_hash), "scope": self.scope, "expires_at": now},
+            ).fetchone()
         if row is None:
             return None
         return JiraFilterSnapshot(str(session_hash), self.scope, json.loads(row[0]), row[1], float(row[2]), float(row[3]))
 
     def delete(self, session_hash):
         with self.database.transaction() as connection:
-            connection.execute("DELETE FROM web_query_snapshots WHERE session_hash=? AND scope=?",
-                               (str(session_hash), self.scope))
+            connection.execute(
+                text("DELETE FROM web_query_snapshots WHERE session_hash=:session_hash AND scope=:scope"),
+                {"session_hash": str(session_hash), "scope": self.scope},
+            )
 
     def facets(self):
-        columns = {
-            "project": "project_key", "type": "issue_type_name", "status": "status_name",
-            "resolution": "resolution_name",
-        }
+        columns = {'project': 'project_key', 'type': 'issue_type_name', 'status': 'status_name', 'resolution': 'resolution_name'}
         with self.database.connect() as connection:
-            values = {key: [row[0] for row in connection.execute(
-                f"SELECT DISTINCT {column} FROM jira_issues WHERE {column} IS NOT NULL AND trim({column})<>'' ORDER BY {column}"
-            )] for key, column in columns.items()}
-        values["currentUser"] = ["Current User"]
-        values["resolution"] = ["Unresolved", *values["resolution"]]
-        labels = {"project": "Project", "type": "Type", "status": "Status",
-                  "currentUser": "Current User", "resolution": "Resolution"}
-        return [{"key": key, "label": labels[key], "options": values[key]} for key in JIRA_FILTER_FIELDS]
+            values = {key: list(connection.execute(select(jira_issues.c[column]).distinct().where(
+                jira_issues.c[column].is_not(None), func.trim(jira_issues.c[column]) != '').order_by(jira_issues.c[column])).scalars())
+                      for key, column in columns.items()}
+        values['currentUser'] = ['Current User']
+        values['resolution'] = ['Unresolved', *values['resolution']]
+        labels = {'project': 'Project', 'type': 'Type', 'status': 'Status', 'currentUser': 'Current User', 'resolution': 'Resolution'}
+        return [{'key': key, 'label': labels[key], 'options': values[key]} for key in JIRA_FILTER_FIELDS]

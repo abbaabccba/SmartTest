@@ -44,6 +44,22 @@ class IssueAuditResult:
     ai_failure_category: str | None = None
     ai_passed_count: int = 0
     ai_failed_count: int = 0
+    creator_identity: str = ""
+    creator_account: str = ""
+
+
+def group_creator_issues(issues):
+    """Group unique runtime issues or saved issue snapshots by explicit creator identity."""
+    unique = {issue['key'] if isinstance(issue, dict) else issue.key: issue for issue in issues}
+    groups = {}
+    for issue in unique.values():
+        if isinstance(issue, dict):
+            identity, account, name = issue.get('creatorIdentity'), issue.get('creatorAccount'), issue['creator']
+        else:
+            identity, account, name = issue.creator_identity, issue.creator_account, issue.creator
+        key = ('identity', identity) if identity else ('account', account) if account else ('display', name)
+        groups.setdefault(key, []).append(issue)
+    return groups
 
 
 @dataclass(frozen=True)

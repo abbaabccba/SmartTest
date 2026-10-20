@@ -1,61 +1,28 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from datetime import date
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Iterable
+from core.config.jsonTool import read_json
 
 from core.jira.mapper import JiraIssueMapper
+from core.jira.jql import (
+    CARD_BUSINESS_JQL, FAE_QA_GROUP_PRODUCT_LINES, FAE_QA_GROUPS,
+    card_product_jql, creator_product_line,
+)
 from core.jira.services.filter_service import compose_jql, jira_period_condition, jira_period_ranges
 from core.product_lines import (
-    CHINA_OPERATOR_BUSINESS,
     DASHBOARD_PRODUCT_LINES,
-    GLOBAL_OPERATOR_STB_BUSINESS,
     PRODUCT_LINE_BY_JIRA_PROJECT,
-    SMART_DEVICE_BUSINESS,
-    TV_BUSINESS,
-    WIRELESS_CONNECTION,
 )
 
 
-FAE_QA_GROUP_PRODUCT_LINES = (
-    ("fae-wifi-qa", WIRELESS_CONNECTION),
-    ("fae-SH-qa", SMART_DEVICE_BUSINESS),
-    ("fae-stb-qa", GLOBAL_OPERATOR_STB_BUSINESS),
-    ("fae-tv-qa", TV_BUSINESS),
-    ("fae-iptv-qa", CHINA_OPERATOR_BUSINESS),
-)
-FAE_QA_GROUPS = tuple(group for group, _line in FAE_QA_GROUP_PRODUCT_LINES)
-CUSTOMER_WIRELESS_LABELS = (
-    "Customer_W1", "Customer_W1U", "Customer_W2L", "customer_w2",
-    "Customer_w1u", "customer-w2", "customer-w2L", "customer_w1d",
-)
-CUSTOMER_WIRELESS_EXCLUDED_RESOLUTIONS = (
-    "Invalid Case", "Cannot Reproduce", "HW Fix", "Won't Fix", "Won't Do",
-)
-CUSTOMER_WIRELESS_EXCLUDED_PROJECTS = ("RD SW Platform", "Wireless Project")
-
-
-def _quoted(values: Iterable[str]) -> str:
-    return ", ".join(f'"{value}"' for value in values)
-
-
-def _creator_group_jql() -> str:
-    return " OR ".join(f'creator IN membersOf("{group}")' for group in FAE_QA_GROUPS)
-
-
-def _customer_jql() -> str:
-    labels = _quoted(CUSTOMER_WIRELESS_LABELS)
-    projects = _quoted(PRODUCT_LINE_BY_JIRA_PROJECT)
-    wireless = (
-        f"labels IN ({labels}) AND (resolution is EMPTY OR resolution NOT IN "
-        f"({_quoted(CUSTOMER_WIRELESS_EXCLUDED_RESOLUTIONS)})) AND project NOT IN "
-        f"({_quoted(CUSTOMER_WIRELESS_EXCLUDED_PROJECTS)})"
-    )
-    standard = f"project IN ({projects}) AND (labels is EMPTY OR labels NOT IN ({labels}))"
-    return f'issuetype = Bug AND "Channel of Reporter" = "Customer-Feedback" AND (({wireless}) OR ({standard}))'
+JIRA_STATISTICS_PERIODS = ("week", "month", "quarter", "year")
 
 
 @dataclass(frozen=True)
@@ -65,15 +32,15 @@ class JiraStatisticsCardDefinition:
     first_metric_label: str
     custom_jql: str
 
-    def fixed_jql(self, period: str, *, include_creator_qa=True) -> str:
-        creator = f"({_creator_group_jql()}) AND " if include_creator_qa else ""
-        return f"{creator}({self.custom_jql}) AND {jira_period_condition(period)}"
+    def fixed_jql(self, period: str, *, product_line=None) -> str:
+        source = card_product_jql(self.card_key, self.custom_jql, product_line)
+        return f"({source}) AND {jira_period_condition(period)}"
 
     @property
     def fingerprint(self) -> str:
-        encoded = json.dumps({"definition": asdict(self), "groups": FAE_QA_GROUPS, "verify_scope": "independent-v1",
+        encoded = json.dumps({"definition": asdict(self), "productScope": card_product_jql(self.card_key, self.custom_jql),
                               "aggregation": "qa-creators-components-summary-v5" if self.card_key == "customer-feedback"
-                              else "qa-creators-comments-verify-v4"}, sort_keys=True, separators=(",", ":")).encode()
+                              else "qa-creators-basic-v1"}, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 
 
@@ -81,13 +48,13 @@ JIRA_STATISTICS_CARDS = {
     definition.card_key: definition for definition in (
         JiraStatisticsCardDefinition(
             "self-test", "Product Lines Self Test Jiras Statistics", "Bugs",
-            'issuetype = Bug AND "Channel of Reporter" = "Self-Test"',
+            CARD_BUSINESS_JQL["self-test"],
         ),
         JiraStatisticsCardDefinition(
-            "task", "Product Lines Task Jiras Statistics", "Tasks", "issuetype = Task",
+            "task", "Product Lines Task Jiras Statistics", "Tasks", CARD_BUSINESS_JQL["task"],
         ),
         JiraStatisticsCardDefinition(
-            "customer-feedback", "Product Lines Customer Feedback Jiras Statistics", "Component/s", _customer_jql(),
+            "customer-feedback", "Product Lines Customer Feedback Jiras Statistics", "Component/s", CARD_BUSINESS_JQL["customer-feedback"],
         ),
     )
 }
@@ -97,15 +64,39 @@ def card_definition(card_key: str) -> JiraStatisticsCardDefinition:
     return JIRA_STATISTICS_CARDS[card_key]
 
 
-def effective_card_jql_pair(card_key: str, user_jql: str, period: str, today=None, *, include_creator_qa=True) -> dict[str, dict[str, Any]]:
+def effective_card_jql_pair(card_key: str, user_jql: str, period: str, today=None) -> dict[str, dict[str, Any]]:
     definition = card_definition(card_key)
     ranges = jira_period_ranges(period, today)
     result = {}
     for key, value in ranges.items():
-        fixed = definition.fixed_jql(period, include_creator_qa=include_creator_qa)
+        fixed = definition.fixed_jql(period)
         fixed = fixed.replace(jira_period_condition(period), str(value["condition"]))
         result[key] = {**value, "jql": compose_jql(user_jql, fixed)}
     return result
+
+
+def current_card_jql_by_product_line_and_metric(
+    card_key: str, user_jql: str, period: str, today=None,
+) -> dict[str, dict[str, str]]:
+    definition = card_definition(card_key)
+    result = {}
+    activity = activity_card_jql_pair(card_key, user_jql, today)["current"]["jql"]
+    for line in DASHBOARD_PRODUCT_LINES:
+        common = definition.fixed_jql(period, product_line=line)
+        common = common.replace(jira_period_condition(period), jira_period_condition(period, today))
+        base = compose_jql(user_jql, common)
+        result[line.name] = {
+            "bugCount": base,
+            "commentCount": activity,
+            "verifyCount": activity,
+            "invalidCount": compose_jql(base, 'resolution = "Invalid"'),
+        }
+    return result
+
+
+def activity_card_jql_pair(card_key, user_jql, today=None):
+    return {key: {**value, "jql": compose_jql(user_jql, compose_jql(value["condition"], card_definition(card_key).custom_jql))}
+            for key, value in jira_period_ranges("year", today).items()}
 
 
 @dataclass(frozen=True)
@@ -129,11 +120,6 @@ def statistics_accounts(issues) -> tuple[str, ...]:
                     account = (comment.author.account or comment.author.identity).strip().casefold()
                     if account:
                         accounts.add(account)
-        verification = JiraIssueMapper.last_verification(issue) if isinstance(issue, dict) else None
-        if verification and verification.author:
-            account = (verification.author.account or verification.author.identity).strip().casefold()
-            if account:
-                accounts.add(account)
     return tuple(sorted(accounts))
 
 
@@ -204,17 +190,16 @@ def _comments(fields):
     return tuple(JiraIssueMapper.from_comment(item) for item in (fields.get("comment") or {}).get("comments", ()))
 
 
-def _product_line(fields: dict[str, Any], assignments: set[str]):
-    if WIRELESS_CONNECTION.name in assignments:
-        return WIRELESS_CONNECTION.name
+def _product_line(fields: dict[str, Any], assignments: set[str], *, card_key=""):
     project = fields.get("project")
     project_key = str(project.get("key") or "") if isinstance(project, dict) else ""
-    line = PRODUCT_LINE_BY_JIRA_PROJECT.get(project_key)
-    return line.name if line else ""
+    return creator_product_line(project_key, assignments, card_key=card_key,
+        labels=fields.get("labels") or (), resolution=_name(fields.get("resolution")),
+        project_name=str(project.get("name") or "") if isinstance(project, dict) else "")
 
 
 def aggregate_jira_statistics(
-    issues: Iterable[dict[str, Any]], roster: QARoster, *, verify_only=False,
+    issues: Iterable[dict[str, Any]], roster: QARoster, *, card_key="",
 ) -> JiraStatisticsOverview:
     assignments = {account: set(lines) for account, lines in roster.assignments}
     people: dict[str, dict[str, dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {
@@ -233,18 +218,6 @@ def aggregate_jira_statistics(
                 continue
             seen.add(issue_id)
         fields = issue.get("fields") if isinstance(issue, dict) else None
-        verification = JiraIssueMapper.last_verification(issue)
-        verify_line = _product_line(fields, set()) if isinstance(fields, dict) else ""
-        if verify_line and verification and verification.author:
-            author = verification.author
-            account = (author.account or author.identity).strip().casefold()
-            if assignments.get(account):
-                verify_row = people[verify_line][account]
-                verify_row["identity"] = account
-                verify_row["displayName"] = author.display_name or account
-                verify_row["verifyCount"] += 1
-        if verify_only:
-            continue
         total += 1
         creator = fields.get("creator") if isinstance(fields, dict) else None
         if not isinstance(fields, dict) or not isinstance(creator, dict):
@@ -254,10 +227,12 @@ def aggregate_jira_statistics(
         if not identity:
             unassigned += 1
             continue
-        if not assignments.get(identity):
+        if card_key != "customer-feedback" and not assignments.get(identity):
             total -= 1
             continue
-        comment_line = _product_line(fields, set())
+        project_key = (fields.get("project") or {}).get("key", "")
+        comment_line = PRODUCT_LINE_BY_JIRA_PROJECT.get(project_key)
+        comment_line = comment_line.name if comment_line else ""
         if comment_line:
             for comment in _comments(fields):
                 author = comment.author
@@ -270,7 +245,7 @@ def aggregate_jira_statistics(
                 comment_row["identity"] = account
                 comment_row["displayName"] = author.display_name or account
                 comment_row["commentCount"] += 1
-        product_line = _product_line(fields, assignments[identity])
+        product_line = _product_line(fields, assignments.get(identity, set()), card_key=card_key)
         if not product_line:
             unmapped += 1
             continue
@@ -313,25 +288,107 @@ def build_comparison_statistics(gateway, current_rows, previous_rows, ranges, *,
     }
 
 
-def build_annual_facts(gateway, current_rows, previous_rows, *, groups_cache=None):
+def load_activity_qa_roster() -> QARoster:
+    personnel = read_json(Path(__file__).resolve().parents[2] / "config" / "personnel.json")
+    employees = personnel["amlogic"]["departments"]["FAE-QA"]["employees"]
+    assignments = tuple(sorted(
+        (str(person["account"]).strip().casefold(), tuple(item["product_line_id"] for item in person["assignments"]))
+        for person in employees if str(person.get("account") or "").strip()
+    ))
+    return QARoster(hashlib.sha256(json.dumps(assignments, separators=(",", ":")).encode()).hexdigest(), assignments)
+
+
+def build_annual_facts(gateway, current_rows, previous_rows, *, groups_cache=None,
+                       current_activities=None, previous_activities=None, activity_roster=None, activity_facts=None,
+                       current_facts=None, card_key=""):
     rows = [*current_rows, *previous_rows]
-    roster = load_fae_qa_roster(gateway, statistics_accounts(rows), groups_cache=groups_cache)
-    facts = []
-    for issue in rows:
-        statistics = aggregate_jira_statistics([issue], roster, verify_only=issue.get("_verifyOnly", False)).to_payload()
+    if current_activities is not None or activity_facts is not None:
+        rows = [{**{key: value for key, value in row.items() if key != "changelog"},
+                 "fields": {key: value for key, value in row.get("fields", {}).items() if key != "comment"}}
+                for row in rows]
+    roster = (QARoster("", ()) if card_key == "customer-feedback" else
+              load_fae_qa_roster(gateway, statistics_accounts(rows), groups_cache=groups_cache))
+    facts = deepcopy(current_facts) if current_facts is not None else []
+    for issue in rows[len(current_rows):] if current_facts is not None else rows:
+        statistics = aggregate_jira_statistics([issue], roster, card_key=card_key).to_payload()
         statistics["productLines"] = [line for line in statistics["productLines"] if line["people"]]
-        verification = JiraIssueMapper.last_verification(issue)
         fields = issue.get("fields", {})
         creator = fields.get("creator") or {}
         facts.append({"issueId": str(issue["id"]), "createdAt": str(fields.get("created") or ""),
                       "creator": {key: creator[key] for key in ("name", "accountId", "key", "displayName") if key in creator},
-                      "projectKey": (fields.get("project") or {}).get("key", ""), "statistics": statistics,
-                      "verification": {"author": asdict(verification.author) if verification.author else None,
-                                       "createdAt": verification.created_at.isoformat()} if verification else None})
-    return {"_facts": facts, "roster": asdict(roster), "annual": True}
+                      "projectKey": (fields.get("project") or {}).get("key", ""), "statistics": statistics})
+    if current_activities is not None:
+        activity_roster = activity_roster or load_activity_qa_roster()
+        assignments = dict(activity_roster.assignments)
+        by_id = {fact["issueId"]: fact for fact in facts}
+        for issue in [*current_activities, *(previous_activities or [])]:
+            identity = str(issue["id"])
+            fields = issue.get("fields") or {}
+            if identity not in by_id:
+                fact = {"issueId": identity, "createdAt": str(fields.get("created") or ""),
+                        "statistics": {"teamTotal": 0, "unassignedCount": 0, "unmappedCount": 0, "productLines": []}}
+                by_id[identity] = fact
+                facts.append(fact)
+            statistics = by_id[identity]["statistics"]
+            lines = {line["id"]: line for line in statistics["productLines"]}
+            activities = [(comment.get("author") or {}, "commentCount")
+                          for comment in (fields.get("comment") or {}).get("comments", [])]
+            verification = JiraIssueMapper.last_verification(issue)
+            if verification and verification.author:
+                activities.append(({"name": verification.author.account, "displayName": verification.author.display_name}, "verifyCount"))
+            for author, metric in activities:
+                account = str(author.get("name") or "").strip().casefold()
+                if account not in assignments:
+                    continue
+                if not assignments[account]:
+                    unassigned_key = "unassignedCommentCount" if metric == "commentCount" else "unassignedVerifyCount"
+                    statistics[unassigned_key] = statistics.get(unassigned_key, 0) + 1
+                for name in assignments[account]:
+                    if name not in lines:
+                        line = {"id": name, "label": name, "people": []}
+                        lines[name] = line
+                        statistics["productLines"].append(line)
+                    people = lines[name]["people"]
+                    person = next((person for person in people if person["identity"] == account), None)
+                    if person is None:
+                        person = {"identity": account, "displayName": str(author.get("displayName") or account),
+                                  "bugCount": 0, "commentCount": 0, "verifyCount": 0, "invalidCount": 0}
+                        people.append(person)
+                    person[metric] += 1
+    if activity_facts is not None:
+        merge_annual_activity_facts(facts, activity_facts)
+    return {"_facts": facts, "roster": asdict(roster), "annual": True,
+            **({"activityRoster": activity_roster.fingerprint} if current_activities is not None or activity_facts is not None else {})}
 
 
-def aggregate_annual_facts(facts, metadata, period, today=None):
+def merge_annual_activity_facts(facts, activity_facts, *, metrics=("commentCount", "verifyCount")):
+    by_id = {fact["issueId"]: fact for fact in facts}
+    for contribution in activity_facts:
+        target = by_id.get(contribution["issueId"])
+        if target is None:
+            facts.append(contribution)
+            by_id[contribution["issueId"]] = contribution
+            continue
+        statistics = target["statistics"]
+        for metric in metrics:
+            unassigned = "unassigned" + metric[0].upper() + metric[1:]
+            statistics[unassigned] = contribution["statistics"].get(unassigned, 0)
+        lines = {line["id"]: line for line in statistics["productLines"]}
+        for line in contribution["statistics"]["productLines"]:
+            if line["id"] not in lines:
+                statistics["productLines"].append(line)
+                continue
+            people = lines[line["id"]]["people"]
+            existing = {person["identity"]: person for person in people}
+            for person in line["people"]:
+                if person["identity"] in existing:
+                    for metric in metrics:
+                        existing[person["identity"]][metric] = person[metric]
+                else:
+                    people.append(person)
+
+
+def aggregate_annual_facts(facts, metadata, period, today=None, *, include_details=False):
     today = today or date.today()
     ranges = jira_period_ranges(period, today)
     output = {}
@@ -341,20 +398,39 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
         years = (["previous"] if start < f"{today.year}-01-01" else [])
         if end is None or end > f"{today.year}-01-01":
             years.append("current")
+        availability_metrics = ("basic", "comment", "verify") if "metricSources" in metadata else (
+            ("basic", "activity") if "activityRoster" in metadata else ("basic", "verify"))
         availability[key] = {metric: all(metadata["availability"][year][metric] for year in years)
-                             for metric in ("basic", "verify")}
+                             for metric in availability_metrics}
         summary = aggregate_jira_statistics([], QARoster("", ())).to_payload()
+        if "activityRoster" in metadata:
+            summary["unassignedCommentCount"] = 0
+            summary["unassignedVerifyCount"] = 0
         by_line = {line["id"]: {} for line in summary["productLines"]}
         summaries = {line["id"]: line for line in summary["productLines"]}
         components = defaultdict(lambda: defaultdict(int))
+        if include_details:
+            summary["details"] = []
         for fact in facts:
             created = fact["createdAt"][:10]
             if not created or created < start or (end is not None and created >= end):
                 continue
             contribution = fact["statistics"]
+            if "activityRoster" in metadata:
+                summary["unassignedCommentCount"] += contribution.get("unassignedCommentCount", 0)
+                summary["unassignedVerifyCount"] += contribution.get("unassignedVerifyCount", 0)
             for count in ("teamTotal", "unassignedCount", "unmappedCount"):
                 summary[count] += contribution[count]
             for line in contribution["productLines"]:
+                if include_details:
+                    summary["details"].append({
+                        "issueId": fact["issueId"], "createdAt": fact["createdAt"],
+                        "productLine": line["id"], "issueCount": line.get("issueCount", 0),
+                        "invalidCount": line.get("invalidCount", 0),
+                        "components": line.get("components", []),
+                        "people": [{key: person[key] for key in ("identity", "displayName", "bugCount", "invalidCount")}
+                                   for person in line["people"]],
+                    })
                 for count in ("issueCount", "invalidCount"):
                     if count in line:
                         summaries[line["id"]][count] += line[count]
@@ -371,7 +447,7 @@ def aggregate_annual_facts(facts, metadata, period, today=None):
                                   for name, count in sorted(components[line["id"]].items())]
             line["people"] = sorted(by_line[line["id"]].values(),
                                     key=lambda person: (-person["bugCount"], person["displayName"].casefold(), person["identity"]))
-            if not availability[key]["verify"]:
+            if not availability[key]["activity" if "activityRoster" in metadata and "metricSources" not in metadata else "verify"]:
                 for person in line["people"]:
                     person.pop("verifyCount")
         output[key] = summary

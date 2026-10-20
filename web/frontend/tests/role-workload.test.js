@@ -19,7 +19,7 @@ describe('RoleWorkloadWidget', () => {
   it('uses the project resource statistics title when it owns the heading', () => {
     const widget = createRoleWorkloadWidget()
     widget.mount(document.querySelector('#root'), { productSpaces, ownerHierarchy: [] })
-    expect(document.querySelector('.workload-heading').textContent).toContain('Project Resource Statistics')
+    expect(document.querySelector('.workload-heading').textContent).toContain('Project Human Resource Statistics')
   })
 
   it('keeps the Projects workload sorting, identity cleanup, switching, and chart lifecycle', () => {
@@ -44,7 +44,7 @@ describe('RoleWorkloadWidget', () => {
     expect(document.body.textContent).not.toContain('2c93-user')
     ;[...document.querySelectorAll('[data-product-line-segments] button')]
       .find(button => button.textContent === 'TV').click()
-    expect(charts.at(-1).config.data.labels).toEqual(['Bob', 'Alice', 'Unknown member'])
+    expect(charts.at(-1).config.data.labels).toEqual(['Bob', '2c93-user', 'Alice'])
     expect(charts.at(-1).config.data.datasets[0].data).toEqual([2, 1, 1])
     expect(chartFactory).toHaveBeenCalledOnce()
     expect(charts[0].destroy).not.toHaveBeenCalled()
@@ -52,6 +52,23 @@ describe('RoleWorkloadWidget', () => {
     widget.destroy()
     expect(charts.at(-1).destroy).toHaveBeenCalledOnce()
     expect(document.querySelector('#root').childElementCount).toBe(0)
+  })
+
+  it('uses Unknown only for blanks and preserves every nonempty member value', () => {
+    let chartConfig
+    const values = ['NA', 'N/A', '-', '<TBD>', 'TBD', 'fan.xu', 'Fan Xu', 'Unknown']
+    const people = values.map((name, index) => ({ name, identity: name,
+      projects: Array(index + 1).fill({ space_key: 'DOPL' }) }))
+    people.push({ name: ' ', identity: ' ', projects: Array(9).fill({ space_key: 'DOPL' }) })
+    people.push({ name: '', identity: 'account-only', projects: Array(10).fill({ space_key: 'DOPL' }) })
+    const widget = createRoleWorkloadWidget({ chartFactory: (_canvas, config) => {
+      chartConfig = config; return { destroy() {} }
+    } })
+    widget.mount(document.querySelector('#root'), { productSpaces,
+      ownerHierarchy: [{ role: 'Major FAE QA', people }] })
+    expect(chartConfig.data.labels).toEqual(['account-only', 'Unknown', ...values.toReversed()])
+    expect(chartConfig.data.datasets[0].data).toEqual([10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+    widget.destroy()
   })
 
   it('keeps the existing bounded viewport and per-person chart height', () => {
@@ -100,5 +117,21 @@ it('passes full product names as visual identities while matching internal proje
   expect([...root.querySelectorAll('[data-product-line-segments] button')].map(button => [button.dataset.value, button.dataset.productLine])).toEqual([
     ['DOPL', 'China Operator'], ['SDPL', 'Smart Device'], ['TV', 'TV'], ['OOPL', 'Global Operator & STB'],
   ])
+  widget.destroy()
+})
+
+it('opens the selected role and person assignments from existing rows', () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  let config
+  const widget = createRoleWorkloadWidget({ chartFactory: (_canvas, value) => { config = value; return { destroy() {} } } })
+  widget.mount(document.querySelector('#root'), { productSpaces, ownerHierarchy: [{ role: 'FAE QA', people: [
+    { name: 'QA', identity: 'one', projects: [{ name: 'Correct', space_key: 'DOPL', page_url: 'https://wiki.example/correct' }] },
+    { name: 'QA', identity: 'two', projects: [{ name: 'Other', space_key: 'DOPL' }] },
+  ] }] })
+  config.options.onClick({}, [{ index: 0, datasetIndex: 0 }])
+  expect(document.querySelector('dialog tbody').textContent).toContain('Correct')
+  expect(document.querySelector('dialog tbody a').href).toBe('https://wiki.example/correct')
+  expect(document.querySelector('dialog tbody').textContent).not.toContain('Other')
   widget.destroy()
 })

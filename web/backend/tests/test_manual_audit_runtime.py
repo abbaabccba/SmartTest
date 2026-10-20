@@ -11,7 +11,7 @@ from smarttest_web.audit.registry import (
     ManualAuditRegistry,
 )
 from smarttest_web.downloads import DownloadArtifactService, DownloadNotFoundError
-from smarttest_web.app import _audit_task_payload
+from smarttest_web.audit_http import audit_task_payload as _audit_task_payload
 import smarttest_web.app as web_app
 from core.async_tasks import AsyncTaskSnapshot
 

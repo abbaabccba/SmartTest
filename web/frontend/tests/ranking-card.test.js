@@ -35,6 +35,23 @@ it('keeps dimension groups independent while querying both selected values', () 
   card.destroy()
 })
 
+it('reports product and mode selection changes through one presentation callback', () => {
+  const root = document.createElement('div')
+  const onSelectionChange = vi.fn()
+  const card = createRankingCard()
+  card.mount(root, {
+    productLines: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
+    modes: [{ value: 'x', label: 'X' }, { value: 'y', label: 'Y' }],
+    rowsFor: () => [], onSelectionChange,
+  })
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'a', mode: 'x' })
+  root.querySelector('[data-value="b"]').click()
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'b', mode: 'x' })
+  root.querySelector('[data-value="y"]').click()
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ productLine: 'b', mode: 'y' })
+  card.destroy()
+})
+
 it('grows initially and updates the same people without restarting from zero, resetting changed identities only', () => {
   const root = document.createElement('div')
   const chartFactory = vi.fn((_canvas, config) => ({
@@ -104,12 +121,12 @@ it('sorts comparison rows and labels each period with its own share of the displ
   const chart = chartFactory.mock.calls[0][1]
   expect(chart.data.labels).toEqual(['Amy', 'Bob', 'Zed'])
   expect(chart.data.datasets.map(dataset => ({ order: dataset.order, width: dataset.barThickness }))).toEqual([
-    { order: 1, width: 12 }, { order: 2, width: 12 },
+    { order: 1, width: 10 }, { order: 2, width: 10 },
   ])
   expect(chart.data.datasets.every(dataset => dataset.grouped)).toBe(true)
   const percentage = chart.options.plugins.datalabels.labels.percentage.formatter
-  expect(percentage(2, { datasetIndex: 0 })).toBe('2 · 33%')
-  expect(percentage(4, { datasetIndex: 1 })).toBe('4 · 44%')
+  expect(percentage(2, { datasetIndex: 0 })).toBe('33%（2/6）')
+  expect(percentage(4, { datasetIndex: 1 })).toBe('44%（4/9）')
   card.destroy()
 })
 
@@ -168,12 +185,14 @@ it('animates finite horizontal bar geometry with real Chart.js, including resize
     }
   })
   try {
-    card.mount(document.createElement('div'), {
+    const root = document.createElement('div')
+    root.style.setProperty('--ranking-current-bar', '#258B88')
+    card.mount(root, {
       productLines: [{ value: 'a', label: 'A' }], modes: [{ value: 'x', label: 'X' }],
       rowsFor: () => [{ name: 'Alice', count: 4 }, { name: 'Bob', count: 4 }],
     })
     const bars = chart.getDatasetMeta(0).data
-    expect(bars[0].options.backgroundColor).toBe('rgba(54, 162, 235, 0.5)')
+    expect(bars[0].options.backgroundColor).toBe('#258B88')
     vi.setSystemTime(1200); frame()
     expect(bars.every(bar => Number.isFinite(bar.x) && Number.isFinite(bar.width))).toBe(true)
     expect(bars[0].width).toBeGreaterThan(bars[1].width)
@@ -201,7 +220,7 @@ it.each([true, false])('handles a zero-total period without inventing labels on 
   })
   const labels = chart.options.plugins.datalabels.labels
   expect(labels.percentage.formatter(0, { datasetIndex: currentEmpty ? 0 : 1 })).toBeNull()
-  expect(labels.percentage.formatter(5, { datasetIndex: currentEmpty ? 1 : 0 })).toBe('5 · 100%')
+  expect(labels.percentage.formatter(5, { datasetIndex: currentEmpty ? 1 : 0 })).toBe('100%（5/5）')
   expect(labels.value.formatter(currentEmpty ? 0 : 5, { datasetIndex: 0, dataIndex: 0 })).toBe(currentEmpty ? '↓ 5' : '↑ 5')
   expect(chart.options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 0 }])).not.toMatch(/NaN|Infinity|%/)
   card.destroy()
@@ -223,7 +242,7 @@ it('keeps short-bar labels complete to the right and places the difference after
     options: { font: { size: 12, family: 'Arial' } },
     scales: { x: { getPixelForValue: value => value * 16 } },
   } }
-  expect(labels.percentage.formatter(1, context)).toBe('1 · 1%')
+  expect(labels.percentage.formatter(1, context)).toBe('1%（1/71）')
   expect(labels.percentage.align(context)).toBe('right')
   expect(labels.value.offset(context)).toBeGreaterThan(42 + 8)
   context.dataIndex = 0
@@ -247,21 +266,22 @@ it('recolors Jira on theme changes without querying rows or resetting selection 
   })
   const card = createRankingCard({ chartFactory })
   const rowsFor = vi.fn(() => [{ name: 'Alice', count: 3, previousCount: 2 }])
-  root.style.setProperty('--jira-current-bar', '#9DD5FA')
-  root.style.setProperty('--jira-previous-bar', '#FFD3AE')
+  root.style.setProperty('--ranking-current-bar', '#9DD5FA')
+  root.style.setProperty('--ranking-previous-bar', '#FFD3AE')
   try {
-    card.mount(root, { palette: 'jira', rowsFor,
+    card.mount(root, { rowsFor,
       productLines: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
       modes: [{ value: 'x', label: 'X' }],
     })
     root.querySelector('[data-value="b"]').click()
     const chart = chartFactory.mock.results[0].value
     expect(chart.data.datasets.map(dataset => dataset.backgroundColor)).toEqual([['#9DD5FA'], ['#FFD3AE']])
+    expect(chart.data.datasets.every(dataset => dataset.borderRadius === 999 && dataset.borderSkipped === false)).toBe(true)
     const previousData = chart.data.datasets.map(dataset => dataset.data)
     rowsFor.mockClear(); chart.update.mockClear()
     for (const [dark, colors] of [[true, ['#789AAF', '#B99B85']], [false, ['#9DD5FA', '#FFD3AE']]]) {
-      root.style.setProperty('--jira-current-bar', colors[0])
-      root.style.setProperty('--jira-previous-bar', colors[1])
+      root.style.setProperty('--ranking-current-bar', colors[0])
+      root.style.setProperty('--ranking-previous-bar', colors[1])
       globalThis.SmartTestTheme.apply(dark ? 'dark' : 'light')
       await Promise.resolve()
       expect(chart.data.datasets.map(dataset => dataset.backgroundColor)).toEqual(colors.map(color => [color]))
@@ -304,24 +324,24 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
   } })
   try {
     root.style.setProperty('--text-primary', '#1E293B')
-    root.style.setProperty('--jira-current-bar', '#9DD5FA')
-    root.style.setProperty('--jira-previous-bar', '#FFD3AE')
-    card.mount(root, { palette: 'jira', rowsFor: () => [{ name: 'Alice', count: 3, previousCount: 2 }],
+    root.style.setProperty('--ranking-current-bar', '#9DD5FA')
+    root.style.setProperty('--ranking-previous-bar', '#FFD3AE')
+    card.mount(root, { rowsFor: () => [{ name: 'Alice', count: 3, previousCount: 2 }],
       productLines: [{ value: 'a', label: 'A' }], modes: [{ value: 'x', label: 'X' }],
     })
     expect(chart.getDatasetMeta(0).data[0].options.backgroundColor).toBe('#9DD5FA')
-    expect(textDraws).toContainEqual({ text: '3 · 100%', color: '#1E293B' })
+    expect(textDraws).toContainEqual({ text: '100%（3/3）', color: '#1E293B' })
     const bar = chart.getDatasetMeta(0).data[0]
     const geometry = { x: bar.x, y: bar.y, width: bar.width, height: bar.height }
-    root.style.setProperty('--jira-current-bar', '#789AAF')
-    root.style.setProperty('--jira-previous-bar', '#B99B85')
+    root.style.setProperty('--ranking-current-bar', '#789AAF')
+    root.style.setProperty('--ranking-previous-bar', '#B99B85')
     root.style.setProperty('--text-primary', '#F5F5F5')
     textDraws.length = 0
     globalThis.SmartTestTheme.apply('dark')
     await Promise.resolve()
     expect(chart.getDatasetMeta(0).data[0].options.backgroundColor).toBe('#789AAF')
     expect(chart.getDatasetMeta(1).data[0].options.backgroundColor).toBe('#B99B85')
-    expect(textDraws).toContainEqual({ text: '3 · 100%', color: '#F5F5F5' })
+    expect(textDraws).toContainEqual({ text: '100%（3/3）', color: '#F5F5F5' })
     expect(chart.getDatasetMeta(0).data[0]).toBe(bar)
     expect({ x: bar.x, y: bar.y, width: bar.width, height: bar.height }).toEqual(geometry)
   } finally {
@@ -329,7 +349,7 @@ it('applies theme palette changes to real Chart.js bar elements', async () => {
   }
 })
 
-it('keeps Top3 medals aligned with real chart rows and clears them for summaries and empty data', async () => {
+it('keeps plain Top3 positions aligned with real chart rows and clears them for summaries and empty data', async () => {
   const { Chart, registerables, BasicPlatform } = await import('chart.js')
   Chart.register(...registerables)
   const root = document.createElement('div')
@@ -349,27 +369,27 @@ it('keeps Top3 medals aligned with real chart rows and clears them for summaries
   const config = { rowsFor: () => rows }
   try {
     card.mount(root, config)
-    const medals = [...root.querySelectorAll('[data-ranking-medal]')]
-    expect(medals.map(medal => medal.textContent)).toEqual(['1', '2', '3'])
-    expect(medals.map(medal => medal.getAttribute('aria-label'))).toEqual(['Rank 1: A', 'Rank 2: B', 'Rank 3: C'])
-    medals.forEach((medal, index) => expect(parseFloat(medal.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
+    const positions = [...root.querySelectorAll('[data-ranking-position]')]
+    expect(positions.map(position => position.textContent)).toEqual(['1', '2', '3'])
+    expect(positions.map(position => position.getAttribute('aria-label'))).toEqual(['Rank 1: A', 'Rank 2: B', 'Rank 3: C'])
+    positions.forEach((position, index) => expect(parseFloat(position.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
     chart.resize(800, 260)
-    medals.forEach((medal, index) => expect(parseFloat(medal.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
+    positions.forEach((position, index) => expect(parseFloat(position.style.top)).toBe(chart.scales.y.getPixelForValue(index)))
     card.update(config)
-    expect(root.querySelector('[data-ranking-medal]')).toBe(medals[0])
+    expect(root.querySelector('[data-ranking-position]')).toBe(positions[0])
     rows = [{ name: 'B', count: 9 }]
     card.update(config)
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(1)
-    expect(root.querySelector('[data-ranking-medal]').getAttribute('aria-label')).toBe('Rank 1: B')
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(1)
+    expect(root.querySelector('[data-ranking-position]').getAttribute('aria-label')).toBe('Rank 1: B')
     card.update({ ...config, summaryRowsFor: () => [{ name: 'Total', count: 9, valueLabel: '9' }] })
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(0)
     rows = []; card.update(config)
-    expect(root.querySelectorAll('[data-ranking-medal]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-ranking-position]')).toHaveLength(0)
   } finally { card.destroy() }
   expect(root.childElementCount).toBe(0)
 })
 
-it('binds product visuals independently from business values and clears stale identities', () => {
+it('keeps product controls themed while data regions remain plain across selection changes', () => {
   const firstRoot = document.createElement('div'), secondRoot = document.createElement('div')
   const first = createRankingCard(), second = createRankingCard()
   const rowsFor = vi.fn(() => [])
@@ -384,14 +404,14 @@ it('binds product visuals independently from business values and clears stale id
     const content = firstRoot.querySelector('.workload-chart-scroll')
     expect(buttons.map(button => button.dataset.productLine)).toEqual(['China Operator', 'Global Operator & STB'])
     expect(buttons.map(button => button.textContent)).toEqual(['China Operator', 'Global Operator & STB'])
-    expect(content.dataset.productLine).toBe('China Operator')
-    expect(content.dataset.productSurface).toBe('card')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
+    expect(content.hasAttribute('data-product-surface')).toBe(false)
     buttons[1].click()
     expect(rowsFor).toHaveBeenLastCalledWith('OOPL', '')
-    expect(content.dataset.productLine).toBe('Global Operator & STB')
-    expect(secondRoot.querySelector('.workload-chart-scroll').dataset.productLine).toBe('China Operator')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
+    expect(secondRoot.querySelector('.workload-chart-scroll').hasAttribute('data-product-line')).toBe(false)
     first.update({ ...config, productLines: [products[0]] })
-    expect(content.dataset.productLine).toBe('China Operator')
+    expect(content.hasAttribute('data-product-line')).toBe(false)
     first.update({ ...config, productLines: [{ value: 'DOPL', label: 'China Operator' }] })
     expect(content.hasAttribute('data-product-line')).toBe(false)
     expect(firstRoot.querySelector('[data-product-line-segments] button').hasAttribute('data-product-line')).toBe(false)

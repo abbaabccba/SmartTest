@@ -7,15 +7,16 @@ from core.domain.values import FieldBag, NamedValue, PersonRef
 from fastapi.testclient import TestClient
 from smarttest_web.confluence.project_repository import ConfluenceProjectRepository
 from smarttest_web.app import create_app
-from smarttest_web.database import WebDatabase
 from smarttest_web.project_facts_api import ProjectFactsWebOwner, _ProjectFactsGateway
 from test_web_session import FakeAuthenticator
 from conftest import confirmed_access, MemoryCredentialStore
 from smarttest_web.session import PersistentSessionStore
 
 
-def test_project_facts_owner_reads_and_invalidates_new_project_repository(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_owner_reads_and_invalidates_new_project_repository(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core((Project(
         ProjectIdentity("900", "P100"), "Project One",
         ProductSpaceRef("China Operator", "China Operator"), ConfluencePageRef("10", "Catalog", version=1),
@@ -41,8 +42,10 @@ def test_project_facts_owner_reads_and_invalidates_new_project_repository(tmp_pa
     ]
 
 
-def test_project_facts_exposes_core_product_labels_and_only_catalog_ready_filter_candidates(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_exposes_core_product_labels_and_only_catalog_ready_filter_candidates(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core((Project(
         ProjectIdentity("900", "P100"), "Project One",
         ProductSpaceRef("China Operator", "China Operator"), ConfluencePageRef("10", "Catalog"),
@@ -75,8 +78,10 @@ def test_project_facts_exposes_core_product_labels_and_only_catalog_ready_filter
     ]
 
 
-def test_block_and_warning_counts_use_the_final_matched_collection(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_block_and_warning_counts_use_the_final_matched_collection(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     projects = tuple(Project(
         ProjectIdentity(f"90{index}", project_id), project_id,
         ProductSpaceRef("China Operator", "China Operator"), ConfluencePageRef(f"10{index}", "Catalog"),
@@ -105,8 +110,10 @@ def test_block_and_warning_counts_use_the_final_matched_collection(tmp_path) -> 
     assert (unrelated["blockProjectCount"], unrelated["warningProjectCount"]) == (0, 0)
 
 
-def test_project_facts_query_keeps_its_access_snapshot_during_catalog_replacement(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_query_keeps_its_access_snapshot_during_catalog_replacement(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core((Project(
         ProjectIdentity("900", "P100"), "Project One",
         ProductSpaceRef("China Operator", "China Operator"), ConfluencePageRef("10", "Catalog", version=1),
@@ -137,8 +144,10 @@ def test_project_facts_query_keeps_its_access_snapshot_during_catalog_replacemen
     assert next(group for group in result["ownerHierarchy"] if group["role"] == "FAE QA")["people"][0]["name"] == "Alice"
 
 
-def test_project_facts_web_path_pages_current_projects(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_web_path_pages_current_projects(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core(tuple(
         Project(
             ProjectIdentity(str(index), f"P{index}"), f"Project {index}",
@@ -148,7 +157,9 @@ def test_project_facts_web_path_pages_current_projects(tmp_path) -> None:
     ))
     owner = ProjectFactsWebOwner(repository=repository)
     confirmed_access(repository.database, ('P1', 'P2'))
-    sessions = PersistentSessionStore(path=repository.database.path, credential_store=MemoryCredentialStore())
+    sessions = PersistentSessionStore(
+        credential_store=MemoryCredentialStore(), database=database_factory()
+    )
     client = TestClient(create_app(
         project_facts_owner=lambda: owner, authenticator=FakeAuthenticator,
         session_store=lambda: sessions,
@@ -161,8 +172,10 @@ def test_project_facts_web_path_pages_current_projects(tmp_path) -> None:
     assert response.json()["pagination"] == {"page": 1, "pageSize": 1, "total": 2}
 
 
-def test_page_entry_catalog_refresh_is_limited_to_four_product_spaces(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_page_entry_catalog_refresh_is_limited_to_four_product_spaces(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     owner = ProjectFactsWebOwner(repository=repository)
 
     class Service:
@@ -184,8 +197,10 @@ def test_page_entry_catalog_refresh_is_limited_to_four_product_spaces(tmp_path) 
     )
 
 
-def test_project_facts_owner_queries_persisted_dynamic_fields_and_owner_clusters(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_owner_queries_persisted_dynamic_fields_and_owner_clusters(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(
         ProjectIdentity("TV:P100", "P100"), "Project One",
         ProductSpaceRef("TV", "TV"),
@@ -217,8 +232,10 @@ def test_project_facts_owner_queries_persisted_dynamic_fields_and_owner_clusters
     assert fae["people"][0]["name"] == "Alice"
 
 
-def test_wireless_module_adds_an_independent_project_resource_without_replacing_original(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_wireless_module_adds_an_independent_project_resource_without_replacing_original(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     roles = DetailSection.loaded((
         ProjectRole(NamedValue("role.major_fae_qa", "Major FAE QA"), (PersonRef("original", display_name="Original QA"),)),
         ProjectRole(NamedValue("role.wifi_major_fae_qa", "WiFi Major FAE QA"), (PersonRef("wifi", display_name="WiFi Owner"),)),
@@ -251,8 +268,10 @@ def test_wireless_module_adds_an_independent_project_resource_without_replacing_
     assert len(next(role for role in result["ownerHierarchy"] if role["role"] == "Major FAE QA")["people"]) == 2
 
 
-def test_missing_details_acquire_authoritative_catalog_scope_when_derived_filter_is_empty(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_missing_details_acquire_authoritative_catalog_scope_when_derived_filter_is_empty(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(
         ProjectIdentity("TV:P100", "P100"), "Project One", ProductSpaceRef("TV", "TV"),
         ConfluencePageRef("900", "Project One"),
@@ -278,8 +297,10 @@ def test_missing_details_acquire_authoritative_catalog_scope_when_derived_filter
     assert synced == ["TV:P100"]
 
 
-def test_synchronized_empty_result_is_complete_and_does_not_reacquire_details(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_synchronized_empty_result_is_complete_and_does_not_reacquire_details(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(
         ProjectIdentity("TV:P100", "P100"), "Project One", ProductSpaceRef("TV", "TV"),
         ConfluencePageRef("900", "Project One"),
@@ -308,8 +329,10 @@ def test_synchronized_empty_result_is_complete_and_does_not_reacquire_details(tm
     assert coordinator_calls == []
 
 
-def test_non_wireless_module_project_is_not_duplicated(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_non_wireless_module_project_is_not_duplicated(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(
         ProjectIdentity("TV:P100", "P100"), "Project One", ProductSpaceRef("TV", "TV"),
         ConfluencePageRef("900", "Project One"), facts=DetailSection.loaded(FieldBag.from_mapping({"wifi module": "W3"})),
@@ -322,7 +345,9 @@ def test_non_wireless_module_project_is_not_duplicated(tmp_path) -> None:
     assert [(row["space_key"], row["project_id"]) for row in result["projects"]] == [("TV", "P100")]
 
 
-def test_page_entry_persists_recent_client_catalog_contract_for_all_four_spaces(tmp_path) -> None:
+def test_page_entry_persists_recent_client_catalog_contract_for_all_four_spaces(
+    tmp_path, *, database_factory
+) -> None:
     class CatalogClient:
         def get_page_by_url(self, url, *, prefer_export=False):
             del prefer_export
@@ -338,7 +363,7 @@ def test_page_entry_persists_recent_client_catalog_contract_for_all_four_spaces(
                 view_body=body, version=3,
             )
 
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+    repository = ConfluenceProjectRepository(database_factory())
     owner = ProjectFactsWebOwner(
         repository=repository,
         client_factory=lambda _username, _password: CatalogClient(),
@@ -355,8 +380,10 @@ def test_page_entry_persists_recent_client_catalog_contract_for_all_four_spaces(
     ]
 
 
-def test_apply_catalog_roundtrip_keeps_dynamic_fields_for_detail_extraction(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_apply_catalog_roundtrip_keeps_dynamic_fields_for_detail_extraction(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     project = Project(
         ProjectIdentity("TV:P100", "P100"), "Project One", ProductSpaceRef("TV"),
         ConfluencePageRef("900", "Project One", "https://c/pages/900"),
@@ -370,8 +397,10 @@ def test_apply_catalog_roundtrip_keeps_dynamic_fields_for_detail_extraction(tmp_
     assert payload["fields"]["odm"] == "ODM-X"
 
 
-def test_apply_refreshes_the_matching_cross_space_identity_only(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_apply_refreshes_the_matching_cross_space_identity_only(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     projects = tuple(
         Project(
             ProjectIdentity(f"{space}:P100", "P100"), f"{space} Project",
@@ -400,8 +429,10 @@ def test_apply_refreshes_the_matching_cross_space_identity_only(tmp_path) -> Non
     assert synced == ["TV:P100"]
 
 
-def test_catalog_refresh_does_not_requery_all_project_facts(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_catalog_refresh_does_not_requery_all_project_facts(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     owner = ProjectFactsWebOwner(repository=repository)
 
     class Service:
@@ -414,8 +445,10 @@ def test_catalog_refresh_does_not_requery_all_project_facts(tmp_path) -> None:
     assert owner.refresh(confirmed_access(repository.database), "secret") is None
 
 
-def test_project_facts_query_uses_one_repository_batch_instead_of_per_project_get(tmp_path, monkeypatch) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_project_facts_query_uses_one_repository_batch_instead_of_per_project_get(
+    tmp_path, monkeypatch, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     repository.save_core(tuple(
         Project(ProjectIdentity(str(index), f"P{index}"), f"Project {index}",
                 ProductSpaceRef("China Operator"), ConfluencePageRef(str(index)))
@@ -429,8 +462,10 @@ def test_project_facts_query_uses_one_repository_batch_instead_of_per_project_ge
     assert len(result["projects"]) == 3
 
 
-def test_apply_refreshes_catalog_before_recomputing_detail_scope(tmp_path) -> None:
-    repository = ConfluenceProjectRepository(WebDatabase(tmp_path / "web.db"))
+def test_apply_refreshes_catalog_before_recomputing_detail_scope(
+    tmp_path, *, database_factory
+) -> None:
+    repository = ConfluenceProjectRepository(database_factory())
     old = Project(ProjectIdentity("DOPL:OLD", "OLD"), "Old", ProductSpaceRef("China Operator"),
                   ConfluencePageRef("1"), support_mode=NamedValue(name="A"))
     new = Project(ProjectIdentity("DOPL:NEW", "NEW"), "New", ProductSpaceRef("China Operator"),

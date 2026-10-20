@@ -2,6 +2,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createJiraStatisticsCard, JIRA_STATISTICS_CARDS } from '../src/widgets/jira-statistics-card.js'
 
+it('shows Comments while Verify waits for the fixed background refresh', async () => {
+  document.body.innerHTML = '<div id="root"></div>'
+  const payload = { state: 'ready', productLines: [],
+    availability: { current: { basic: true, comment: true, verify: false },
+      previous: { basic: true, comment: true, verify: false } } }
+  const widget = createJiraStatisticsCard({ chartFactory: vi.fn(chartMock) })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => payload }, account: 'scheduled' })
+  await vi.waitFor(() => expect(document.querySelector('button[data-value="commentCount"]')?.disabled).toBe(false))
+  const verify = document.querySelector('button[data-value="verifyCount"]')
+  expect(verify.disabled).toBe(true)
+  expect(verify.textContent).toContain('Waiting for scheduled refresh')
+  expect(document.querySelector('[data-jira-statistics-state]')).toBeNull()
+  widget.destroy()
+})
+
+it('enables Comments and Verify together while Basic is pending', async () => {
+  document.body.innerHTML = '<div id="root"></div>'
+  const payload = { state: 'loading', current: { productLines: [{ id: 'TV', label: 'TV', people: [
+    { identity: 'qa', displayName: 'QA', commentCount: 5, verifyCount: 3 }] }] }, previous: { productLines: [] },
+    availability: { current: { basic: false, activity: true }, previous: { basic: false, activity: false } } }
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => payload }, account: 'comments' })
+  const comments = () => document.querySelector('[data-mode-segments] button[data-value="commentCount"]')
+  await vi.waitFor(() => expect(comments()?.disabled).toBe(false))
+  expect(document.querySelector('[data-mode-segments] button[data-value="bugCount"]').disabled).toBe(true)
+  expect(document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').disabled).toBe(false)
+  comments().click()
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([5])
+  widget.destroy()
+})
+
 const productLines = [
   { id: 'China Operator', label: 'China Operator', people: [
     { identity: 'a', displayName: 'Alice', bugCount: 2, commentCount: 1, verifyCount: 0, invalidCount: 1 },
@@ -31,29 +63,58 @@ function mount(api, chartFactory = vi.fn(chartMock), account = 'coco', cardKey =
 }
 
 describe('Jira statistics card', () => {
+  it('preserves product-line controls in the shared card shell', async () => {
+    document.body.innerHTML = '<section class="card"><div id="root"></div></section>'
+    const widget = createJiraStatisticsCard({ chartFactory: vi.fn(chartMock) })
+    widget.mount(document.querySelector('#root'), { api: { getStatistics: async () => ({ state: 'ready', productLines }) }, account: 'coco' })
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-product-line-segments] button')).toHaveLength(5))
+    expect(document.querySelector('#root').classList.contains('jira-statistics-card')).toBe(true)
+    expect([...document.querySelectorAll('[data-product-line-segments] button')].map(button => button.textContent))
+      .toEqual(productLines.map(line => line.label))
+    widget.destroy()
+  })
   it('declares three cards with shared component metadata', () => {
     expect(Object.keys(JIRA_STATISTICS_CARDS)).toEqual(['self-test', 'task', 'customer-feedback'])
     expect(Object.values(JIRA_STATISTICS_CARDS).map(card => card.title)).toEqual([
-      'Self-Test Jira Statistics by Product Line',
+      'Self Test Jira Statistics by Product Line',
       'Task Jira Statistics by Product Line',
       'Customer Feedback Jira Statistics by Product Line',
     ])
     expect(JIRA_STATISTICS_CARDS.task.firstMetricLabel).toBe('Tasks')
     expect(JIRA_STATISTICS_CARDS['customer-feedback'].title).toContain('Customer Feedback')
   })
-  it('restores a card period and queries only when its own period is changed', async () => {
-    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, period: 'quarter' }),
-      queryStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, period: 'week' }) }
-    const { widget } = mount(api)
-    await vi.waitFor(() => expect(document.querySelector('[data-jira-period="quarter"]').checked).toBe(true))
+  it('switches all four local period views without another API request', async () => {
+    const periodsPayload = Object.fromEntries(['week', 'month', 'quarter', 'year'].map((value, index) => [value, {
+      productLines: productLines.map((line, lineIndex) => ({ ...line,
+        people: lineIndex ? line.people : [{ ...line.people[0], bugCount: index + 1 }] })),
+      currentJqlByProductLineAndMetric: Object.fromEntries(productLines.map(line => [line.id, {
+        bugCount: `${value}:${line.id}`, commentCount: `${value}:${line.id}`, verifyCount: `${value}:${line.id}`,
+        invalidCount: `${value}:${line.id}:Invalid`,
+      }])),
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', periods: periodsPayload }),
+      queryStatistics: vi.fn() }
+    const { widget, chartFactory } = mount(api)
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]').textContent).toBe('month:China Operator'))
     const periods = document.querySelector('[data-jira-periods]')
-    expect(periods.previousElementSibling.matches('.report-preview-toolbar')).toBe(true)
+    const controls = document.querySelector('[data-jira-dimension-controls]')
+    expect([...controls.children]).toEqual([
+      periods,
+      document.querySelector('[data-mode-segments]'),
+    ])
+    expect(controls.previousElementSibling.matches('.report-preview-toolbar')).toBe(true)
     expect(periods.parentElement).not.toBe(document.querySelector('[data-product-line-segments]').parentElement)
-    document.querySelector('[data-jira-period="week"]').click()
-    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith('week', 'reuse'))
-    expect(document.querySelector('[data-jira-period="week"]').checked).toBe(true)
+    const chart = chartFactory.mock.results[0].value
+    for (const [value, count] of [['week', 1], ['quarter', 3], ['year', 4], ['month', 2]]) {
+      document.querySelector(`[data-jira-period="${value}"]`).click()
+      expect(document.querySelector(`[data-jira-period="${value}"]`).checked).toBe(true)
+      expect(document.querySelector('[data-current-jql]').textContent).toBe(`${value}:China Operator`)
+      expect(chart.data.datasets[0].data).toEqual([count])
+    }
+    expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    expect(api.queryStatistics).not.toHaveBeenCalled()
     widget.update({ query: true })
-    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith(undefined, 'refresh'))
+    await vi.waitFor(() => expect(api.queryStatistics).toHaveBeenCalledWith())
     widget.destroy()
   })
   it('keeps radio identities independent across card instances and associates visible labels', () => {
@@ -69,7 +130,8 @@ describe('Jira statistics card', () => {
     expect(firstInputs[0].name).not.toBe(secondInputs[0].name)
     expect(firstInputs.map(input => input.labels[0].textContent)).toEqual(['Weekly', 'Monthly', 'Quarterly', 'Yearly'])
     firstInputs[0].labels[0].click()
-    expect(firstInputs[0].checked).toBe(true)
+    expect(firstInputs[0].checked).toBe(false)
+    expect(firstInputs[1].checked).toBe(true)
     expect(secondInputs[1].checked).toBe(true)
     first.destroy(); second.destroy()
   })
@@ -98,6 +160,48 @@ describe('Jira statistics card', () => {
     document.querySelector('[data-product-line-segments] button[data-value="TV"]').click()
     document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').click()
     expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    widget.destroy()
+  })
+  it('keeps Comments and Verify on the base JQL while Invalid selects its constrained JQL', async () => {
+    const currentJqlByProductLineAndMetric = Object.fromEntries(productLines.map(line => [line.id, {
+      bugCount: `scope = "${line.id}"`, commentCount: `scope = "${line.id}"`, verifyCount: `scope = "${line.id}"`,
+      invalidCount: `scope = "${line.id}" AND resolution = "Invalid"`,
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, currentJqlByProductLineAndMetric }) }
+    const { widget } = mount(api, undefined, 'coco', 'task')
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]')?.textContent)
+      .toBe('scope = "China Operator"'))
+    const jql = document.querySelector('[data-current-jql]')
+    expect(jql.previousElementSibling.querySelector('strong').textContent).toBe('Current JQL')
+    document.querySelector('[data-product-line-segments] button[data-value="TV"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="verifyCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="commentCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV"')
+    document.querySelector('[data-mode-segments] button[data-value="invalidCount"]').click()
+    expect(jql.textContent).toBe('scope = "TV" AND resolution = "Invalid"')
+    expect(api.getStatistics).toHaveBeenCalledTimes(1)
+    widget.destroy()
+  })
+  it('copies the currently displayed JQL from the top-right action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const currentJqlByProductLineAndMetric = Object.fromEntries(productLines.map(line => [line.id, {
+      bugCount: `scope = "${line.id}"`, commentCount: `scope = "${line.id}"`, verifyCount: `scope = "${line.id}"`,
+      invalidCount: `scope = "${line.id}" AND resolution = "Invalid"`,
+    }]))
+    const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'ready', productLines, currentJqlByProductLineAndMetric }) }
+    const { widget } = mount(api)
+    await vi.waitFor(() => expect(document.querySelector('[data-current-jql]')?.textContent)
+      .toBe('scope = "China Operator"'))
+    const copy = document.querySelector('[data-copy-current-jql]')
+    expect(copy?.closest('.jira-current-jql-head')).not.toBeNull()
+    expect(copy.querySelector('svg')).not.toBeNull()
+    expect(copy.textContent).not.toContain('⧉')
+    copy.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('scope = "China Operator"'))
+    expect(copy.getAttribute('aria-label')).toBe('JQL copied')
     widget.destroy()
   })
   beforeEach(() => { sessionStorage.clear() })
@@ -183,7 +287,7 @@ describe('Jira statistics card', () => {
     const bugsChart = chartFactory.mock.calls.at(-1)[1]
     expect(bugsChart.data.labels).toEqual(['Bob', 'Alice'])
     expect(bugsChart.data.datasets[0].data).toEqual([3, 2])
-    expect(bugsChart.options.plugins.datalabels.labels.percentage.formatter(3)).toBe('3 · 60%')
+    expect(bugsChart.options.plugins.datalabels.labels.percentage.formatter(3)).toBe('60%（3/5）')
     expect(bugsChart.options.plugins.datalabels.labels.value.formatter(3)).toBeNull()
     expect(bugsChart.options.plugins.datalabels.labels.value.align).toBe('right')
     ;[...document.querySelectorAll('[data-mode-segments] button')].find(button => button.textContent === 'Verify').click()
@@ -217,7 +321,7 @@ describe('Jira statistics card', () => {
     const chart = chartFactory.mock.calls.at(-1)[1]
     expect(chart.data.labels).toEqual(['Bob', 'Alice', 'Carol'])
     expect(chart.data.datasets.map(dataset => dataset.data)).toEqual([[3, 2, 0], [0, 5, 4]])
-    expect(chart.data.datasets.map(dataset => dataset.barThickness)).toEqual([12, 12])
+    expect(chart.data.datasets.map(dataset => dataset.barThickness)).toEqual([10, 10])
     expect(chart.data.datasets.every(dataset => dataset.grouped)).toBe(true)
     expect(chart.options.plugins.datalabels.labels.value.formatter(2, { dataIndex: 1, datasetIndex: 0 })).toBe('↓ 3')
     expect(chart.options.plugins.datalabels.labels.value.formatter(5, { dataIndex: 1, datasetIndex: 1 })).toBeNull()
@@ -274,16 +378,16 @@ it('shows Customer components and current Invalid bars and restores both from di
     expect(config.data.labels).toEqual(['Total', 'Invalid'])
     expect(config.data.datasets.map(item => item.data)).toEqual([[5, 1]])
     expect(config.options.plugins.datalabels.labels.percentage.formatter(5, { dataIndex: 0 })).toBe('5')
-    expect(config.options.plugins.datalabels.labels.percentage.formatter(1, { dataIndex: 1 })).toBe('1 · 20%')
+    expect(config.options.plugins.datalabels.labels.percentage.formatter(1, { dataIndex: 1 })).toBe('20%（1/5）')
     document.querySelector('[data-product-line-segments] button[data-value="Smart Device"]').click()
     expect(document.querySelector('[data-ranked-chart]').hidden).toBe(false)
     expect(config.data.labels).toEqual(['Total', 'Invalid'])
     expect(config.data.datasets.map(item => item.data)).toEqual([[0, 0]])
-    expect(config.options.plugins.datalabels.labels.percentage.formatter(0, { dataIndex: 1 })).toBe('0 · 0%')
+    expect(config.options.plugins.datalabels.labels.percentage.formatter(0, { dataIndex: 1 })).toBe('0%（0/0）')
     document.querySelector('[data-product-line-segments] button[data-value="Wireless Connection"]').click()
     expect(config.data.labels).toEqual(['Total', 'Invalid'])
     expect(config.data.datasets.map(item => item.data)).toEqual([[17, 0]])
-    expect(config.options.plugins.datalabels.labels.percentage.formatter(0, { dataIndex: 1 })).toBe('0 · 0%')
+    expect(config.options.plugins.datalabels.labels.percentage.formatter(0, { dataIndex: 1 })).toBe('0%（0/17）')
     document.querySelector('[data-product-line-segments] button[data-value="China Operator"]').click()
     document.querySelector('[data-value="commentCount"]').click()
     expect(config.data.labels).toEqual(['Alice'])
@@ -325,7 +429,7 @@ it('renders Verify authors instead of P0', async () => {
 it('renders available layers without treating pending Verify or previous period as zero', async () => {
   const line = count => [{ id: 'TV', label: 'TV', people: [{ identity: 'qa', displayName: 'QA', bugCount: 2, commentCount: 1, verifyCount: count, invalidCount: 0 }] }]
   let payload = { state: 'loading', current: { productLines: line(undefined) }, previous: { productLines: line(undefined) },
-    availability: { current: { basic: true, verify: false }, previous: { basic: false, verify: false } } }
+    availability: { current: { basic: true, activity: false }, previous: { basic: false, activity: false } } }
   const chartFactory = vi.fn(chartMock)
   const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
   document.body.innerHTML = '<div id="root"></div>'
@@ -340,7 +444,7 @@ it('renders available layers without treating pending Verify or previous period 
   await vi.waitFor(() => expect(verify().textContent).toContain('Failed'))
   expect(verify().disabled).toBe(true)
   payload = { ...payload, state: 'loading', current: { productLines: line(3) },
-    availability: { current: { basic: true, verify: true }, previous: { basic: true, verify: false } } }
+    availability: { current: { basic: true, activity: true }, previous: { basic: true, activity: false } } }
   widget.update()
   await vi.waitFor(() => expect(verify().disabled).toBe(false))
   expect(verify().textContent).toContain('Previous: Loading')
@@ -348,7 +452,7 @@ it('renders available layers without treating pending Verify or previous period 
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets).toHaveLength(1)
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3])
   payload = { ...payload, state: 'ready', previous: { productLines: line(1) },
-    availability: { current: { basic: true, verify: true }, previous: { basic: true, verify: true } } }
+    availability: { current: { basic: true, activity: true }, previous: { basic: true, activity: true } } }
   widget.update()
   await vi.waitFor(() => expect(chartFactory.mock.calls.at(-1)[1].data.datasets).toHaveLength(2))
   expect(chartFactory.mock.calls.at(-1)[1].data.datasets[1].data).toEqual([1])
@@ -357,7 +461,7 @@ it('renders available layers without treating pending Verify or previous period 
 it('keeps the initial loading skeleton and fills its existing nodes in place', async () => {
   let payload = { state: 'loading', task: { progress: { processed: 2, total: 10 } },
     productLines: productLines.map(line => ({ ...line, people: [] })),
-    availability: { current: { basic: false, verify: false }, previous: { basic: false, verify: false } } }
+    availability: { current: { basic: false, activity: false }, previous: { basic: false, activity: false } } }
   document.body.innerHTML = '<div id="root"></div>'
   const chartFactory = vi.fn(chartMock)
   const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
@@ -393,6 +497,188 @@ it('binds the five Jira visual identities using full names', async () => {
     const buttons = [...document.querySelectorAll('[data-product-line-segments] button')]
     expect(buttons.map(button => button.dataset.productLine)).toEqual(['China Operator', 'Smart Device', 'TV', 'Global Operator & STB', 'Wireless Connection'])
     buttons[4].click()
-    expect(document.querySelector('.workload-chart-scroll').dataset.productLine).toBe('Wireless Connection')
+    expect(document.querySelector('.workload-chart-scroll').hasAttribute('data-product-line')).toBe(false)
+    expect(buttons[4].getAttribute('aria-pressed')).toBe('true')
   } finally { widget.destroy() }
+})
+
+
+it('rereads available local data after a cancelled task without refreshing Jira', async () => {
+  const payload = { state: 'cancelled', dataState: 'ready', error: 'query_cancelled', current: { productLines }, previous: { productLines: [] },
+    availability: { current: { basic: true, comment: true, verify: false },
+      previous: { basic: true, comment: false, verify: false } } }
+  const api = { getStatistics: vi.fn().mockResolvedValue(payload), queryStatistics: vi.fn() }
+  const { widget, chartFactory } = mount(api)
+  await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent)
+    .toBe('Refresh cancelled. Showing saved data.'))
+  const comments = document.querySelector('button[data-value="commentCount"]')
+  expect(comments.disabled).toBe(false)
+  expect(comments.textContent).toBe('Comments (Previous: Waiting for scheduled refresh)')
+  const verify = document.querySelector('button[data-value="verifyCount"]')
+  expect(verify.disabled).toBe(true)
+  expect(verify.textContent).toBe('Verify (Waiting for scheduled refresh)')
+  comments.click()
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([1])
+  widget.update()
+  await vi.waitFor(() => expect(api.getStatistics).toHaveBeenCalledTimes(2))
+  expect(api.queryStatistics).not.toHaveBeenCalled()
+  expect(document.body.textContent).not.toContain('query_cancelled')
+  widget.destroy()
+})
+
+it('retains the cancellation error when there is no local result body', async () => {
+  const api = { getStatistics: vi.fn().mockResolvedValue({ state: 'cancelled', error: 'query_cancelled' }),
+    queryStatistics: vi.fn() }
+  const { widget } = mount(api)
+  await vi.waitFor(() => expect(document.querySelector('[data-jira-statistics-state]')?.textContent).toBe('query_cancelled'))
+  expect(document.body.textContent).not.toContain('Showing available local data')
+  expect(api.queryStatistics).not.toHaveBeenCalled()
+  widget.destroy()
+})
+
+
+it('replaces a disposable old scope with the server partial view when no active result matches', async () => {
+  document.body.innerHTML = '<div id="scope-root"></div>'
+  const old = { state: 'ready', periods: { month: { productLines } } }
+  sessionStorage.setItem('smarttest:jira-statistics-display:scope-regression:self-test', JSON.stringify(old))
+  let resolve
+  const api = { getStatistics: vi.fn(() => new Promise(done => { resolve = done })) }
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ pollDelay: 60000, chartFactory })
+  widget.mount(document.querySelector('#scope-root'), { api, account: 'scope-regression' })
+  try {
+    expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3, 2])
+    resolve({ state: 'loading', dataState: 'partial', periods: { month: {
+      productLines: [{ ...productLines[0], people: [{ ...productLines[0].people[0], bugCount: 9 }] }],
+    } } })
+    await vi.waitFor(() => expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([9]))
+    expect(api.getStatistics).toHaveBeenCalledOnce()
+  } finally { widget.destroy() }
+})
+
+
+it('ends Loading after a rejected request and does not start another poll', async () => {
+  const getStatistics = vi.fn().mockRejectedValue(new TypeError('Request failed'))
+  const { widget } = mount({ getStatistics })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('No results available. Request failed'))
+  expect(document.body.textContent).not.toContain('Loading')
+  expect(document.body.textContent).toContain('Failed')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(getStatistics).toHaveBeenCalledTimes(1)
+  widget.destroy()
+})
+
+it('keeps server-confirmed data after a request failure and ends pending metric labels', async () => {
+  const getStatistics = vi.fn().mockResolvedValueOnce({ state: 'ready', dataState: 'ready', periods: { month: {
+    productLines, availability: { current: { basic: true, comment: true, verify: false }, previous: { basic: true, comment: true, verify: false } }
+  } } }).mockRejectedValue(new TypeError('Request failed'))
+  const { widget, chartFactory } = mount({ getStatistics })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('Waiting for scheduled refresh'))
+  widget.update()
+  await vi.waitFor(() => expect(document.body.textContent).toContain('Request failed'))
+  expect(document.body.textContent).not.toContain('Loading')
+  expect(document.querySelector('button[data-value="verifyCount"]').textContent).toContain('Failed')
+  expect(chartFactory.mock.calls.at(-1)[1].data.datasets[0].data).toEqual([3, 2])
+  widget.destroy()
+})
+
+
+it('does not treat the browser first-frame cache as confirmed data after fetch rejection', async () => {
+  const first = mount({ getStatistics: async () => ({ state: 'ready', dataState: 'ready', periods: { month: { productLines } } }) })
+  await vi.waitFor(() => expect(first.chartFactory).toHaveBeenCalled())
+  first.widget.destroy()
+  const { widget } = mount({ getStatistics: async () => { throw new TypeError('Request failed') } })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('No results available.'))
+  expect(document.querySelector('[data-ranked-chart]').hidden).toBe(true)
+  expect(document.body.textContent).not.toContain('Loading')
+  widget.destroy()
+})
+
+
+it('does not display an intentional abort as a request failure', async () => {
+  const getStatistics = vi.fn().mockRejectedValue(new DOMException('Cancelled', 'AbortError'))
+  const { widget } = mount({ getStatistics })
+  await vi.waitFor(() => expect(getStatistics).toHaveBeenCalledOnce())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(document.querySelector('.inline-status-error')).toBeNull()
+  widget.destroy()
+})
+
+it('keeps basic details local and lazily opens Comments and Verify with their displayed reference', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  document.body.innerHTML = '<div id="root"></div>'
+  const detail = key => ({ issueId: key, key, summary: 'Database issue', productLine: 'China Operator',
+    people: [{ identity: 'a', displayName: 'Alice', bugCount: 2, invalidCount: 0 }] })
+  const data = { state: 'ready', current: { productLines, details: [detail('CURRENT-1')] },
+    previous: { productLines, details: [detail('PREVIOUS-1')] },
+    qaEvidence: { current: { comment: { metric: 'comment' }, verify: { metric: 'verify' } } } }
+  const getDetails = vi.fn(async () => ({ rows: [{ key: 'QA-1', person: 'a', personName: 'Alice', commentCount: 1 }], total: 1 }))
+  const getStatistics = vi.fn(async () => data)
+  const chartFactory = vi.fn(chartMock)
+  const widget = createJiraStatisticsCard({ chartFactory })
+  widget.mount(document.querySelector('#root'), { api: { getStatistics, getDetails }, account: 'details' })
+  await vi.waitFor(() => expect(chartFactory).toHaveBeenCalled())
+  const config = chartFactory.mock.calls.at(-1)[1]
+  const index = config.data.labels.indexOf('Alice')
+  config.options.onClick({}, [{ index, datasetIndex: 1 }])
+  expect(document.querySelector('dialog tbody').textContent).toContain('PREVIOUS-1')
+  expect(document.querySelector('dialog tbody').textContent).not.toContain('CURRENT-1')
+  expect(getStatistics).toHaveBeenCalledOnce()
+  document.querySelector('[data-details-close]').click()
+  for (const metric of ['commentCount', 'verifyCount']) {
+    document.querySelector(`[data-value="${metric}"]`).click()
+    chartFactory.mock.calls.at(-1)[1].options.onClick({}, [{ index: 0, datasetIndex: 0 }])
+    await vi.waitFor(() => expect(document.querySelector('dialog tbody').textContent).toContain('QA-1'))
+    expect(getDetails.mock.calls.at(-1)[0]).toMatchObject({ reference: { metric: metric === 'commentCount' ? 'comment' : 'verify' }, person: metric === 'commentCount' ? 'a' : 'b', allQa: false })
+    expect(document.querySelector('[data-qa-details]').textContent).toContain('Details')
+    document.querySelector('[data-details-close]').click()
+  }
+  widget.destroy()
+})
+
+
+it('reaches zero-count QA histories and downloads every action page with one fixed reference', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  document.body.innerHTML = '<div id="root"></div>'
+  const reference = { baseSnapshotId: 'base', metric: 'verify', sources: [{ snapshotId: 'evidence' }] }
+  const data = { state: 'ready', productLines: [], qaEvidence: { current: { verify: reference } } }
+  const getDetails = vi.fn(async payload => ({ total: payload.actions ? 27 : 1, pageSize: 25,
+    rows: payload.actions ? Array.from({ length: payload.page ? 2 : 25 }, (_, index) => ({
+      sourceId: String(payload.page * 25 + index), eventKind: 'verify', person: 'qa', payload: { items: [{ fromString: 'Resolved', toString: 'Verified' }] },
+    })) : [{ issueId: 'issue', key: 'QA-ZERO', person: 'qa', historyCount: 27 }] }))
+  const { widget } = mount({ getStatistics: async () => data, getDetails }, vi.fn(chartMock), 'qa-zero')
+  await vi.waitFor(() => expect(document.querySelector('[data-value="verifyCount"]').disabled).toBe(false))
+  document.querySelector('[data-value="verifyCount"]').click()
+  document.querySelector('[data-qa-details] button').click()
+  await vi.waitFor(() => expect(document.querySelector('dialog tbody').textContent).toContain('QA-ZERO'))
+  document.querySelector('[data-details-scope]').click()
+  await vi.waitFor(() => expect(getDetails.mock.calls.at(-1)[0].allQa).toBe(true))
+  await vi.waitFor(() => expect(document.querySelector('[data-details-download]').disabled).toBe(false))
+  document.querySelector('[data-details-download]').click()
+  await vi.waitFor(() => expect(getDetails.mock.calls.filter(([payload]) => payload.actions)).toHaveLength(2))
+  const actionRequests = getDetails.mock.calls.filter(([payload]) => payload.actions).map(([payload]) => payload)
+  expect(actionRequests.map(payload => payload.page)).toEqual([0, 1])
+  expect(actionRequests.every(payload => payload.allQa && payload.person === '' && JSON.stringify(payload.reference) === JSON.stringify(reference))).toBe(true)
+  widget.destroy()
+})
+
+
+it.each([
+  ['details_version_changed', 'Displayed data has changed. Close and reopen details'],
+  ['details_not_collected', 'QA source details have not been completely collected'],
+])('explains %s without replacing it with another source', async (code, text) => {
+  const getStatistics = vi.fn(async () => ({ state: 'ready', productLines: [],
+    qaEvidence: { current: { comment: { baseSnapshotId: 'base', metric: 'comment' } } } }))
+  const getDetails = vi.fn(async () => { throw Object.assign(new Error('Request failed 409'), { code }) })
+  const { widget } = mount({ getStatistics, getDetails }, vi.fn(chartMock), code)
+  await vi.waitFor(() => expect(document.querySelector('[data-value="commentCount"]').disabled).toBe(false))
+  document.querySelector('[data-value="commentCount"]').click()
+  document.querySelector('[data-qa-details] button').click()
+  await vi.waitFor(() => expect(document.querySelector('dialog').textContent).toContain(text))
+  expect(getDetails).toHaveBeenCalledOnce()
+  expect(getStatistics).toHaveBeenCalledOnce()
+  expect(document.querySelector('[data-details-download]').disabled).toBe(true)
+  widget.destroy()
 })

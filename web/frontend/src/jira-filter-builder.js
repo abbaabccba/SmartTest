@@ -1,3 +1,4 @@
+import { icon } from './icons.js'
 import { enhanceMultiSelect, fillSelect } from './multi-select.js'
 import { escapeHtml } from './dom.js'
 
@@ -63,7 +64,7 @@ export function createJiraFilterBuilder({ root, api, account, onApplied = () => 
       input = document.createElement('input'); input.className = 'form-control'; input.dataset.dynamicField = field.id; input.setAttribute('aria-label', field.name)
       label.append(input); block.append(label)
     }
-    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `Remove ${field.name}`); remove.onclick = () => block.remove()
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-button'; remove.innerHTML = icon('close'); remove.setAttribute('aria-label', `Remove ${field.name}`); remove.onclick = () => block.remove()
     block.append(remove); q('[data-conditions]').append(block)
   }
   q('[name="jql"]').addEventListener('input', () => { advancedDirty = q('[name="jql"]').value !== generatedJql })
@@ -106,7 +107,7 @@ export function createJiraFilterBuilder({ root, api, account, onApplied = () => 
           configureSelect(field, host)
         }
         fields = schema.more || []
-        q('[data-more-menu]').innerHTML = `<input class="form-control" type="search" data-more-search placeholder="Search" aria-label="Search fields"><div data-more-options>${fields.map(field => `<button type="button" data-add-field="${escapeHtml(field.id)}" aria-label="Add ${escapeHtml(field.name)}" ${field.queryable ? '' : 'disabled'}>${escapeHtml(field.name)}${field.queryable ? '' : ' · Advanced only'}</button>`).join('')}</div>`
+        q('[data-more-menu]').innerHTML = `<input class="form-control" type="search" data-more-search placeholder="Search" aria-label="Search fields"><div data-more-options>${fields.map(field => `<button type="button" class="menu-item" data-add-field="${escapeHtml(field.id)}" aria-label="Add ${escapeHtml(field.name)}" ${field.queryable ? '' : 'disabled'}>${escapeHtml(field.name)}${field.queryable ? '' : ' · Advanced only'}</button>`).join('')}</div>`
         q('[data-more-search]').addEventListener('input', event => { const term = event.target.value.trim().toLowerCase(); for (const button of q('[data-more-options]').children) button.hidden = !button.textContent.toLowerCase().includes(term) })
         for (const button of q('[data-more-menu]').querySelectorAll('[data-add-field]')) button.onclick = () => addField(fields.find(field => field.id === button.dataset.addField))
         q('[name="savedFilter"]').innerHTML += saved.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')

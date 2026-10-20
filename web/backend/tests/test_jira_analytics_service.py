@@ -1,3 +1,4 @@
+import pytest
 from concurrent.futures import Future
 from threading import Event
 import time
@@ -64,6 +65,23 @@ class Gateway:
 
 class Mapper:
     def from_search(self, payload): return payload
+
+
+def test_annual_comment_coordination_reuses_inflight_work_and_isolates_accounts_and_queries():
+    manager = AsyncTaskManager(max_workers=1)
+    tasks = JiraAnalyticsTasks(manager)
+    release = Event()
+    def run(token, progress):
+        release.wait(2)
+        return 'database-snapshot'
+    try:
+        first = tasks.submit_annual(('alice', 'year-2026', 'scope', 'roster'), run)
+        assert tasks.submit_annual(('alice', 'year-2026', 'scope', 'roster'), run) is first
+        assert tasks.submit_annual(('bob', 'year-2026', 'scope', 'roster'), run) is not first
+        assert tasks.submit_annual(('alice', 'year-2026', 'different', 'roster'), run) is not first
+    finally:
+        release.set()
+        manager.close()
 
 
 def test_card_tasks_are_independent_with_the_same_session_and_user_conditions():
@@ -134,7 +152,7 @@ def test_background_failure_is_recorded_and_forwarded_to_auth_lifecycle():
     assert len(failures) == 1
 
 
-def test_card_conditions_are_applied_once_for_preview_search_and_sqlite_effective_scope():
+def test_card_conditions_are_applied_once_for_preview_search_and_database_effective_scope():
     repo, tasks = Repo(), Tasks()
     class RecordingFilter(Filter):
         def validate(self, jql):
@@ -156,7 +174,7 @@ def test_unselected_basic_conditions_add_only_card_fixed_conditions():
     assert service.preview({"mode": "basic", "basic": {}})["jql"] == 'channel = "Self-Test"'
 
 
-def test_remote_pagination_progress_is_published_before_sqlite_writes():
+def test_remote_pagination_progress_is_published_before_database_writes():
     repo, tasks = Repo(), Tasks(); events = []
     class PagedGateway:
         def search_all_payloads(self, _jql, *, fields=None, expand=None, page_size=None, progress):
@@ -182,7 +200,6 @@ def test_card_search_fetches_both_periods_and_activates_one_combined_result():
         Filter(), gateway, Mapper(), repo, tasks,
         fixed_conditions='created >= "2026-09-01" AND created <= now()',
         comparison_conditions='created >= "2026-08-01" AND created < "2026-09-01"',
-        verification_conditions={"current": "verify-current", "previous": "verify-previous"},
         statistics_builder=lambda current, previous: {"currentTotal": len(current), "previousTotal": len(previous)},
     )
 
@@ -192,12 +209,11 @@ def test_card_search_fetches_both_periods_and_activates_one_combined_result():
     assert gateway.queries == [
         '(project = SH) AND (created >= "2026-09-01" AND created <= now())',
         '(project = SH) AND (created >= "2026-08-01" AND created < "2026-09-01")',
-        "(project = SH) AND (verify-current)", "(project = SH) AND (verify-previous)",
     ]
     assert repo.calls[0][2]["comparison_jql"] == gateway.queries[1]
     assert [call[1][2] for call in repo.calls if call[0] == "write"] == ["current", "previous"]
     assert repo.calls[-1] == ("activate", ("snapshot", {"currentTotal": 1, "previousTotal": 1,
-        "availability": {period: {"basic": True, "verify": True} for period in ("current", "previous")}}))
+        "availability": {period: {"basic": True} for period in ("current", "previous")}}))
 
 
 def test_comparison_search_reports_monotonic_combined_progress_across_both_queries():
@@ -220,7 +236,7 @@ def test_comparison_search_reports_monotonic_combined_progress_across_both_queri
     assert events == [(1, 2), (2, 2), (3, 5), (5, 5)]
 
 
-def test_card_load_logs_safe_stage_timings_and_uses_history_paging(monkeypatch):
+def test_card_load_logs_safe_basic_stage_timings(monkeypatch):
     import smarttest_web.jira.analytics_service as module
     logs, requests = [], []
     monkeypatch.setattr(module, "smart_log", lambda message, **kwargs: logs.append((message, kwargs)), raising=False)
@@ -232,49 +248,62 @@ def test_card_load_logs_safe_stage_timings_and_uses_history_paging(monkeypatch):
             return [{"id": "1", "fields": {"summary": "private-content"}}]
     tasks = Tasks()
     service = JiraAnalyticsService(Filter(), Gateway(), Mapper(), Repo(), tasks, card_key="task",
-                                   comparison_conditions="previous", verification_conditions={"current": "verify-current", "previous": "verify-previous"}, statistics_builder=lambda *_: {})
+                                   comparison_conditions="previous", statistics_builder=lambda *_: {})
     service.search("session-secret", "account-secret", 100, {"mode": "advanced", "jql": "private-query"})
     tasks.runner(type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
     assert all(request["page_size"] == 100 for request in requests)
-    assert [request["expand"] for request in requests] == [None, None, ["changelog"], ["changelog"]]
-    stages = {kwargs["extra"]["stage"] for _, kwargs in logs}
-    assert stages == {"search", "persist", "aggregate", "complete"}
-    search_logs = [kwargs["extra"] for _, kwargs in logs if kwargs["extra"]["stage"] == "search"]
-    assert [item["period"] for item in search_logs] == ["current", "previous"] * 2
-    assert [item["layer"] for item in search_logs] == ["basic", "basic", "verify", "verify"]
+    assert [request.get("expand") for request in requests] == [None, None]
+    stages = {kwargs["extra"]["stage"] for _, kwargs in logs if "stage" in kwargs.get("extra", {})}
+    assert stages == {"queue", "search", "persist", "aggregate", "activate", "complete"}
+    stage_records = [(message, kwargs) for message, kwargs in logs if "stage" in kwargs.get("extra", {})]
+    search_logs = [kwargs["extra"] for _, kwargs in stage_records if kwargs["extra"]["stage"] == "search" and kwargs["extra"]["outcome"] == "completed"]
+    assert [item["period"] for item in search_logs] == ["current", "previous"]
+    assert [item["layer"] for item in search_logs] == ["basic", "basic"]
     assert all(item["page_count"] == 1 and item["processed"] == 1 for item in search_logs)
-    assert all(kwargs["extra"]["duration_ms"] >= 0 and kwargs["extra"]["card_key"] == "task" for _, kwargs in logs)
+    assert all(kwargs["extra"]["duration_ms"] >= 0 and kwargs["extra"]["card_key"] == "task" for _, kwargs in stage_records)
+    assert any("stage=activate" in message and "outcome=completed" in message for message, _ in stage_records)
     assert all(kwargs["platform"] == "web" and kwargs["domain"] == "jira" for _, kwargs in logs)
     assert not any(value in str(logs) for value in ["session-secret", "account-secret", "private-query", "private-content"])
 
 
-def test_card_layers_publish_basic_before_history_in_strict_period_order():
-    import copy
-    calls, previews = [], []
-    class PartialRepo(Repo):
-        def update_statistics(self, _snapshot, payload):
-            previews.append(copy.deepcopy(payload))
-            return True
-    class LayerGateway:
-        def search_all_payloads(self, query, **kwargs):
-            calls.append((query, kwargs.get("expand")))
-            assert len(previews) == len(calls) - 1
-            return [{"id": "1", "key": "TV-1", "fields": {"creator": {"name": "qa"}}}]
-    def build(current, previous):
-        overview = lambda rows: {"productLines": [{"id": "TV", "people": [{"identity": "qa", "bugCount": len(rows), "verifyCount": 0}]}]}
-        return {**overview(current), "current": overview(current), "previous": overview(previous)}
-    repo, tasks = PartialRepo(), Tasks()
-    service = JiraAnalyticsService(Filter(), LayerGateway(), Mapper(), repo, tasks,
-        card_key="task", comparison_conditions="previous", verification_conditions={"current": "verify-current", "previous": "verify-previous"}, statistics_builder=build)
-    service.search("s", "alice", 100, {"mode": "advanced", "jql": "scope"})
-    tasks.runner(type("Token", (), {"raise_if_cancelled": lambda self: None})(), lambda *_: None)
-    assert [expand for _query, expand in calls] == [None, None, ["changelog"], ["changelog"]]
-    assert calls[0][0] != calls[2][0] and calls[1][0] != calls[3][0]
-    assert calls[2][0].endswith("(verify-current)") and calls[3][0].endswith("(verify-previous)")
-    assert len(previews) == 4
-    assert previews[0]["availability"] == {"current": {"basic": True, "verify": False}, "previous": {"basic": False, "verify": False}}
-    assert "verifyCount" not in previews[0]["current"]["productLines"][0]["people"][0]
-    assert previews[2]["availability"]["current"]["verify"] is True
-    assert previews[2]["availability"]["previous"]["verify"] is False
-    assert all(period["verify"] for period in previews[3]["availability"].values())
-    assert repo.calls[-1][0] == "activate"
+@pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
+def test_runtime_basic_and_activity_queries_share_their_current_jql_owners(monkeypatch, card_key):
+    from core.async_tasks import CancellationToken
+    from core.jira.jql import customer_feedback_jql, product_line_jql
+    from core.jira.services.jql_statistics_cards import (
+        current_card_jql_by_product_line_and_metric, effective_card_jql_pair, activity_card_jql_pair, card_definition,
+    )
+    from core.product_lines import DASHBOARD_PRODUCT_LINES
+    from smarttest_web.jira.analytics_service import card_analytics_service
+    from smarttest_web.jira import analytics_refresh
+    requests, activities = [], []
+    class RecordingGateway(Gateway):
+        def search_all_payloads(self, jql, **kwargs):
+            requests.append(jql)
+            return []
+    class Repository(Repo):
+        def register_history_scope(self, *_args): pass
+        def statistics_preview(self, *_args, **_kwargs): return None
+        def update_statistics(self, *_args, **_kwargs): return True
+    def refresh_metric(_repository, _pages, _gateway, _account, _card, query, *_args, **_kwargs):
+        activities.append(query)
+        return "source"
+    monkeypatch.setattr(analytics_refresh, 'refresh_metric', refresh_metric)
+    repo, tasks = Repository(), Tasks()
+    tasks.pages = object()
+    service = card_analytics_service(Filter(), RecordingGateway(), repo, tasks, card_key)
+    service.statistics_builder = lambda *_args, **_kwargs: {}
+    service.search('session', 'test', 0, {'mode': 'advanced', 'jql': 'status = Open'})
+    tasks.runner(CancellationToken(), lambda *_: None)
+    actual = effective_card_jql_pair(card_key, 'status = Open', 'year')
+    activity = activity_card_jql_pair(card_key, 'status = Open')
+    assert requests == [actual[period]['jql'] for period in ('current', 'previous')]
+    assert activities == [activity[period]['jql'] for period in ('current', 'previous')]
+    display = current_card_jql_by_product_line_and_metric(card_key, 'status = Open', 'year')
+    for line in DASHBOARD_PRODUCT_LINES:
+        source = customer_feedback_jql(line) if card_key == 'customer-feedback' else card_definition(card_key).custom_jql
+        branch = f'({product_line_jql(line, card_key=card_key)}) AND ({source})'
+        assert all(branch in query for query in requests)
+        assert source in display[line.name]['bugCount']
+        assert display[line.name]['commentCount'] == display[line.name]['verifyCount'] == activities[0]
+    assert all('labels NOT IN' not in query for query in requests)

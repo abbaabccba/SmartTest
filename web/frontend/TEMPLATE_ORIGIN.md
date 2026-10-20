@@ -1,5 +1,7 @@
 # Template origin
 
+This is a historical source and license record only. It is not an active visual, layout, icon, or animation specification. The current Web style authority is `docs/superpowers/specs/2026-10-18-web-apple-design-system.md`; retained attribution does not authorize restoring the former template style.
+
 The SmartTest Web navigation and theme styles were adapted from TemplateMo 608 DayNight Admin:
 
 - Source: https://templatemo.com/tm-608-daynight-admin

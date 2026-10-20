@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createAsyncFeedback } from '../src/async-feedback.js'
+import { createAsyncFeedback, refreshFeedback } from '../src/async-feedback.js'
 
 describe('AsyncFeedback', () => {
   beforeEach(() => { document.body.innerHTML = '<div id="feedback"></div><button id="cancel">Cancel</button>' })
@@ -44,4 +44,12 @@ describe('AsyncFeedback', () => {
     await Promise.resolve()
     expect(onCancel).toHaveBeenCalledOnce()
   })
+})
+
+
+it('reports refresh failure separately from server-authorized data availability', () => {
+  expect(refreshFeedback({ state: 'failed', dataState: 'ready' }).message).toContain('Showing saved data')
+  expect(refreshFeedback({ state: 'failed', dataState: 'none' }).message).not.toContain('Showing saved data')
+  expect(refreshFeedback({ state: 'failed' }).message).not.toContain('Showing saved data')
+  expect(refreshFeedback({ state: 'cancelled', dataState: 'ready' }).state).toBe('cancelled')
 })

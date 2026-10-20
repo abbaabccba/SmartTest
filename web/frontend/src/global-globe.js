@@ -60,7 +60,7 @@ export function createGlobalGlobe(context, { framing = 'partial', random = Math.
     const loginView = framing === 'login'
     const latitude = loginView ? 60 * Math.sin((now - started) / 240000 * Math.PI * 2 + Math.asin(.3)) : 18
     const radius = loginView ? Math.min(width, height) * .72 : Math.min(width * .42, height * .86)
-    const center = loginView ? [width * .27, height * .76] : [width * .78, height * .73]
+    const center = loginView ? [width * .27, height * .76] : [width * .78, Math.min(height * .73, radius * .85)]
     const facing = [longitude, latitude]
     const visible = coordinates => geoDistance(coordinates, facing) < Math.PI / 2
     projection.rotate([-longitude, -latitude, loginView ? -23.5 : 0]).scale(radius).translate(center).clipExtent([[0, 0], [width, height]])

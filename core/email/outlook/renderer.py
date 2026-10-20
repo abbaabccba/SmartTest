@@ -10,7 +10,7 @@ from typing import Literal
 from urllib.parse import unquote, urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
-import markdown
+from core.markup import render_markup
 
 
 class OutlookContentError(ValueError):
@@ -150,7 +150,7 @@ def render_body(
     """Render Markdown or HTML and rewrite local images as CID references."""
 
     if body_format == "markdown":
-        fragment = markdown.markdown(body, extensions=["extra", "sane_lists"])
+        fragment = render_markup(body)
         plain_text = body
     elif body_format == "html":
         fragment = body

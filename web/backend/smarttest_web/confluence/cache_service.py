@@ -11,6 +11,7 @@ from core.confluence.project import (
 )
 from core.domain.detail import DetailSection, DetailState
 from core.logging import smart_log
+from core.async_tasks import TaskCancelled, current_cancellation
 
 from .project_repository import ConfluenceProjectRepository
 from ..resource_access import remote_status
@@ -78,6 +79,8 @@ class ConfluenceProjectCacheService:
         self._access.require_active()
         try:
             payload = self._gateway.refresh_project_catalogs(scope)
+        except TaskCancelled:
+            raise
         except Exception as error:
             if remote_status(error) == 401:
                 raise PermissionError("reauthentication_required") from error
@@ -92,7 +95,7 @@ class ConfluenceProjectCacheService:
         failures.extend(str(item) for item in payload.get("failed_product_spaces") or ())
         return {"projects": tuple(projects), "failed": tuple(failures)}
 
-    def refresh_project(self, project_id: str, details: ProjectDetails, cancellation=None) -> Project:
+    def refresh_project(self, project_id: str, details: ProjectDetails, cancellation=None, *, require_complete=False) -> Project:
         started = time.monotonic()
         _raise_if_cancelled(cancellation)
         project = self._repository.get(project_id, ProjectDetails())
@@ -110,6 +113,8 @@ class ConfluenceProjectCacheService:
         for section in details.sections():
             _raise_if_cancelled(cancellation)
             loaded = self._refresh_section(requested_id, section)
+            if require_complete and loaded.state is not DetailState.LOADED:
+                raise RuntimeError('confluence_detail_failed')
             project = replace(self.read_project(requested_id, details), **{section: loaded})
             _raise_if_cancelled(cancellation)
         smart_log("Confluence detail refresh timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,
@@ -139,6 +144,8 @@ class ConfluenceProjectCacheService:
                 raise PermissionError("permission_denied")
             refreshed = self._mapper.with_sections(current, payload, (name,))
             section = getattr(refreshed, name)
+        except TaskCancelled:
+            raise
         except Exception as error:
             self._access.require_active()
             if remote_status(error) == 401:
@@ -163,14 +170,16 @@ class ConfluenceProjectCacheService:
             merged.update({(item.source, item.page.page_id): item for item in section.value or ()})
             stored = replace(section, value=tuple(merged.values()))
         persist_started = time.monotonic()
+        _raise_if_cancelled(current_cancellation())
         self._access.publish(grants, lambda: getattr(self._repository, f"replace_{name}")(project_id, stored),
                              replace_scopes=(scope,))
         smart_log("Confluence detail persistence timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,
-                  extra={"stage": "detail.sqlite_section", "duration_ms": round((time.monotonic() - persist_started) * 1000, 3),
+                  extra={"stage": "detail.database_section", "duration_ms": round((time.monotonic() - persist_started) * 1000, 3),
                          "project_id": str(project_id), "section": name})
         return section
 
     def _publish_catalog(self, projects, complete_spaces):
+        _raise_if_cancelled(current_cancellation())
         grants = [
             ("project", project.identity.confluence_id, "catalog", project.product_space.key)
             for project in projects
@@ -184,10 +193,12 @@ class ConfluenceProjectCacheService:
                 grants, lambda: self._save_catalog_projects(projects),
                 replace_scopes=complete_spaces,
             )
+        except TaskCancelled:
+            raise
         except Exception as error:
             smart_log("Confluence catalog publish timing", platform="web", domain="framework", level="error", source="confluence_catalog_cache", emit_runtime_event=False,
                       extra={"stage": "filter.catalog_publish", "outcome": "failure",
-                             "exception_type": type(error).__name__, "sqlite_error_name": str(getattr(error, "sqlite_errorname", "") or ""),
+                             "exception_type": type(error).__name__, "database_error_code": getattr(getattr(error, "orig", error), "errno", None),
                              "duration_ms": round((time.monotonic() - started) * 1000, 1)})
             raise
         smart_log("Confluence catalog publish timing", platform="web", domain="framework", source="confluence_catalog_cache", emit_runtime_event=False,

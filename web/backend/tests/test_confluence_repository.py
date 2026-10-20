@@ -1,7 +1,7 @@
 from __future__ import annotations
+from sqlalchemy import text
 
 from dataclasses import replace
-import sqlite3
 
 import pytest
 
@@ -24,9 +24,7 @@ from core.confluence.project_mapper import ConfluenceProjectMapper
 from core.product_lines import PRODUCT_LINES
 from smarttest_web.release_query import ProjectReleaseQueryService
 from smarttest_web.confluence.project_repository import ConfluenceProjectRepository
-from smarttest_web.database import WebDatabase
-from smarttest_web.schema import initialize_current_cache_schema
-
+from smarttest_web.schema import verify_schema_revision
 
 def _project(revision: str = "4") -> Project:
     return Project(
@@ -39,14 +37,16 @@ def _project(revision: str = "4") -> Project:
     )
 
 
-def _repository(tmp_path) -> ConfluenceProjectRepository:
-    database = WebDatabase(tmp_path / "web.db")
-    initialize_current_cache_schema(database)
+def _repository(tmp_path, *, database_factory) -> ConfluenceProjectRepository:
+    database = database_factory()
+    verify_schema_revision(database)
     return ConfluenceProjectRepository(database)
 
 
-def test_project_core_and_all_detail_states_round_trip_without_field_loss(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_project_core_and_all_detail_states_round_trip_without_field_loss(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     project = _project()
     roles = (ProjectRole(NamedValue("fae", "FAE QA"), (PersonRef("u2", "bob", "Bob"),)),)
     evidence = (SourceEvidence("basic", ConfluencePageRef("11", "Basic", "https://confluence/pages/11", 7)),)
@@ -70,8 +70,10 @@ def test_project_core_and_all_detail_states_round_trip_without_field_loss(tmp_pa
     assert loaded.evidence == DetailSection.loaded(evidence, source_revision="4")
 
 
-def test_catalog_transaction_preserves_duplicate_owner_and_cross_space_project_id(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_catalog_transaction_preserves_duplicate_owner_and_cross_space_project_id(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     duplicate_owner = PersonRef("u1", "alice", "Alice")
     first = replace(
         _project(),
@@ -95,8 +97,10 @@ def test_catalog_transaction_preserves_duplicate_owner_and_cross_space_project_i
     assert repository.get("TV:P100", ProjectDetails()).product_space.key == "TV"
 
 
-def test_project_detail_replace_failure_rolls_back_value_and_state(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_project_detail_replace_failure_rolls_back_value_and_state(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     repository.save_core((_project(),))
     original = DetailSection.loaded(FieldBag.from_mapping({"kept": "yes"}), source_revision="4")
     repository.replace_facts("P100", original)
@@ -109,8 +113,10 @@ def test_project_detail_replace_failure_rolls_back_value_and_state(tmp_path) -> 
     assert repository.get("P100", ProjectDetails(facts=True)).facts == original
 
 
-def test_current_release_projection_tracks_only_named_confluence_fields(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_current_release_projection_tracks_only_named_confluence_fields(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     repository.save_core((_project(),))
 
     repository.replace_facts("P100", DetailSection.loaded(FieldBag.from_mapping({
@@ -121,15 +127,19 @@ def test_current_release_projection_tracks_only_named_confluence_fields(tmp_path
     }), source_revision="detail-r2"))
 
     with repository.database.connect() as connection:
-        row = connection.execute("SELECT * FROM project_current_releases WHERE confluence_id='900'").fetchone()
+        row = connection.execute(
+            text("SELECT * FROM project_current_releases WHERE confluence_id='900'")
+        ).fetchone()
     assert row[1:] == (
         "P100", "Android 16", "2026-11-02", "2026-10-18", "DVT exit", "2026-09-20",
         "DVT2", "On track", "detail-r2", row[-1],
     )
 
 
-def test_failed_sections_round_trip_explicit_value_presence_without_revision(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_failed_sections_round_trip_explicit_value_presence_without_revision(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     repository.save_core((_project(),))
     repository.replace_hardware(
         "P100",
@@ -154,27 +164,46 @@ def test_failed_sections_round_trip_explicit_value_presence_without_revision(tmp
     assert loaded.evidence.value == ()
 
 
-def test_project_delete_cascades_details_and_clear_is_isolated_from_jira(tmp_path) -> None:
-    repository = _repository(tmp_path)
+def test_project_delete_cascades_details_and_clear_is_isolated_from_jira(
+    tmp_path, *, database_factory
+) -> None:
+    repository = _repository(tmp_path, database_factory=database_factory)
     repository.save_core((_project(),))
     repository.replace_facts("P100", DetailSection.loaded(FieldBag.from_mapping({"x": 1})))
     with repository.database.transaction() as connection:
         connection.execute(
-            "INSERT INTO jira_issues(issue_id,issue_key,summary,cached_at) VALUES('1','J-1','kept','now')"
+            text(
+                "INSERT INTO jira_issues(issue_id,issue_key,summary,cached_at) VALUES('1','J-1','kept','now')"
+            )
         )
 
     repository.delete("P100")
     with repository.database.connect() as connection:
-        assert connection.execute("SELECT count(*) FROM confluence_project_fields").fetchone()[0] == 0
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM confluence_project_fields")
+            ).fetchone()[0]
+            == 0
+        )
     repository.save_core((_project(),))
     repository.clear()
 
-    with sqlite3.connect(repository.database.path) as connection:
-        assert connection.execute("SELECT count(*) FROM confluence_projects").fetchone()[0] == 0
-        assert connection.execute("SELECT summary FROM jira_issues").fetchone()[0] == "kept"
+    with repository.database.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM confluence_projects")
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(text("SELECT summary FROM jira_issues")).fetchone()[0]
+            == "kept"
+        )
 
 
-def test_canonical_catalog_name_is_unchanged_through_sqlite_and_dashboard_query(tmp_path) -> None:
+def test_canonical_catalog_name_is_unchanged_through_mysql_and_dashboard_query(
+    tmp_path, *, database_factory
+) -> None:
     page = ConfluencePage(
         "catalog", "Project Space", "https://c/display/DOPL/Project+Space",
         view_body=(
@@ -188,7 +217,7 @@ def test_canonical_catalog_name_is_unchanged_through_sqlite_and_dashboard_query(
     row = refresh_project_catalogs(
         client, store, (PRODUCT_LINES[0],),
     )["projects"][0]
-    repository = _repository(tmp_path)
+    repository = _repository(tmp_path, database_factory=database_factory)
     project = ConfluenceProjectMapper().from_catalog(row)
 
     repository.save_core((project,))
@@ -200,76 +229,37 @@ def test_canonical_catalog_name_is_unchanged_through_sqlite_and_dashboard_query(
     assert dashboard["releases"][0]["projectName"] == "Apollo"
 
 
-def test_repository_initialization_upgrades_legacy_cached_names_once_without_touching_source_facts(tmp_path) -> None:
-    database = WebDatabase(tmp_path / "web.db")
-    initialize_current_cache_schema(database)
-    dirty_title = "1.★ Apollo - Project Status Report"
-    cached_at = "2026-09-01T01:02:03+00:00"
-    with database.transaction() as connection:
-        connection.executemany(
-            """INSERT INTO confluence_projects VALUES(
-            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                (
-                    "legacy", "P100", dirty_title, "DOPL", "DOPL", "https://c/DOPL",
-                    "catalog-1", dirty_title, "https://c/pages/catalog-1", 7,
-                    "normal", "Normal", "evt", "EVT", "onsite", "Onsite",
-                    "Customer A", "catalog-r7", cached_at,
-                ),
-                (
-                    "clean", "P200", "Orion", "TV", "TV", "https://c/TV",
-                    "catalog-2", "2. Orion - Project Status Report", "https://c/pages/catalog-2", 4,
-                    "normal", "Normal", "dvt", "DVT", "remote", "Remote",
-                    "Customer B", "catalog-r4", cached_at,
-                ),
-            ),
-        )
-        connection.executemany(
-            """INSERT INTO project_current_releases VALUES(
-            ?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                ("legacy", "P100", "Android 16", "2026-10-01", "", "", "", "", "", "facts-r1", cached_at),
-                ("clean", "P200", "Android 17", "2026-11-01", "", "", "", "", "", "facts-r2", cached_at),
-            ),
-        )
-        connection.execute(
-            "INSERT INTO confluence_project_fields VALUES(?,?,?,?)",
-            ("legacy", "facts", "Page", f'{{"title": "{dirty_title}"}}'),
-        )
-        connection.execute(
-            "INSERT INTO confluence_project_evidence VALUES(?,?,?,?,?,?)",
-            ("legacy", "status", "status-1", dirty_title, "https://c/pages/status-1", 9),
-        )
+def test_stale_project_id_boundary_and_long_release_people(
+    tmp_path, *, database_factory
+):
+    from core.confluence.project_rules import MAJOR_QA_ROLE_ID
 
-    with database.transaction() as connection:
-        connection.execute("DELETE FROM smarttest_schema WHERE component='confluence_project_name'")
-    from smarttest_web.schema import initialize_web_schema
-    initialize_web_schema(database)
-    with database.connect() as connection:
-        first = tuple(connection.execute(
-            """SELECT confluence_id,name,catalog_page_title,source_revision,cached_at
-            FROM confluence_projects ORDER BY confluence_id""",
-        ))
-        raw_field = connection.execute(
-            "SELECT value_json FROM confluence_project_fields WHERE confluence_id='legacy'",
-        ).fetchone()[0]
-        evidence = connection.execute(
-            """SELECT page_title,page_url,page_version FROM confluence_project_evidence
-            WHERE confluence_id='legacy'""",
-        ).fetchone()
-
-    initialize_web_schema(database)
-    with database.connect() as connection:
-        second = tuple(connection.execute(
-            """SELECT confluence_id,name,catalog_page_title,source_revision,cached_at
-            FROM confluence_projects ORDER BY confluence_id""",
-        ))
-    dashboard = ProjectReleaseQueryService(database).dashboard(visible_ids=("legacy", "clean"))
-
-    assert first == second == (
-        ("clean", "Orion", "2. Orion - Project Status Report", "catalog-r4", cached_at),
-        ("legacy", "Apollo", dirty_title, "catalog-r7", cached_at),
+    repository = _repository(tmp_path, database_factory=database_factory)
+    people = tuple(
+        PersonRef(f"u{i:03}", f"user{i}", f"Person {i:03} " + "x" * 40)
+        for i in range(40)
     )
-    assert raw_field == f'{{"title": "{dirty_title}"}}'
-    assert evidence == (dirty_title, "https://c/pages/status-1", 9)
-    assert [row["projectName"] for row in dashboard["releases"]] == ["Apollo", "Orion"]
+    project = replace(_project(), owner_summary=people)
+    repository.save_core((project,))
+    repository.replace_roles(
+        "P100",
+        DetailSection.loaded(
+            (ProjectRole(NamedValue(MAJOR_QA_ROLE_ID, "QA"), people),)
+        ),
+    )
+    repository.mark_details_stale("missing", ("roles",))
+    repository.mark_details_stale("900", ("roles",))
+    assert (
+        repository.get("P100", ProjectDetails(roles=True)).roles.state
+        is DetailState.LOADED
+    )
+    rows = ProjectReleaseQueryService(repository.database)._projects(["900"], (), {})
+    expected = ", ".join(person.display_name for person in people)
+    assert len(expected) > 1024
+    assert rows[0][18] == expected
+    assert rows[0][19] == expected
+    repository.mark_details_stale("P100", ("roles",))
+    assert (
+        repository.get("P100", ProjectDetails(roles=True)).roles.state
+        is DetailState.STALE
+    )

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from core.async_tasks import TaskCancelled
+
 from concurrent.futures import as_completed
 from datetime import datetime, timezone
+from dataclasses import replace
 from typing import Protocol
 from uuid import uuid4
 from time import perf_counter
 
 from core.confluence.project import Project, ProjectDetails
 from core.logging import smart_log
+from core.product_lines import product_line_name
 
 from .models import (
     AuditBatch,
@@ -20,6 +24,7 @@ from .models import (
 )
 from .regions import extract_page_region
 from .rules import ROLE_LABELS, UPDATE_MATRIX_POINTS
+from .product_line_rules import PRODUCT_LINE_AUDIT_RULES
 
 
 class ConfluenceAuditProjectSource(Protocol):
@@ -27,6 +32,7 @@ class ConfluenceAuditProjectSource(Protocol):
         self, project_id: str, details: ProjectDetails, cancellation,
     ) -> Project: ...
     def load_current_page(self, page_id: str, cancellation) -> ConfluencePageDocument: ...
+    def load_child_pages(self, page_id: str, cancellation) -> tuple: ...
     def load_page_versions(
         self, page_id: str, period: AuditPeriod,
         current: ConfluencePageDocument, cancellation,
@@ -99,6 +105,8 @@ class ConfluenceWeeklyAuditUseCase:
                 project.identity.project_id, ProjectDetails(roles=True, evidence=True), token,
             )
             result = self._audit_project(loaded, period, token, progress)
+        except TaskCancelled:
+            raise
         except Exception as error:
             token.raise_if_cancelled()
             reason = "remote_unavailable" if str(error) == "remote_unavailable" else "audit_failed"
@@ -130,34 +138,62 @@ class ConfluenceWeeklyAuditUseCase:
                     project.catalog_page.url,
                 ))
                 continue
-            if page.page_id not in page_material:
-                try:
-                    current = self._source.load_current_page(page.page_id, token)
-                    token.raise_if_cancelled()
-                    versions = self._source.load_page_versions(
-                        page.page_id, period, current, token,
-                    )
-                    token.raise_if_cancelled()
-                    page_material[page.page_id] = (current, versions or (current,))
-                except Exception:
-                    token.raise_if_cancelled()
-                    page_material[page.page_id] = None
-            material = page_material[page.page_id]
+            material = self._load_page_material(page.page_id, period, token, page_material)
             if material is None:
                 findings.append(AuditFinding(
                     project.identity.project_id, page.title, point.rule_id,
                     AuditStatus.FAILED, "remote_unavailable", page.url,
                 ))
             else:
-                findings.append(_audit_versions(
+                finding = _audit_versions(
                     project, point, material[0], material[1], period,
-                ))
+                )
+                rules = PRODUCT_LINE_AUDIT_RULES.get(product_line_name(project.product_space.key), {})
+                if (point.rule_id in rules.get('child_page_update_rule_ids', ())
+                        and finding.status in (AuditStatus.NOT_UPDATED, AuditStatus.INVALID_FORMAT)):
+                    finding = self._audit_child_pages(project, point, page.page_id, finding, period, token, page_material)
+                findings.append(finding)
         result = ProjectAudit(project, tuple(findings), _owners(project))
         smart_log("Confluence review rules timing", domain="framework", source="confluence_review", emit_runtime_event=False,
                   extra={"stage": "review.rules", "duration_ms": round((perf_counter() - rules_started) * 1000, 3),
                          "project_id": project.identity.confluence_id, "finding_count": len(findings),
                          "unique_page_count": len(page_material)})
         return result
+
+    def _load_page_material(self, page_id, period, token, page_material):
+        if page_id not in page_material:
+            try:
+                current = self._source.load_current_page(page_id, token)
+                token.raise_if_cancelled()
+                versions = self._source.load_page_versions(page_id, period, current, token)
+                token.raise_if_cancelled()
+                page_material[page_id] = (current, versions or (current,))
+            except TaskCancelled:
+                raise
+            except Exception:
+                token.raise_if_cancelled()
+                page_material[page_id] = None
+        return page_material[page_id]
+
+    def _audit_child_pages(self, project, point, page_id, finding, period, token, page_material):
+        child_point = replace(point, heading_names=(), table_fields=(), table_region_fields=(), use_page_body=True)
+        try:
+            children = self._source.load_child_pages(page_id, token)
+            token.raise_if_cancelled()
+            for child in children:
+                material = self._load_page_material(child.page_id, period, token, page_material)
+                if material is None:
+                    return replace(finding, status=AuditStatus.FAILED, reason='remote_unavailable', page_url=child.url)
+                updated = _audit_versions(project, child_point, material[0], material[1], period)
+                if updated.status is AuditStatus.UPDATED:
+                    return replace(finding, status=AuditStatus.UPDATED,
+                                   reason=f'Child page updated in audit period: {child.title}', page_url=child.url)
+        except TaskCancelled:
+            raise
+        except Exception:
+            token.raise_if_cancelled()
+            return replace(finding, status=AuditStatus.FAILED, reason='remote_unavailable')
+        return finding
 
 
 def _audit_versions(project, point, current, versions, period):

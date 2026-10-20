@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from threading import Lock
 
+from core.logging import smart_log
+from core.async_tasks import TaskCancelled, check_cancellation
+
+from .resource_access import remote_status
 from .task_manager import WEB_TASKS, ScopedTaskIndex, snapshot_payload
 
 
@@ -85,9 +89,19 @@ class BackgroundFactsRefresh:
                     options["parent_task_id"] = manager_token.task_id
                 owner.refresh_and_sync_details(access, password, **options)
                 if not cancelled() and on_success is not None:
+                    check_cancellation()
                     on_success()
+            except TaskCancelled:
+                with self._lock:
+                    job["terminal"] = "cancelled"
+                raise
             except Exception as error:  # noqa: BLE001 - only safe job state crosses the API
                 error_state = on_error(error) if on_error is not None else "failed"
+                smart_log('Confluence project refresh failed', platform='web', domain='framework',
+                          level='error', source='background_facts_refresh', emit_runtime_event=False,
+                          extra={'account': access.account, 'stage': 'filter.refresh_and_sync_details',
+                                 'state': error_state, 'exception_type': type(error).__name__,
+                                 'http_status': remote_status(error)})
                 with self._lock:
                     job["terminal"] = error_state
             else:

@@ -13,9 +13,9 @@ from ..task_manager import WEB_TASKS
 
 
 class AuditEmailJob:
-    def __init__(self, history):
+    def __init__(self, history, *, reports_root):
         self.history = history
-        self.root = history.database.path.parent / "audit-email-reports"
+        self.root = Path(reports_root)
         self._tasks = set()
         self._lock = Lock()
 
@@ -184,7 +184,8 @@ class AuditEmailJob:
                 token.raise_if_cancelled()
                 access.require_active()
                 stage = 'summarizing'
-                summary = summarize_audit(kind, report)
+                summary = (summarize_audit(kind, report, period={key: scope[key] for key in ('startDate', 'endDate')})
+                           if kind == 'jira' else summarize_audit(kind, report))
                 remediation = None
                 if kind == 'jira':
                     stage = 'rechecking'
@@ -201,7 +202,7 @@ class AuditEmailJob:
                            reason='available' if baseline and saved_jql else remediation['reason'])
                     if baseline and saved_jql:
                         reviewed_summary, reviewed_at = None, ''
-                        record(kind, 'previous_scope_resolving', scope_source='sqlite_summary',
+                        record(kind, 'previous_scope_resolving', scope_source='database_summary',
                                scope_chars=len(saved_jql), original_rule_count=len(original['findings']) if 'findings' in original else None)
                         try:
                             previous_scope = owner.resolve(saved_jql)
@@ -212,7 +213,8 @@ class AuditEmailJob:
                             record(kind, 'previous_audit_completed', current_resource_count=len(previous_report.issues),
                                    current_rule_count=len(previous_report.rules))
                             findings = compare_jira_audits(original.get('findings', []), previous_report)
-                            reviewed_summary = summarize_audit('jira', previous_report)
+                            reviewed_summary = summarize_audit('jira', previous_report,
+                                period={key: baseline['scope'][key] for key in ('startDate', 'endDate')})
                             reviewed_at = previous_report.generated_at.isoformat()
                             stage = 'exporting_remediation'
                             reviewed_path = owner.export(previous_report, directory / 'Previous_Audit_Current.xlsx')

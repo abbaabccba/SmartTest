@@ -1,8 +1,9 @@
 from __future__ import annotations
+
+from core.read_requests import read_request
 from dataclasses import replace
 from datetime import datetime
 from time import perf_counter
-from time import sleep
 from typing import Any
 from urllib.parse import parse_qs, unquote_plus, urlsplit
 
@@ -34,7 +35,7 @@ class ConfluenceGateway:
                 raise ConfluenceDependencyError(
                     "atlassian-python-api is not installed",
                 )
-            self._api = Confluence(url=config.base_url.rstrip("/"), username=username, password=password)
+            self._api = Confluence(url=config.base_url.rstrip("/"), username=username, password=password, backoff_and_retry=False, retry_with_header=False)
         except ConfluenceDependencyError:
             raise
         except Exception as exc:
@@ -78,7 +79,7 @@ class ConfluenceGateway:
     def search_pages(self, cql: str, *, limit: int = 100) -> list[ConfluencePage]:
         pages, start = [], 0
         while True:
-            payload = self._api.cql(cql, start=start, limit=limit, expand="body.storage,body.view,version")
+            payload = read_request(self._api.cql, cql, start=start, limit=limit, expand="body.storage,body.view,version")
             rows = payload.get("results") or []
             pages.extend(self._page(row) for row in rows)
             start += len(rows)
@@ -89,7 +90,7 @@ class ConfluenceGateway:
         """Return permission-filtered current page metadata without downloading bodies."""
         pages, start = [], 0
         while True:
-            payload = self._api.cql(cql, start=start, limit=limit, expand="version,space")
+            payload = read_request(self._api.cql, cql, start=start, limit=limit, expand="version,space")
             rows = payload.get("results") or []
             pages.extend(replace(self._page(row), body="", view_body="") for row in rows)
             start += len(rows)
@@ -102,11 +103,11 @@ class ConfluenceGateway:
             if prefer_export else "body.storage,body.view,version"
         )
         return self._timed("rest.page.current", lambda: self._page(
-            self._api.get_page_by_id(page_id, expand=expand), prefer_export=prefer_export,
+            read_request(self._api.get_page_by_id, page_id, expand=expand), prefer_export=prefer_export,
         ), page_id=str(page_id))
 
     def get_page_version(self, page_id: str, version: int) -> ConfluencePage:
-        return self._timed("rest.page.history", lambda: self._page(self._api.get_page_by_id(
+        return self._timed("rest.page.history", lambda: self._page(read_request(self._api.get_page_by_id,
             page_id,
             expand="body.storage,body.view,version",
             status="historical",
@@ -131,14 +132,14 @@ class ConfluenceGateway:
             "body.view,body.export_view,version"
             if prefer_export else "body.view,version"
         )
-        payload = self._timed("rest.catalog.page", lambda: self._api.get_page_by_title(space, title, expand=expand),
+        payload = self._timed("rest.catalog.page", lambda: read_request(self._api.get_page_by_title, space, title, expand=expand),
                               space_key=space)
         if not payload:
             raise ValueError("Confluence page could not be resolved")
         return self._page(payload, prefer_export=prefer_export)
 
     def get_parent_page(self, page_id: str) -> ConfluencePage | None:
-        ancestors = self._timed("rest.page.ancestors", lambda: self._api.get_page_ancestors(page_id) or [],
+        ancestors = self._timed("rest.page.ancestors", lambda: read_request(self._api.get_page_ancestors, page_id) or [],
                                 page_id=str(page_id))
         if not ancestors:
             return None
@@ -150,25 +151,8 @@ class ConfluenceGateway:
         payload = self._get_user_by_key(str(user_key))
         return str(payload.get("displayName") or payload.get("publicName") or payload.get("name") or "").strip()
 
-    @staticmethod
-    def _status(error):
-        response = getattr(error, "response", None)
-        return getattr(error, "status_code", None) or getattr(response, "status_code", None)
-
     def _get_user_by_key(self, identity: str) -> dict[str, Any]:
-        for attempt in range(1, 4):
-            try:
-                return self._timed(
-                    "rest.user.lookup", lambda: self._api.get_user_details_by_userkey(identity) or {},
-                )
-            except Exception as error:
-                status = self._status(error)
-                transient = status is None or status == 429 or int(status) >= 500
-                if not transient or attempt == 3:
-                    error.sync_reason = "transient-exhausted" if transient else "non-retryable-http-status"
-                    raise
-                sleep(0.2)
-        raise RuntimeError("unreachable")
+        return self._timed("rest.user.lookup", lambda: read_request(self._api.get_user_details_by_userkey, identity) or {})
 
     def get_page_children(self, page_id: str, *, limit: int = 100) -> list[ConfluencePage]:
         started = perf_counter()
@@ -177,7 +161,7 @@ class ConfluenceGateway:
         try:
             while True:
                 request_count += 1
-                payload = self._api.get_page_child_by_type(
+                payload = read_request(self._api.get_page_child_by_type,
                     page_id, type="page", start=start, limit=limit,
                     expand="version",
                 ) or {}

@@ -7,6 +7,35 @@ from core.product_lines import DASHBOARD_PRODUCT_LINES, PRODUCT_LINES, WIRELESS_
 import core.jira.services.jql_statistics_cards as service
 
 
+def test_annual_activities_use_last_qa_author_personnel_lines_and_ignore_issue_creator_and_project():
+    from datetime import date
+    class Gateway:
+        def user_groups(self, account):
+            assert account == 'fan.xu'
+            return ('fae-iptv-qa',)
+    basic = {'id':'basic','fields':{'created':'2026-01-01', 'project':{'key':'IPTV'},
+        'creator':{'name':'fan.xu'}, 'comment':{'comments':[{'author':{'name':'external'}}]}}}
+    comments = {'id':'nonqa','fields':{'created':'2026-01-01','project':{'key':'SH'},'creator':{'name':'outside'},
+        'comment':{'comments':[{'author':{'name':'MENG.WANG1'}},{'author':{'name':'yimin.zhou'}},
+                              {'author':{'name':'ping.xiong'}},{'author':{'name':'outside'}}]}},
+        'changelog':{'histories':[
+            {'created':'2026-09-01T00:00:00Z','author':{'name':'YIMIN.ZHOU'},'items':[{'field':'status','fromString':'Resolved','toString':'Verified'}]},
+            {'created':'2026-08-01T00:00:00Z','author':{'name':'meng.wang1'},'items':[{'field':'status','fromString':'Resolved','toString':'Verified'}]}]}}
+    facts = service.build_annual_facts(Gateway(), [basic], [], current_activities=[comments], previous_activities=[])
+    raw = facts.pop('_facts')
+    facts['availability']={year:{'basic':True,'activity':True} for year in ('current','previous')}
+    result=service.aggregate_annual_facts(raw,facts,'year',date(2026,10,14))
+    lines={line['id']:line for line in result['productLines']}
+    assert result['teamTotal']==1
+    assert result['unassignedCount']==0
+    assert result['unassignedCommentCount']==1
+    assert sum(p['commentCount'] for p in lines[WIRELESS_CONNECTION.name]['people'])==1
+    assert sum(p['commentCount'] for p in lines['TV']['people'])==1
+    assert sum(p['verifyCount'] for p in lines['TV']['people'])==1
+    assert sum(p['verifyCount'] for p in lines[WIRELESS_CONNECTION.name]['people'])==0
+    assert sum(p['commentCount'] for line in result['previous']['productLines'] for p in line['people'])==0
+
+
 def test_product_line_names_use_the_shared_business_free_labels():
     assert [line.name for line in DASHBOARD_PRODUCT_LINES] == [
         "China Operator", "Smart Device", "TV", "Global Operator & STB", "Wireless Connection",
@@ -22,9 +51,28 @@ def test_registry_defines_all_cards_and_task_uses_the_five_creator_groups():
     assert '"Channel of Reporter"' not in task.fixed_jql("month")
 
 
-def test_every_jira_card_restricts_creators_to_the_fae_qa_groups():
+def test_every_jira_card_intersects_each_creator_group_with_its_project_scope():
+    from core.jira.jql import product_line_jql
     for definition in service.JIRA_STATISTICS_CARDS.values():
-        assert definition.fixed_jql("month").count("creator IN membersOf(") == 5
+        query = definition.fixed_jql("month")
+        for line in DASHBOARD_PRODUCT_LINES:
+            assert product_line_jql(line, card_key=definition.card_key) in query
+        assert query.count('creator IN membersOf(') == (0 if definition.card_key == 'customer-feedback' else 5)
+        assert 'creator NOT IN' not in query
+
+
+@pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
+def test_activity_scope_keeps_card_business_predicate_without_creator_boundary(card_key):
+    from datetime import date
+    definition = card_definition(card_key)
+    pair = service.activity_card_jql_pair(card_key, "status = Open OR status = Closed ORDER BY key", date(2026, 10, 14))
+    assert pair["current"]["jql"].startswith('(status = Open OR status = Closed) AND (')
+    for value in pair.values():
+        assert definition.custom_jql in value["jql"]
+        assert 'creator IN' not in value["jql"]
+        assert value["jql"].endswith('ORDER BY key')
+    assert 'created >= "2026-01-01"' in pair["current"]["jql"]
+    assert 'created >= "2025-01-01"' in pair["previous"]["jql"]
 
 
 @pytest.mark.parametrize("card_key", ("self-test", "task", "customer-feedback"))
@@ -49,13 +97,13 @@ def test_card_period_pair_changes_only_the_created_range():
     assert pair["current"]["jql"].endswith("ORDER BY created DESC")
 
 
-def test_customer_definition_has_wireless_priority_and_mutually_exclusive_standard_projects():
+def test_customer_definition_keeps_wireless_rules_without_standard_label_exclusions():
     jql = card_definition("customer-feedback").fixed_jql("year")
     assert '"Channel of Reporter" = "Customer-Feedback"' in jql
     assert 'labels IN ("Customer_W1", "Customer_W1U", "Customer_W2L", "customer_w2", "Customer_w1u", "customer-w2", "customer-w2L", "customer_w1d")' in jql
     assert 'resolution NOT IN ("Invalid Case", "Cannot Reproduce", "HW Fix", "Won\'t Fix", "Won\'t Do")' in jql
     assert 'project NOT IN ("RD SW Platform", "Wireless Project")' in jql
-    assert 'labels NOT IN (' in jql
+    assert 'labels NOT IN (' not in jql
     assert 'created >= "2026-01-01"' in jql
 
 
@@ -80,14 +128,13 @@ def test_self_test_groups_by_qa_creator_not_non_qa_reporter_or_assignee():
     assert result.productLines[2].people[0].displayName == "QA"
 
 
-def test_wireless_creator_owns_unknown_project_while_other_creator_remains_unmapped():
+def test_wireless_creator_outside_the_four_projects_remains_unmapped():
     result = aggregate_jira_statistics([
         issue(project='RK', creator={'name': 'wifi', 'displayName': 'WiFi'}),
         issue(project='RK', creator={'name': 'other', 'displayName': 'Other'}),
     ], roster(wifi=(WIRELESS_CONNECTION.name,), other=(CHINA.name,)))
-    assert result.productLines[4].people[0].bugCount == 1
-    assert result.productLines[4].people[0].identity == 'wifi'
-    assert result.unmappedCount == 1
+    assert result.productLines[4].people == ()
+    assert result.unmappedCount == 2
     assert result.teamTotal == 2
     assert WIRELESS_CONNECTION.jira_project_keys == ()
 
@@ -212,11 +259,11 @@ def test_project_mapping_uses_wireless_creator_assignment_precedence():
     payload = overview.to_payload()
     assert [line["id"] for line in payload["productLines"]] == [line.name for line in DASHBOARD_PRODUCT_LINES]
     assert payload["teamTotal"] == 6
-    assert payload["unmappedCount"] == 0
+    assert payload["unmappedCount"] == 2
     assert {person['displayName'] for person in payload["productLines"][2]["people"]} == {'TV Owner'}
     assert payload["productLines"][3]["people"][0]["invalidCount"] == 1
     assert payload["productLines"][4]["people"][0] == {
-        "identity": "wifi", "displayName": "WiFi", "bugCount": 3,
+        "identity": "wifi", "displayName": "WiFi", "bugCount": 2,
         "commentCount": 0, "verifyCount": 0, "invalidCount": 0,
     }
 
@@ -270,32 +317,6 @@ def test_comments_count_qa_authors_in_issue_project_not_author_product_line():
         assert all("resolvedCount" not in person for person in people.values())
 
 
-def test_verify_uses_last_transition_and_qa_author_under_issue_project():
-    def history(author, created, before="Resolved", after="Verified"):
-        return {"author": {"name": author, "displayName": author}, "created": created,
-                "items": [{"field": "status", "fromString": before, "toString": after}]}
-    accepted = issue(creator={"name": "creator"})
-    accepted["changelog"] = {"histories": [
-        history("wifi", "2026-09-20T08:00:00+0800"),
-        history("early", "2026-09-01T08:00:00+0800"),
-        history("outside", "2026-09-21T08:00:00+0800", "Open"),
-    ]}
-    rejected = issue(creator={"name": "creator"})
-    rejected["changelog"] = {"histories": [
-        history("early", "2026-09-01T08:00:00+0800"),
-        history("outside", "2026-09-20T08:00:00+0800"),
-    ]}
-    class Gateway:
-        def user_groups(self, account):
-            return {"creator": ("fae-tv-qa",), "wifi": ("fae-wifi-qa",), "early": ("fae-tv-qa",), "outside": ()}[account]
-    result = service.build_comparison_statistics(Gateway(), [accepted, rejected], [accepted], {})
-    for period in ["current", "previous"]:
-        people = result[period]["productLines"][2]["people"]
-        assert {person["identity"]: person["verifyCount"] for person in people} == {"creator": 0, "wifi": 1}
-        assert all("p0Count" not in person for person in people)
-        assert result[period]["productLines"][4]["people"] == []
-
-
 def test_annual_facts_match_period_aggregation_across_new_year_without_sensitive_content():
     from datetime import date
     from core.jira.services import jql_statistics_cards as service
@@ -346,3 +367,143 @@ def test_components_count_each_module_once_and_totals_count_unique_issues():
     assert line["issueCount"] == 3
     assert line["invalidCount"] == 1
     assert line["components"] == [{"name": "Audio", "count": 2}, {"name": "Video", "count": 1}]
+
+
+def test_reused_current_facts_preserve_expanded_roster_and_duplicate_issue_order():
+    from copy import deepcopy
+
+    class Gateway:
+        def user_groups(self, account):
+            return {"alice": ("fae-wifi-qa",), "bob": ("fae-iptv-qa",)}[account]
+
+    current = [
+        {"id": "shared", "fields": {"created": "2026-01-01", "creator": {"name": "alice"},
+                                      "components": [{"name": "WiFi"}]}},
+        {"id": "shared", "fields": {"created": "2026-02-01", "creator": {"name": "alice"},
+                                      "components": [{"name": "WiFi"}]}},
+    ]
+    previous = [
+        {"id": "shared", "fields": {"created": "2025-01-01", "creator": {"name": "bob"},
+                                      "components": [{"name": "IPTV"}]}}
+    ]
+    gateway, groups = Gateway(), {}
+    first = service.build_annual_facts(gateway, current, [], groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster())
+    original_facts = deepcopy(first["_facts"])
+    expected = service.build_annual_facts(gateway, current, previous, groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster())
+    actual = service.build_annual_facts(
+        gateway, current, previous, groups_cache=groups, activity_facts=[], activity_roster=service.load_activity_qa_roster(),
+        current_facts=first["_facts"],
+    )
+    assert actual == expected
+    assert actual["roster"] != first["roster"]
+    assert actual["_facts"][:2] == original_facts
+    assert [fact["createdAt"] for fact in actual["_facts"]] == ["2026-01-01", "2026-02-01", "2025-01-01"]
+    assert first["_facts"] == original_facts
+
+
+@pytest.mark.parametrize('period', service.JIRA_STATISTICS_PERIODS)
+def test_customer_feedback_product_sources_keep_wireless_labels_exclusive(period):
+    from datetime import date
+    from core.product_lines import DASHBOARD_PRODUCT_LINES
+    from core.jira.jql import customer_feedback_jql, product_line_jql
+    current = service.current_card_jql_by_product_line_and_metric(
+        'customer-feedback', 'status = Open', period, date(2026, 10, 19))
+    annual = service.effective_card_jql_pair('customer-feedback', '', 'year', date(2026, 10, 19))
+    for line in DASHBOARD_PRODUCT_LINES:
+        source = customer_feedback_jql(line)
+        query = current[line.name]['bugCount']
+        assert source in query and product_line_jql(line, card_key="customer-feedback") in query
+        assert product_line_jql(line, card_key='customer-feedback') in annual['current']['jql']
+        assert 'status = Open' in query and 'issuetype = Bug' in query
+        assert '"Channel of Reporter" = "Customer-Feedback"' in query
+        if line is WIRELESS_CONNECTION:
+            assert 'labels IN (' in query
+            assert 'resolution NOT IN (' in query and 'project NOT IN (' in query
+        else:
+            assert source == 'issuetype = Bug AND "Channel of Reporter" = "Customer-Feedback"'
+            assert all('labels' not in current[line.name][metric].lower() for metric in ('bugCount', 'invalidCount'))
+
+
+@pytest.mark.parametrize("project,groups,labels,resolution,expected", [
+    ("TV", (WIRELESS_CONNECTION.name, "TV"), (), None, "TV"),
+    ("TV", (WIRELESS_CONNECTION.name, "TV"), ("Customer_W1",), None, WIRELESS_CONNECTION.name),
+    ("TV", (WIRELESS_CONNECTION.name, "TV"), ("Customer_W1",), "Invalid Case", "TV"),
+    ("RK", (WIRELESS_CONNECTION.name,), ("Customer_W1",), None, ""),
+    ("TV", ("Smart Device",), (), None, "TV"),
+    ("TV", ("Smart Device", "TV"), (), None, "TV"),
+])
+def test_customer_basic_attribution_uses_first_matching_shared_scope(project, groups, labels, resolution, expected):
+    row = issue(project=project, creator={"name": "multi"}, resolution=resolution)
+    row["fields"]["labels"] = list(labels)
+    overview = aggregate_jira_statistics([row], roster(multi=groups), card_key="customer-feedback")
+    occupied = [line.id for line in overview.productLines if line.issueCount]
+    assert occupied == ([expected] if expected else [])
+    assert overview.unmappedCount == (0 if expected else 1)
+
+
+def test_card_fingerprint_tracks_shared_scope_without_changing_activity_query(monkeypatch):
+    from core.jira import jql
+    definitions = service.JIRA_STATISTICS_CARDS
+    before = {key: value.fingerprint for key, value in definitions.items()}
+    activity = {key: service.activity_card_jql_pair(key, '') for key in definitions}
+    scopes = list(jql.JIRA_PRODUCT_LINE_SCOPES)
+    group, line, _projects = scopes[0]
+    scopes[0] = (group, line, ('TV',))
+    monkeypatch.setattr(jql, 'JIRA_PRODUCT_LINE_SCOPES', tuple(scopes))
+    assert all(value.fingerprint != before[key] for key, value in definitions.items())
+    for key in definitions:
+        query = service.activity_card_jql_pair(key, '')['current']['jql']
+        assert query == activity[key]['current']['jql']
+
+
+@pytest.mark.parametrize("project,labels,expected", [("IPTV", (), "China Operator"), ("SH", (), "Smart Device"),
+    ("TV", (), "TV"), ("OTT", (), "Global Operator & STB"),
+    ("TV", ("Customer_W1",), WIRELESS_CONNECTION.name), ("RK", ("Customer_W1",), "")])
+def test_customer_non_qa_creator_is_preserved_without_remote_group_lookup(project, labels, expected):
+    from datetime import date
+    class Gateway:
+        def user_groups(self, account):
+            pytest.fail("Customer basic must not fetch creator groups")
+    row = issue(project=project, creator={"name": "external", "displayName": "External"}, resolution="Invalid")
+    row["id"] = "external-1"
+    row["fields"].update(created="2026-10-13", labels=list(labels))
+    result = service.build_annual_facts(Gateway(), [row], [], card_key="customer-feedback", activity_facts=[], activity_roster=roster())
+    result["availability"] = {year: {"basic": True, "activity": True} for year in ("current", "previous")}
+    for period in service.JIRA_STATISTICS_PERIODS:
+        view = service.aggregate_annual_facts(result["_facts"], result, period, date(2026, 10, 14))
+        occupied = [line for line in view["productLines"] if line["people"]]
+        assert [line["id"] for line in occupied] == ([expected] if expected else [])
+        if expected:
+            assert occupied[0]["people"][0]["identity"] == "external"
+            assert occupied[0]["people"][0]["bugCount"] == 1
+            assert occupied[0]["people"][0]["invalidCount"] == 1
+
+
+def test_customer_scope_and_fingerprint_do_not_depend_on_creator_groups(monkeypatch):
+    from core.jira import jql
+    before = {key: definition.fingerprint for key, definition in service.JIRA_STATISTICS_CARDS.items()}
+    monkeypatch.setattr(jql, "JIRA_PRODUCT_LINE_SCOPES", tuple(
+        (group + "-changed", line, projects) for group, line, projects in jql.JIRA_PRODUCT_LINE_SCOPES))
+    assert service.card_definition("customer-feedback").fingerprint == before["customer-feedback"]
+    for key in ("self-test", "task"):
+        assert service.card_definition(key).fingerprint != before[key]
+
+def test_card_details_preserve_period_person_component_and_invalid_contributions():
+    from datetime import date
+    row = issue(creator={'name': 'qa'}, resolution='Invalid')
+    row['id'] = 'one'
+    row['fields']['created'] = '2026-10-01'
+    row['fields']['components'] = [{'name': 'Audio'}, {'name': 'Video'}]
+    class Gateway:
+        def user_groups(self, _): return ('fae-tv-qa',)
+    metadata = service.build_annual_facts(Gateway(), [row], [], card_key='self-test')
+    facts = metadata.pop('_facts')
+    metadata['availability'] = {key: {'basic': True, 'verify': True} for key in ('current', 'previous')}
+    result = service.aggregate_annual_facts(facts, metadata, 'month', date(2026, 10, 19), include_details=True)
+    detail = next(item for item in result['current']['details'] if item['productLine'] == 'TV')
+    assert detail['issueId'] == 'one'
+    assert detail['people'][0]['bugCount'] == 1
+    assert detail['people'][0]['invalidCount'] == 1
+    assert {c['name'] for c in detail['components']} == {'Audio', 'Video'}
+    assert all('commentCount' not in p and 'verifyCount' not in p for p in detail['people'])
+    assert result['previous']['details'] == []

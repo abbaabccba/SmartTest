@@ -1,6 +1,5 @@
 import pytest
 
-from smarttest_web.database import WebDatabase
 from smarttest_web.test_suite_repository import (
     NameConflictError,
     RevisionConflictError,
@@ -8,16 +7,18 @@ from smarttest_web.test_suite_repository import (
 )
 
 
-def test_suite_repository_persists_visibility_order_and_permissions(tmp_path):
+def test_suite_repository_persists_visibility_order_and_permissions(
+    tmp_path, *, database_factory
+):
     path = tmp_path / "web.db"
-    repo = TestSuiteRepository(WebDatabase(path), now=lambda: 10.0)
+    repo = TestSuiteRepository(database_factory(), now=lambda: 10.0)
     own = repo.create(owner_username="coco", owner_display_name="Coco", name=" IPTV ",
                       description="smoke", visibility="private",
                       ordered_nodeids=["b", "a", "b"])
     shared = repo.create(owner_username="atlas", owner_display_name="Atlas", name="Shared",
                          description="", visibility="shared", ordered_nodeids=["c"])
     assert own.name == "IPTV" and own.ordered_nodeids == ("b", "a")
-    reopened = TestSuiteRepository(WebDatabase(path), now=lambda: 20.0)
+    reopened = TestSuiteRepository(database_factory(), now=lambda: 20.0)
     assert [row.id for row in reopened.list_mine("coco")] == [own.id]
     assert [row.id for row in reopened.list_shared("coco")] == [shared.id]
     assert reopened.get_visible(own.id, "atlas") is None
@@ -26,8 +27,8 @@ def test_suite_repository_persists_visibility_order_and_permissions(tmp_path):
     assert not reopened.delete(own.id, owner_username="atlas")
 
 
-def test_suite_repository_conflicts_revision_and_copy(tmp_path):
-    repo = TestSuiteRepository(WebDatabase(tmp_path / "web.db"), now=lambda: 10.0)
+def test_suite_repository_conflicts_revision_and_copy(tmp_path, *, database_factory):
+    repo = TestSuiteRepository(database_factory(), now=lambda: 10.0)
     source = repo.create(owner_username="coco", owner_display_name="Coco", name="Suite",
                          description="d", visibility="shared", ordered_nodeids=["a", "b"])
     with pytest.raises(NameConflictError):

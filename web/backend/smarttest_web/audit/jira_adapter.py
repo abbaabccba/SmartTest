@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.jira.jql import jira_filter_jql
+
 import os
 from pathlib import Path
 
@@ -15,10 +17,8 @@ from core.jira.mapper import JiraIssueMapper
 from core.logging import smart_log
 
 from ..task_manager import WEB_TASKS
-from ..database import WebDatabase
 from ..jira.cache_service import JiraIssueCacheService
 from ..jira.issue_repository import JiraIssueRepository
-from ..session import default_web_database_path
 
 
 class WebJiraAuditOwner:
@@ -27,12 +27,12 @@ class WebJiraAuditOwner:
         self._cache = cache_service
 
     @classmethod
-    def from_credentials(cls, username: str, password: str):
+    def from_credentials(cls, username: str, password: str, *, database):
         base_url = os.getenv("SMARTTEST_JIRA_BASE_URL", "https://jira.amlogic.com")
         gateway = JiraGateway(base_url, username, password)
         cache = JiraIssueCacheService(
             gateway, JiraIssueMapper(base_url),
-            JiraIssueRepository(WebDatabase(default_web_database_path())),
+            JiraIssueRepository(database),
         )
         return cls(gateway, cache)
 
@@ -132,24 +132,3 @@ class WebJiraAuditOwner:
     @staticmethod
     def export(report, output_path: Path):
         return export_audit_xlsx(report, output_path=output_path)
-
-
-def jira_filter_jql(filters, jql=""):
-    def quoted(value):
-        return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-    def clause(field, values):
-        terms = [f"{field} = {quoted(value)}" for value in values]
-        return terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
-
-    clauses = []
-    for key, field in (("project", "project"), ("type", "issuetype"), ("status", "status")):
-        if filters.get(key): clauses.append(clause(field, filters[key]))
-    if filters.get("currentUser"): clauses.append("assignee = currentUser()")
-    resolutions = filters.get("resolution", ())
-    if resolutions:
-        terms = ["resolution IS EMPTY" if value == "Unresolved" else f"resolution = {quoted(value)}"
-                 for value in resolutions]
-        clauses.append(terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")")
-    if str(jql).strip(): clauses.append(f"({str(jql).strip()})")
-    return " AND ".join(clauses)
