@@ -91,6 +91,13 @@ def start_pytest_run(
     packaged = is_packaged_runtime()
     root_dir = Path(getattr(sys, "_MEIPASS", root_dir)).resolve() if packaged else root_dir.resolve()
     core_root = root_dir / "core"
+    command_nodeids = []
+    for nodeid in nodeids:
+        case_path, separator, selector = nodeid.partition("::")
+        path = Path(case_path)
+        if not path.is_absolute():
+            path = core_root / path
+        command_nodeids.append(str(path) + separator + selector)
     tempdir = tempfile.TemporaryDirectory(prefix="smarttest_pytest_run_")
     event_file = Path(tempdir.name) / "events.jsonl"
     env = os.environ.copy()
@@ -110,7 +117,9 @@ def start_pytest_run(
         "-s",
         "-q",
         "--disable-warnings",
-        *nodeids,
+        "--rootdir",
+        str(core_root),
+        *command_nodeids,
     ]
     smart_log(
         "pytest command prepared",
@@ -125,13 +134,13 @@ def start_pytest_run(
         },
     )
     smart_log(
-        f"popen start packaged={packaged} cwd={core_root}",
+        f"popen start packaged={packaged} cwd={root_dir}",
         domain="runner",
         source="execution",
     )
     process = subprocess.Popen(
         cmd,
-        cwd=str(core_root),
+        cwd=str(root_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
