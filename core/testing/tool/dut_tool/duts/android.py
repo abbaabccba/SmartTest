@@ -838,7 +838,7 @@ class android(BaseDut):
             command = "adb devices"
             cmd = command.split()
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            adb_devices = proc.communicate()[0].decode()
+            adb_devices = proc.communicate()[0]
             rc = proc.returncode
             if rc == 0 and self.serialnumber in adb_devices and \
                     len(self.serialnumber) != 0:
