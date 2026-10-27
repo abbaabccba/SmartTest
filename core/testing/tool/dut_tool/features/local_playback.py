@@ -7,6 +7,7 @@ import re
 import tempfile
 import time
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -390,11 +391,12 @@ def assert_media_session_state(
     device = _ensure_dut(dut)
     last_text = ""
     attempts = max(1, int(float(timeout_s) / START_READY_STATE_RETRY_INTERVAL_SEC))
+    requires_source_match = urlsplit(file_path).scheme.lower() not in ("igmp", "rtp", "udp")
     for attempt in range(1, attempts + 1):
         text = str(device.run_device_shell("dumpsys media_session") or "")
         last_text = text
         state = _media_session_state(text)
-        matches_file = _media_session_matches_file(text, file_path)
+        matches_file = not requires_source_match or _media_session_matches_file(text, file_path)
         if state == expected_state and matches_file:
             step_log(
                 "local_playback_media_session_ready "
@@ -981,11 +983,12 @@ def _start_playback_shell_command(file_path: str, component: str) -> str:
     path = normalize_playback_path(str(file_path or "").strip())
     if not path:
         raise ValueError("Playback file path is required.")
+    uri = path if urlsplit(path).scheme else "file://" + path
     return (
         "am start -a android.intent.action.VIEW "
         f"-n {component} "
         f"-t {_media_mime_type(path)} "
-        f"-d {_shell_quote('file://' + path)}"
+        f"-d {_shell_quote(uri)}"
     )
 
 
