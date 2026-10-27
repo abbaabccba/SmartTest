@@ -15,7 +15,9 @@ def configure_connection(connection, *, connect_timeout, receive_timeout, pac_ti
     server = connection.server
     url = f"{'ldaps' if server.ssl else 'ldap'}://{server.host}:{server.port}"
     try:
-        pac = get_pac(from_os_settings=True, from_dns=False, timeout=pac_timeout)
+        pac = get_pac(from_os_settings=True, from_dns=False, timeout=pac_timeout,
+                      allowed_content_types={"application/x-ns-proxy-autoconfig",
+                                             "application/x-javascript-config", "text/plain"})
     except MalformedPacError as error:
         raise WindowsPacError("pac_script_failed") from error
     if pac is None:

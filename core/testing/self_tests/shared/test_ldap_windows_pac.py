@@ -293,7 +293,9 @@ def test_real_socks5_ldap_connection_after_three_dns_failures(windows, monkeypat
         }}''')
 
         def get_pac(**options):
-            assert options == {"from_os_settings": True, "from_dns": False, "timeout": 2}
+            assert options["from_os_settings"] is True
+            assert options["from_dns"] is False
+            assert options["timeout"] == 2
             phase["pac"] = True
             return pac
 
@@ -333,6 +335,28 @@ def test_concurrent_proxy_connections_keep_target_and_socket_isolated(monkeypatc
     assert second["target"] == ("second.invalid", 389)
     assert first["closed"] and second["closed"]
     assert socket.socket is original_socket
+
+
+@pytest.mark.parametrize("valid_script", [True, False])
+def test_system_pac_text_plain_response(monkeypatch, valid_script):
+    module = pac_module()
+    import pypac.api
+    from requests import Response
+
+    response = Response()
+    response.status_code = 200
+    response.headers["content-type"] = "text/plain; charset=utf-8"
+    response._content = ('function FindProxyForURL(url, host) { return "SOCKS5 127.0.0.1:1080"; }'
+                         if valid_script else 'this is not a PAC script').encode()
+    monkeypatch.setattr(pypac.api, "collect_pac_urls", lambda **_: ["http://pac.invalid/pac.txt"])
+    monkeypatch.setattr(pypac.api, "Session", lambda: SimpleNamespace(get=lambda *args, **kwargs: response))
+    connection = Connection(Server("ldap.invalid", get_info=NONE), user="alice",
+                            password="secret", authentication=SIMPLE)
+    if valid_script:
+        module.configure_connection(connection, connect_timeout=5, receive_timeout=5, pac_timeout=2)
+    else:
+        with pytest.raises(ldap.WindowsPacError, match="pac_script_failed"):
+            module.configure_connection(connection, connect_timeout=5, receive_timeout=5, pac_timeout=2)
 
 
 def test_pac_packaging_dependencies_and_data():
