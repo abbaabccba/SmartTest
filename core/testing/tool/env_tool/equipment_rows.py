@@ -76,6 +76,7 @@ def _build_relay_row(
         "typeOptions": [
             {"value": "snmp_pdu", "label": tr("test.env.relay.type.snmp_pdu"), "label_source": "fixed"},
             {"value": "usb_relay", "label": tr("test.env.relay.type.usb_relay"), "label_source": "fixed"},
+            {"value": "custom_command", "label": tr("test.env.relay.type.custom_command"), "label_source": "fixed"},
         ],
         "fields": _relay_fields(
             relay_type=relay_type,
@@ -96,7 +97,23 @@ def _relay_fields(
     tr: Translator,
 ) -> list[dict[str, Any]]:
     normalized_type = str(relay_type or "").strip() or "snmp_pdu"
-    if normalized_type == "usb_relay":
+    if normalized_type == "custom_command":
+        specs = [
+            {
+                "key": key,
+                "label": label,
+                "label_source": "fixed",
+                "type": "command",
+                "default": "",
+                "description": tr("test.env.relay.custom_command.command.description"),
+                "description_source": "fixed",
+            }
+            for key, label in (
+                ("power_on_command", tr("test.env.relay.custom_command.power_on_command.label")),
+                ("power_off_command", tr("test.env.relay.custom_command.power_off_command.label")),
+            )
+        ]
+    elif normalized_type == "usb_relay":
         usb_port_contract = env_field_contract("relay", normalized_type, "port")
         usb_port_options = list(env_options.get(f"relay:{normalized_type}:port", []))
         specs = [

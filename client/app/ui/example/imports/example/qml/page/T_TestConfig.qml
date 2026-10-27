@@ -1290,6 +1290,7 @@ FluPage {
 
                                         FluComboBox{ /* persistence-opt-out: owner:TestPageBridge */
                                             id: combo_env_equipment_type
+                                            objectName: "env_equipment_type_" + env_equipment_expander.equipmentKind
                                             Layout.fillWidth: true
                                             textRole: "label"
                                             model: modelData.typeOptions || []
@@ -1316,7 +1317,8 @@ FluPage {
                                                 Layout.fillWidth: true
                                                 spacing: 4
                                                 property var fieldData: modelData
-                                                property bool compactTextField: fieldData.type === "string" || fieldData.type === "int"
+                                                property bool compactTextField: fieldData.type === "string" || fieldData.type === "int" || fieldData.type === "command"
+                                                property bool inlineTextField: fieldData.type !== "command" && compactEditorInline(col_env.width)
 
                                                 function terminalRows(){
                                                     var rows = fieldData.value || []
@@ -1333,7 +1335,7 @@ FluPage {
                                                 GridLayout{
                                                     visible: compactTextField
                                                     Layout.fillWidth: true
-                                                    columns: compactEditorInline(col_env.width) ? 2 : 1
+                                                    columns: inlineTextField ? 2 : 1
                                                     columnSpacing: 12
                                                     rowSpacing: 4
 
@@ -1369,10 +1371,11 @@ FluPage {
 
                                                     FluTextBox{ /* persistence-opt-out: owner:TestPageBridge */
                                                         id: text_env_equipment_compact
-                                                        visible: fieldData.type === "string" || fieldData.type === "int"
-                                                        Layout.fillWidth: !compactEditorInline(col_env.width)
-                                                        Layout.preferredWidth: compactEditorInline(col_env.width) ? compactEditorWidth(col_env.width) : -1
-                                                        Layout.maximumWidth: compactEditorInline(col_env.width) ? 260 : 16777215
+                                                        objectName: "env_equipment_" + env_equipment_expander.equipmentKind + "_" + fieldData.key
+                                                        visible: compactTextField
+                                                        Layout.fillWidth: !inlineTextField
+                                                        Layout.preferredWidth: inlineTextField ? compactEditorWidth(col_env.width) : -1
+                                                        Layout.maximumWidth: inlineTextField ? 260 : 16777215
                                                         cleanEnabled: false
                                                         property bool persistReady: false
                                                         function stateText(){

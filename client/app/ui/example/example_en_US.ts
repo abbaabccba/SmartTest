@@ -143,28 +143,28 @@
 <context>
     <name>AuthBridge</name>
     <message>
-        <location filename="bridge/AuthBridge.py" line="555" />
-        <location filename="bridge/AuthBridge.py" line="634" />
+        <location filename="bridge/AuthBridge.py" line="552" />
+        <location filename="bridge/AuthBridge.py" line="631" />
         <source>Unable to connect to LDAP. Please try again later.</source>
         <translation>Unable to connect to LDAP. Please try again later.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="518" />
+        <location filename="bridge/AuthBridge.py" line="515" />
         <source>Signing in...</source>
         <translation>Signing in...</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="557" />
+        <location filename="bridge/AuthBridge.py" line="554" />
         <source>Account or password is incorrect.</source>
         <translation>Account or password is incorrect.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="880" />
+        <location filename="bridge/AuthBridge.py" line="877" />
         <source>The account was removed, but its saved credential could not be deleted. Please retry.</source>
         <translation>The account was removed, but its saved credential could not be deleted. Please retry.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="628" />
+        <location filename="bridge/AuthBridge.py" line="625" />
         <source>Account or password cannot be empty.</source>
         <translation>Account or password cannot be empty.</translation>
     </message>
@@ -181,31 +181,31 @@
         <translation type="vanished">LDAP sign-in failed. Please check your account or password.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="597" />
+        <location filename="bridge/AuthBridge.py" line="594" />
         <source>Sign-in successful. Welcome, {username}</source>
         <translation>Sign-in successful. Welcome, {username}</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="600" />
+        <location filename="bridge/AuthBridge.py" line="597" />
         <source>Signed in, but the password could not be saved.</source>
         <translation>Signed in, but the password could not be saved.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="620" />
-        <location filename="bridge/AuthBridge.py" line="648" />
-        <location filename="bridge/AuthBridge.py" line="838" />
+        <location filename="bridge/AuthBridge.py" line="617" />
+        <location filename="bridge/AuthBridge.py" line="645" />
+        <location filename="bridge/AuthBridge.py" line="835" />
         <source>Sign-in is already in progress.</source>
         <translation>Sign-in is already in progress.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="671" />
+        <location filename="bridge/AuthBridge.py" line="668" />
         <source>The selected account no longer exists.</source>
         <translation>The selected account no longer exists.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="651" />
-        <location filename="bridge/AuthBridge.py" line="658" />
-        <location filename="bridge/AuthBridge.py" line="695" />
+        <location filename="bridge/AuthBridge.py" line="648" />
+        <location filename="bridge/AuthBridge.py" line="655" />
+        <location filename="bridge/AuthBridge.py" line="692" />
         <source>Please enter the password again.</source>
         <translation>Please enter the password again.</translation>
     </message>
@@ -1175,8 +1175,8 @@
 <context>
     <name>LoginWindow</name>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="201" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="268" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="187" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="254" />
         <source>Add another account</source>
         <translation>Add another account</translation>
     </message>
@@ -1189,51 +1189,51 @@
         <translation type="vanished">Use another account</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="76" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="62" />
         <source>Remove account</source>
         <translation>Remove account</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="77" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="63" />
         <source>This removes the saved sign-in information on this device. SmartTest business data will not be deleted.</source>
         <translation>This removes the saved sign-in information on this device. SmartTest business data will not be deleted.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="78" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="64" />
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="79" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="65" />
         <source>Remove</source>
         <translation>Remove</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="322" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="308" />
         <source>Save password</source>
         <translation>Save password</translation>
     </message>
     <message>
         <location filename="imports/example/qml/window/LoginWindow.qml" line="11" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="334" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="320" />
         <source>Login</source>
         <translation>Login</translation>
     </message>
     <message>
         <location filename="imports/example/qml/window/LoginWindow.qml" line="11" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="363" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="349" />
         <source>Account</source>
         <translation>Account</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="129" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="279" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="115" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="265" />
         <source>Please enter the account</source>
         <translation>Please enter the account</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="134" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="300" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="120" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="286" />
         <source>Please enter your password</source>
         <translation>Please enter your password</translation>
     </message>
@@ -1242,7 +1242,7 @@
         <translation type="vanished">LDAP Server: %1</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="510" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="496" />
         <source>Logout</source>
         <translation>Logout</translation>
     </message>
@@ -1251,27 +1251,27 @@
         <translation type="vanished">Signed out</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="430" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="416" />
         <source>Grade</source>
         <translation>Grade</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="443" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="429" />
         <source>Department</source>
         <translation>Department</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="453" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="439" />
         <source>Team</source>
         <translation>Team</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="478" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="464" />
         <source>Product Line</source>
         <translation>Product Line</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="462" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="448" />
         <source>Reports To</source>
         <translation>Reports To</translation>
     </message>
@@ -3767,52 +3767,52 @@ Some contents...</translation>
         <translation>DUT scoped</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1503" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1506" />
         <source>Add terminal</source>
         <translation type="unfinished">Add terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1519" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1522" />
         <source>Terminal</source>
         <translation type="unfinished">Terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1538" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1541" />
         <source>Wiring mode</source>
         <translation type="unfinished">Wiring mode</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1557" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1560" />
         <source>Press seconds</source>
         <translation type="unfinished">Press seconds</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1581" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1584" />
         <source>Remove terminal</source>
         <translation type="unfinished">Remove terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1610" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
         <source>Stop</source>
         <translation>Stop</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1610" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
         <source>Start</source>
         <translation>Start</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1617" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1620" />
         <source>Run</source>
         <translation>Run</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1679" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1682" />
         <source>Required Parameters</source>
         <translation>Required Parameters</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1681" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1684" />
         <source>OK</source>
         <translation>OK</translation>
     </message>
@@ -3912,63 +3912,63 @@ Some contents...</translation>
     </message>
     <message>
         <location filename="imports/example/qml/page/T_TestConfig.qml" line="683" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1676" />
         <source>Delete</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1624" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
         <source>Update Test Suite</source>
         <translation>Update Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1624" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
         <source>Save Test Suite</source>
         <translation>Save Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1626" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1672" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1629" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1675" />
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1630" />
         <source>Save</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1644" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1647" />
         <source>Suite name</source>
         <translation>Suite name</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1648" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1651" />
         <source>Enter a suite name</source>
         <translation>Enter a suite name</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1651" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1654" />
         <source>Description</source>
         <translation>Description</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1655" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1658" />
         <source>Optional description</source>
         <translation>Optional description</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1659" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1662" />
         <source>Share with other users</source>
         <translation>Share with other users</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1669" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1672" />
         <source>Delete Test Suite</source>
         <translation>Delete Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1670" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
         <source>Delete the selected test suite? This cannot be undone.</source>
         <translation>Delete the selected test suite? This cannot be undone.</translation>
     </message>
@@ -4872,6 +4872,22 @@ Some contents...</translation>
     <message>
         <source>test.param.iptv_middle_screen_114.playback_timeout_s.description</source>
         <translation>Enter how long to wait for the player to reach PLAYING.</translation>
+    </message>
+    <message>
+        <source>test.env.relay.type.custom_command</source>
+        <translation>Custom command / script</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.power_on_command.label</source>
+        <translation>Power-on command</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.power_off_command.label</source>
+        <translation>Power-off command</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.command.description</source>
+        <translation>Enter a complete command with arguments. Runs on the host executing the test; exit code 0 means success.</translation>
     </message>
 </context>
 <context>

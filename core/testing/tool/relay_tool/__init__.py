@@ -50,6 +50,14 @@ def get_relay_controller(
     if not relay_key:
         return None
 
+    if relay_key == "custom_command":
+        from .custom_command import CustomCommandRelay
+
+        return CustomCommandRelay(
+            power_on_command=kwargs.get("power_on_command", ""),
+            power_off_command=kwargs.get("power_off_command", ""),
+        )
+
     if relay_key == "usb_relay":
         from .usb_relay_controller import UsbRelayController
 

@@ -294,6 +294,10 @@ ENVIRONMENT_CONTRACTS: dict[str, EnvEquipmentContract] = {
                 EnvFieldContract(key="ip", value_type="string", default=""),
                 EnvFieldContract(key="port", value_type="int", default=1),
             ),
+            "custom_command": (
+                EnvFieldContract(key="power_on_command", value_type="string", default=""),
+                EnvFieldContract(key="power_off_command", value_type="string", default=""),
+            ),
         },
     ),
     "serial": EnvEquipmentContract(

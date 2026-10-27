@@ -143,28 +143,28 @@
 <context>
     <name>AuthBridge</name>
     <message>
-        <location filename="bridge/AuthBridge.py" line="555" />
-        <location filename="bridge/AuthBridge.py" line="634" />
+        <location filename="bridge/AuthBridge.py" line="552" />
+        <location filename="bridge/AuthBridge.py" line="631" />
         <source>Unable to connect to LDAP. Please try again later.</source>
         <translation>暂时无法连接 LDAP，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="518" />
+        <location filename="bridge/AuthBridge.py" line="515" />
         <source>Signing in...</source>
         <translation>正在登录...</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="557" />
+        <location filename="bridge/AuthBridge.py" line="554" />
         <source>Account or password is incorrect.</source>
         <translation>账号或密码错误。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="880" />
+        <location filename="bridge/AuthBridge.py" line="877" />
         <source>The account was removed, but its saved credential could not be deleted. Please retry.</source>
         <translation>账号已移除，但保存的凭据未能删除，请重试。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="628" />
+        <location filename="bridge/AuthBridge.py" line="625" />
         <source>Account or password cannot be empty.</source>
         <translation>账号或密码不能为空。</translation>
     </message>
@@ -181,31 +181,31 @@
         <translation type="vanished">LDAP 登录失败。请检查账号或密码。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="597" />
+        <location filename="bridge/AuthBridge.py" line="594" />
         <source>Sign-in successful. Welcome, {username}</source>
         <translation>登录成功，欢迎你，{username}</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="600" />
+        <location filename="bridge/AuthBridge.py" line="597" />
         <source>Signed in, but the password could not be saved.</source>
         <translation>已登录，但密码未能保存。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="620" />
-        <location filename="bridge/AuthBridge.py" line="648" />
-        <location filename="bridge/AuthBridge.py" line="838" />
+        <location filename="bridge/AuthBridge.py" line="617" />
+        <location filename="bridge/AuthBridge.py" line="645" />
+        <location filename="bridge/AuthBridge.py" line="835" />
         <source>Sign-in is already in progress.</source>
         <translation>正在登录，请稍候。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="671" />
+        <location filename="bridge/AuthBridge.py" line="668" />
         <source>The selected account no longer exists.</source>
         <translation>所选账号已不存在。</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="651" />
-        <location filename="bridge/AuthBridge.py" line="658" />
-        <location filename="bridge/AuthBridge.py" line="695" />
+        <location filename="bridge/AuthBridge.py" line="648" />
+        <location filename="bridge/AuthBridge.py" line="655" />
+        <location filename="bridge/AuthBridge.py" line="692" />
         <source>Please enter the password again.</source>
         <translation>请重新输入密码。</translation>
     </message>
@@ -1175,8 +1175,8 @@
 <context>
     <name>LoginWindow</name>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="201" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="268" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="187" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="254" />
         <source>Add another account</source>
         <translation>添加其他账号</translation>
     </message>
@@ -1189,51 +1189,51 @@
         <translation type="vanished">使用其他账号</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="76" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="62" />
         <source>Remove account</source>
         <translation>移除账号</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="77" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="63" />
         <source>This removes the saved sign-in information on this device. SmartTest business data will not be deleted.</source>
         <translation>这会移除此设备上保存的登录信息，但不会删除 SmartTest 业务数据。</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="78" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="64" />
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="79" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="65" />
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="322" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="308" />
         <source>Save password</source>
         <translation>保存密码</translation>
     </message>
     <message>
         <location filename="imports/example/qml/window/LoginWindow.qml" line="11" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="334" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="320" />
         <source>Login</source>
         <translation>登录</translation>
     </message>
     <message>
         <location filename="imports/example/qml/window/LoginWindow.qml" line="11" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="363" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="349" />
         <source>Account</source>
         <translation>账号</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="129" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="279" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="115" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="265" />
         <source>Please enter the account</source>
         <translation>请输入账号</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="134" />
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="300" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="120" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="286" />
         <source>Please enter your password</source>
         <translation>请输入您的密码</translation>
     </message>
@@ -1242,7 +1242,7 @@
         <translation type="vanished">LDAP 服务器：%1</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="510" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="496" />
         <source>Logout</source>
         <translation>退出登录</translation>
     </message>
@@ -1251,27 +1251,27 @@
         <translation type="vanished">已退出登录</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="430" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="416" />
         <source>Grade</source>
         <translation>职级</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="443" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="429" />
         <source>Department</source>
         <translation>部门</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="453" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="439" />
         <source>Team</source>
         <translation>团队</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="478" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="464" />
         <source>Product Line</source>
         <translation>产品线</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/window/LoginWindow.qml" line="462" />
+        <location filename="imports/example/qml/window/LoginWindow.qml" line="448" />
         <source>Reports To</source>
         <translation>直属上级</translation>
     </message>
@@ -3770,52 +3770,52 @@ Some contents...</source>
         <translation>DUT 维度</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1503" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1506" />
         <source>Add terminal</source>
         <translation type="unfinished">添加端子</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1519" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1522" />
         <source>Terminal</source>
         <translation type="unfinished">端子</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1538" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1541" />
         <source>Wiring mode</source>
         <translation type="unfinished">接线模式</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1557" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1560" />
         <source>Press seconds</source>
         <translation type="unfinished">按压秒数</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1581" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1584" />
         <source>Remove terminal</source>
         <translation type="unfinished">删除端子</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1610" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
         <source>Stop</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1610" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
         <source>Start</source>
         <translation>开始</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1617" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1620" />
         <source>Run</source>
         <translation>运行</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1679" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1682" />
         <source>Required Parameters</source>
         <translation>必填参数</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1681" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1684" />
         <source>OK</source>
         <translation>确定</translation>
     </message>
@@ -3915,63 +3915,63 @@ Some contents...</source>
     </message>
     <message>
         <location filename="imports/example/qml/page/T_TestConfig.qml" line="683" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1676" />
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1624" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
         <source>Update Test Suite</source>
         <translation>更新测试套件</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1624" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
         <source>Save Test Suite</source>
         <translation>保存测试套件</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1626" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1672" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1629" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1675" />
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1630" />
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1644" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1647" />
         <source>Suite name</source>
         <translation>套件名称</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1648" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1651" />
         <source>Enter a suite name</source>
         <translation>请输入套件名称</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1651" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1654" />
         <source>Description</source>
         <translation>说明</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1655" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1658" />
         <source>Optional description</source>
         <translation>选填说明</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1659" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1662" />
         <source>Share with other users</source>
         <translation>共享给其他用户</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1669" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1672" />
         <source>Delete Test Suite</source>
         <translation>删除测试套件</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1670" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
         <source>Delete the selected test suite? This cannot be undone.</source>
         <translation>确定删除所选测试套件吗？此操作无法撤销。</translation>
     </message>
@@ -4875,6 +4875,22 @@ Some contents...</source>
     <message>
         <source>test.param.iptv_middle_screen_114.playback_timeout_s.description</source>
         <translation>输入等待播放器进入 PLAYING 的最长时间。</translation>
+    </message>
+    <message>
+        <source>test.env.relay.type.custom_command</source>
+        <translation>自定义命令/脚本</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.power_on_command.label</source>
+        <translation>上电命令</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.power_off_command.label</source>
+        <translation>掉电命令</translation>
+    </message>
+    <message>
+        <source>test.env.relay.custom_command.command.description</source>
+        <translation>填写包含参数的完整命令。在运行测试的主机上执行；退出码 0 表示成功。</translation>
     </message>
 </context>
 <context>
