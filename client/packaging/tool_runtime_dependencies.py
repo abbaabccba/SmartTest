@@ -10,7 +10,9 @@ PYWIN32_RUNTIME_MODULES = (
     "win32timezone",
 )
 
-TOOL_HIDDEN_IMPORTS = PYWIN32_RUNTIME_MODULES + (
+WINDOWS_PAC_RUNTIME_MODULES = ("pypac", "dukpy", "dukpy._dukpy", "python_socks.sync")
+
+TOOL_HIDDEN_IMPORTS = PYWIN32_RUNTIME_MODULES + WINDOWS_PAC_RUNTIME_MODULES + (
     "ldap3",
     "tenacity",
     "markdown",
@@ -19,7 +21,7 @@ TOOL_HIDDEN_IMPORTS = PYWIN32_RUNTIME_MODULES + (
     "Crypto.Hash.MD4",
 )
 
-TOOL_SMOKE_MODULES = (
+TOOL_SMOKE_MODULES = WINDOWS_PAC_RUNTIME_MODULES + (
     "win32com.client",
     "win32cred",
     "win32timezone",

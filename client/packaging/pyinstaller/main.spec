@@ -18,6 +18,9 @@ def _find_repo_root(start_dir: str) -> str:
 
 
 repo_root = os.environ.get("SMARTTEST_REPO_ROOT") or _find_repo_root(os.getcwd())
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+from client.packaging.tool_runtime_dependencies import WINDOWS_PAC_RUNTIME_MODULES
 mainPath = os.path.join(repo_root, "client", "app", "main.py")
 ui_root = os.path.join(repo_root, "client", "app", "ui")
 test_catalog = os.path.join(repo_root, "build", "generated", "testing", "cases", "test_catalog.json")
@@ -124,8 +127,8 @@ a = Analysis(
         "numpy",
         "matplotlib",
         "mobile.android",
-    ],
-    hookspath=[],
+    ] + (list(WINDOWS_PAC_RUNTIME_MODULES) if sys.platform == "win32" else []),
+    hookspath=[os.path.join(repo_root, "client", "packaging", "pyinstaller", "hooks")],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],

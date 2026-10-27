@@ -159,6 +159,7 @@ class AuthBridge(QObject):
             host=LDAP_HOST, domain=LDAP_DOMAIN, server_factory=Server,
             connection_factory=Connection, authentication=NTLM, get_info=ALL,
             subtree=SUBTREE,
+            windows_pac=platform == "win32",
         )
         self._authenticationFinished.connect(self._finish_authentication)
         selected = self._account_store.get(self._selected_account_id)
