@@ -143,28 +143,28 @@
 <context>
     <name>AuthBridge</name>
     <message>
-        <location filename="bridge/AuthBridge.py" line="552" />
-        <location filename="bridge/AuthBridge.py" line="631" />
+        <location filename="bridge/AuthBridge.py" line="553" />
+        <location filename="bridge/AuthBridge.py" line="632" />
         <source>Unable to connect to LDAP. Please try again later.</source>
         <translation>Unable to connect to LDAP. Please try again later.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="515" />
+        <location filename="bridge/AuthBridge.py" line="516" />
         <source>Signing in...</source>
         <translation>Signing in...</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="554" />
+        <location filename="bridge/AuthBridge.py" line="555" />
         <source>Account or password is incorrect.</source>
         <translation>Account or password is incorrect.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="877" />
+        <location filename="bridge/AuthBridge.py" line="878" />
         <source>The account was removed, but its saved credential could not be deleted. Please retry.</source>
         <translation>The account was removed, but its saved credential could not be deleted. Please retry.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="625" />
+        <location filename="bridge/AuthBridge.py" line="626" />
         <source>Account or password cannot be empty.</source>
         <translation>Account or password cannot be empty.</translation>
     </message>
@@ -181,31 +181,31 @@
         <translation type="vanished">LDAP sign-in failed. Please check your account or password.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="594" />
+        <location filename="bridge/AuthBridge.py" line="595" />
         <source>Sign-in successful. Welcome, {username}</source>
         <translation>Sign-in successful. Welcome, {username}</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="597" />
+        <location filename="bridge/AuthBridge.py" line="598" />
         <source>Signed in, but the password could not be saved.</source>
         <translation>Signed in, but the password could not be saved.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="617" />
-        <location filename="bridge/AuthBridge.py" line="645" />
-        <location filename="bridge/AuthBridge.py" line="835" />
+        <location filename="bridge/AuthBridge.py" line="618" />
+        <location filename="bridge/AuthBridge.py" line="646" />
+        <location filename="bridge/AuthBridge.py" line="836" />
         <source>Sign-in is already in progress.</source>
         <translation>Sign-in is already in progress.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="668" />
+        <location filename="bridge/AuthBridge.py" line="669" />
         <source>The selected account no longer exists.</source>
         <translation>The selected account no longer exists.</translation>
     </message>
     <message>
-        <location filename="bridge/AuthBridge.py" line="648" />
-        <location filename="bridge/AuthBridge.py" line="655" />
-        <location filename="bridge/AuthBridge.py" line="692" />
+        <location filename="bridge/AuthBridge.py" line="649" />
+        <location filename="bridge/AuthBridge.py" line="656" />
+        <location filename="bridge/AuthBridge.py" line="693" />
         <source>Please enter the password again.</source>
         <translation>Please enter the password again.</translation>
     </message>
@@ -3660,42 +3660,42 @@ Some contents...</translation>
     </message>
     <message>
         <location filename="imports/example/qml/page/T_TestConfig.qml" line="145" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="461" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="487" />
         <source>Configured under DUT.</source>
         <translation>Configured under DUT.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="708" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="734" />
         <source>Test Cases</source>
         <translation>Test Cases</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="713" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="739" />
         <source>Filter by file...</source>
         <translation>Filter by file...</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="768" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="794" />
         <source>Selected (%1)</source>
         <translation>Selected (%1)</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="888" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="914" />
         <source>Case Parameters (%1)</source>
         <translation>Case Parameters (%1)</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="904" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="930" />
         <source>Select one or more test files to inspect the required parameters for each case.</source>
         <translation>Select one or more test files to inspect the required parameters for each case.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="955" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="981" />
         <source>No configurable parameters are required for this case.</source>
         <translation>No configurable parameters are required for this case.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="423" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="425" />
         <source>Enabled</source>
         <translation>Enabled</translation>
     </message>
@@ -3737,137 +3737,137 @@ Some contents...</translation>
 %1</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="423" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="425" />
         <source>Disabled</source>
         <translation>Disabled</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1011" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1037" />
         <source>DUT</source>
         <translation>DUT</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1020" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1046" />
         <source>Refresh</source>
         <translation>Refresh</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1125" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1151" />
         <source>No DUT</source>
         <translation>No DUT</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1186" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1212" />
         <source>Dynamic</source>
         <translation>Dynamic</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1191" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1217" />
         <source>DUT scoped</source>
         <translation>DUT scoped</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1506" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1532" />
         <source>Add terminal</source>
         <translation type="unfinished">Add terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1522" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1548" />
         <source>Terminal</source>
         <translation type="unfinished">Terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1541" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1567" />
         <source>Wiring mode</source>
         <translation type="unfinished">Wiring mode</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1560" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1586" />
         <source>Press seconds</source>
         <translation type="unfinished">Press seconds</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1584" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1610" />
         <source>Remove terminal</source>
         <translation type="unfinished">Remove terminal</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1639" />
         <source>Stop</source>
         <translation>Stop</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1613" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1639" />
         <source>Start</source>
         <translation>Start</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1620" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1646" />
         <source>Run</source>
         <translation>Run</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1682" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1708" />
         <source>Required Parameters</source>
         <translation>Required Parameters</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1684" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1710" />
         <source>OK</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1258" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1284" />
         <source>Env</source>
         <translation>Env</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1286" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1312" />
         <source>Type</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1029" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1055" />
         <source>Scanning ADB devices</source>
         <translation>Scanning ADB devices</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1030" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1056" />
         <source>The DUT list will be updated before Android Client preparation starts.</source>
         <translation>The DUT list will be updated before Android Client preparation starts.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1045" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1071" />
         <source>Phase: %1</source>
         <translation>Phase: %1</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1046" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1072" />
         <source>Progress: %1%</source>
         <translation>Progress: %1%</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="581" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="607" />
         <source>Test Suites</source>
         <translation>Test Suites</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="607" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="633" />
         <source>My Suites</source>
         <translation>My Suites</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="612" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="638" />
         <source>Shared Suites</source>
         <translation>Shared Suites</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="631" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="657" />
         <source>Search test suites...</source>
         <translation>Search test suites...</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="627" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="653" />
         <source>Loading test suites...</source>
         <translation>Loading test suites...</translation>
     </message>
@@ -3876,99 +3876,99 @@ Some contents...</translation>
         <translation type="vanished">Test suite service error: %1</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="657" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="683" />
         <source>%1 cases</source>
         <translation>%1 cases</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="665" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="691" />
         <source>No personal test suites yet.</source>
         <translation>No personal test suites yet.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="665" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="691" />
         <source>No shared test suites.</source>
         <translation>No shared test suites.</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="671" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="697" />
         <source>Load</source>
         <translation>Load</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="689" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="715" />
         <source>Save Current</source>
         <translation>Save Current</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="689" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="715" />
         <source>Save a Copy</source>
         <translation>Save a Copy</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="677" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="703" />
         <source>Update</source>
         <translation>Update</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="683" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1676" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="709" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1702" />
         <source>Delete</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1653" />
         <source>Update Test Suite</source>
         <translation>Update Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1627" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1653" />
         <source>Save Test Suite</source>
         <translation>Save Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1629" />
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1675" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1655" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1701" />
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1630" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1656" />
         <source>Save</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1647" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
         <source>Suite name</source>
         <translation>Suite name</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1651" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1677" />
         <source>Enter a suite name</source>
         <translation>Enter a suite name</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1654" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1680" />
         <source>Description</source>
         <translation>Description</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1658" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1684" />
         <source>Optional description</source>
         <translation>Optional description</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1662" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1688" />
         <source>Share with other users</source>
         <translation>Share with other users</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1672" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1698" />
         <source>Delete Test Suite</source>
         <translation>Delete Test Suite</translation>
     </message>
     <message>
-        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1673" />
+        <location filename="imports/example/qml/page/T_TestConfig.qml" line="1699" />
         <source>Delete the selected test suite? This cannot be undone.</source>
         <translation>Delete the selected test suite? This cannot be undone.</translation>
     </message>
@@ -4754,6 +4754,22 @@ Some contents...</translation>
         <translation>Select the DUT media files required by this case.</translation>
     </message>
     <message>
+        <source>test.param.iptv_middle_screen_067.image_viewers.label</source>
+        <translation>Image players</translation>
+    </message>
+    <message>
+        <source>test.param.iptv_middle_screen_067.image_viewers.description</source>
+        <translation>Select one or both image players. Each selected player is checked for successful launch and matching foreground Activity only.</translation>
+    </message>
+    <message>
+        <source>test.param.iptv_middle_screen_067.image_viewers.option.jarvis</source>
+        <translation>China Mobile Jarvis Player</translation>
+    </message>
+    <message>
+        <source>test.param.iptv_middle_screen_067.image_viewers.option.droidlogic</source>
+        <translation>Amlogic Player</translation>
+    </message>
+    <message>
         <source>test.param.iptv_middle_screen_068.media_files.label</source>
         <translation>Media files</translation>
     </message>
@@ -4875,19 +4891,19 @@ Some contents...</translation>
     </message>
     <message>
         <source>test.env.relay.type.custom_command</source>
-        <translation>Custom command / script</translation>
+        <translation type="vanished">Custom command / script</translation>
     </message>
     <message>
         <source>test.env.relay.custom_command.power_on_command.label</source>
-        <translation>Power-on command</translation>
+        <translation type="vanished">Power-on command</translation>
     </message>
     <message>
         <source>test.env.relay.custom_command.power_off_command.label</source>
-        <translation>Power-off command</translation>
+        <translation type="vanished">Power-off command</translation>
     </message>
     <message>
         <source>test.env.relay.custom_command.command.description</source>
-        <translation>Enter a complete command with arguments. Runs on the host executing the test; exit code 0 means success.</translation>
+        <translation type="vanished">Enter a complete command with arguments. Runs on the host executing the test; exit code 0 means success.</translation>
     </message>
 </context>
 <context>

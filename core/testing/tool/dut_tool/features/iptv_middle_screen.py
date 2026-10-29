@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import shlex
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -99,6 +100,30 @@ def observe_media_playback(dut, source, *, duration_s, poll_interval_s, assert_s
         step_evidence("播放状态采样", {"source": source, **samples[-1]}, evidence_type="checkpoint")
     return samples
 
+def _resumed_activity_components(output: str) -> list[str]:
+    resumed = re.findall(
+        r"\b(?:topResumedActivity|mResumedActivity|ResumedActivity)\s*[:=]\s*"
+        r"ActivityRecord\{\S+\s+u\d+\s+([^\s}]+)", output,
+    )
+    result = []
+    for item in resumed:
+        package, activity = item.split("/", 1)
+        result.append(package + "/" + (package + activity if activity.startswith(".") else activity))
+    return result
+
+
+def _exit_image_viewer(dut, expected: str, source_id: int) -> int:
+    for back_count in range(2):
+        actual = _resumed_activity_components(_shell(dut, "dumpsys activity activities", source_id))
+        if expected not in actual:
+            return back_count
+        dut.back()
+        time.sleep(0.5)
+    actual = _resumed_activity_components(_shell(dut, "dumpsys activity activities", source_id))
+    assert expected not in actual, f"Image viewer did not exit after two BACK actions: {expected}"
+    return 2
+
+
 def check_image(case, dut, params, serial):
     sources = [
         line.strip()
@@ -107,9 +132,42 @@ def check_image(case, dut, params, serial):
     ]
     if not sources:
         pytest.skip("configure workbook image paths")
+    selected_viewers = to_string_list(_case_param(case, params, "image_viewers", []))
+    assert selected_viewers, "Select at least one image viewer"
     for source in sources:
-        _shell(dut, f"am start -a android.intent.action.VIEW -d file://'{source}'", case.source_id)
-        assert _shell(dut, "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp'", case.source_id)
+        exists = _shell(dut, f"if test -f {shlex.quote(source)}; then echo exists; else echo missing; fi", case.source_id)
+        assert exists == "exists", f"Image file does not exist on DUT: {source}"
+        viewers = (
+            ("jarvis", "com.cmcc.jarvis/.setting.SettingImageShowActivity", f"--es img_path {shlex.quote(source)}"),
+            ("droidlogic", "com.droidlogic.imageplayer/.FullImageActivity",
+             f"-a android.intent.action.VIEW -d {shlex.quote('file://' + source)} -t 'image/*'"),
+        )
+        for viewer, component, arguments in viewers:
+            if viewer not in selected_viewers:
+                continue
+            output = _shell(dut, f"am start -W -n {component} {arguments}", case.source_id)
+            assert re.search(r"^Status:\s*ok\s*$", output, re.M), (
+                f"Image viewer launch failed: {source}, {component}: {output}"
+            )
+            package, activity = component.split("/", 1)
+            expected = package + "/" + package + activity
+            try:
+                actual = _resumed_activity_components(_shell(dut, "dumpsys activity activities", case.source_id))
+                assert expected in actual, (
+                    f"Image viewer is not resumed: {source}, expected={expected}, actual={actual}"
+                )
+                step_evidence("图片播放器启动检查", {
+                    "source": source, "viewer": viewer, "component": component, "launch_output": output,
+                    "resumed_activities": actual, "check": "launch_and_activity_only",
+                    "image_rendering_verified": False, "minimum_display_duration_s": 5,
+                }, evidence_type="checkpoint")
+                time.sleep(5)
+            finally:
+                back_actions = _exit_image_viewer(dut, expected, case.source_id)
+                step_evidence("图片播放器退出检查", {
+                    "source": source, "viewer": viewer, "component": component,
+                    "back_actions": back_actions, "exited": True,
+                }, evidence_type="checkpoint")
 
 
 def check_legacy_media(case, dut, params, serial):

@@ -406,7 +406,9 @@ FluPage {
                         textSpacing: 4
                         font: FluTextStyle.Caption
                         enabled: fieldData.readonly !== true
-                        text: modelData
+                        text: fieldData.enum_labels && fieldData.enum_labels[modelData] !== undefined
+                              ? displayText(fieldData.enum_labels[modelData], fieldData.enum_labels_source)
+                              : modelData
                         checked: {
                             var _version = stateVersion
                             return fieldListContains(fieldData, modelData)
@@ -432,19 +434,43 @@ FluPage {
                 Layout.preferredHeight: 76
                 placeholderText: fieldData.default !== undefined && fieldData.default !== null ? (fieldData.default + "") : ""
                 isCtrlEnterForNewline: true
-                Binding {
-                    target: multiline_text_param
-                    property: "text"
-                    when: multiline_text_param.visible && !multiline_text_param.activeFocus
-                    value: fieldTextValue(fieldData)
-                }
-                onTextChanged: saveValue(text)
-                onActiveFocusChanged: {
-                    if(!activeFocus){
-                        setValue(text)
+                property bool persistReady: false
+                property bool syncingFromState: false
+                function syncFromState(){
+                    if(!visible || activeFocus){
+                        return
+                    }
+                    var nextText = fieldTextValue(fieldData)
+                    if(text !== nextText){
+                        syncingFromState = true
+                        text = nextText
+                        syncingFromState = false
                     }
                 }
-                onCommit: setValue(text)
+                function persistValue(){
+                    if(!persistReady || syncingFromState || !visible){
+                        return
+                    }
+                    saveValue(text)
+                }
+                onTextChanged: persistValue()
+                Component.onCompleted: {
+                    syncFromState()
+                    persistReady = true
+                }
+                onVisibleChanged: syncFromState()
+                onActiveFocusChanged: {
+                    if(!activeFocus){
+                        persistValue()
+                    }
+                }
+                onCommit: persistValue()
+                Connections {
+                    target: page_root
+                    function onStateVersionChanged() {
+                        multiline_text_param.syncFromState()
+                    }
+                }
             }
 
             RowLayout{

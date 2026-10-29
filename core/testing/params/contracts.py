@@ -84,6 +84,7 @@ def _middle_screen_case_contracts() -> tuple[CaseContract, ...]:
         contracts.append(CaseContract((f"iptv_middle_screen_{source_id:03d}",), tuple(params)))
     contracts.append(CaseContract(("iptv_middle_screen_067",), (
         ParamContract(key(67, "media_files"), ParamValueType.MULTILINE, ParamCategory.EXECUTION, required_at_start=True),
+        ParamContract(key(67, "image_viewers"), ParamValueType.MULTI_ENUM, ParamCategory.EXECUTION, default=["jarvis", "droidlogic"], enum_values=("jarvis", "droidlogic"), required_at_start=True),
     )))
     for source_id in (68, 69):
         contracts.append(CaseContract((f"iptv_middle_screen_{source_id:03d}",), (

@@ -1012,6 +1012,11 @@ class TestPageBridge(QObject):
             "required": False,
             "enum_values": self._enum_values_for_field(field, nodeid=nodeid),
             "enum_values_source": "dynamic" if field.options_source else "fixed",
+            "enum_labels": {
+                value: self._param_text_key(field.key, f"option.{value}")
+                for value in field.enum_values
+            } if field.key == "iptv_middle_screen_067:image_viewers" else {},
+            "enum_labels_source": "fixed",
             "source_kind": str(getattr(field, "source_kind", "") or "user_input"),
             "options_source": field.options_source,
             "refreshes_options_sources": list(field.refreshes_options_sources),
