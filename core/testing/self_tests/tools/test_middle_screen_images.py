@@ -18,6 +18,8 @@ def test_image_viewers_require_successful_launch_and_exact_resumed_activity(monk
     def shell(command):
         nonlocal current
         commands.append(command)
+        if command == "pm list packages":
+            return "package:com.cmcc.jarvis\npackage:com.droidlogic.imageplayer"
         if command.startswith("if test -f"):
             assert shlex.split(command)[3].rstrip(";") == "/sdcard/a b.jpg"
             return "exists"
@@ -122,3 +124,48 @@ def test_missing_image_is_rejected_before_any_launch(monkeypatch):
             "iptv_middle_screen_067:image_viewers": ["jarvis", "droidlogic"],
         }, "dut")
     assert len(commands) == 1 and commands[0].startswith("if test -f")
+
+
+@pytest.mark.parametrize("installed,launch_ok", [
+    ([], True), (["com.droidlogic.imageplayer"], True), (["com.droidlogic.imageplayer"], False),
+])
+def test_missing_selected_viewers_are_skipped_without_masking_installed_failures(monkeypatch, installed, launch_ok):
+    commands = []
+    evidence = []
+    current = "com.launcher/.Home"
+
+    def shell(command):
+        nonlocal current
+        commands.append(command)
+        if command.startswith("if test -f"):
+            return "exists"
+        if command == "pm list packages":
+            return "\n".join("package:" + package for package in installed)
+        if command.startswith("am start"):
+            current = "com.droidlogic.imageplayer/.FullImageActivity"
+            return "Status: ok" if launch_ok else "Status: error"
+        return "topResumedActivity=ActivityRecord{abc u0 " + current + " t1}"
+
+    def back():
+        nonlocal current
+        current = "com.launcher/.Home"
+
+    monkeypatch.setattr(feature, "step_log", lambda *a, **kw: None)
+    monkeypatch.setattr(feature, "step_evidence", lambda *a, **kw: evidence.append(a[1]))
+    monkeypatch.setattr(feature.time, "sleep", lambda seconds: None)
+    dut = SimpleNamespace(run_device_shell=shell, back=back)
+    params = {"iptv_middle_screen_067:media_files": "/sdcard/cn.jpg",
+              "iptv_middle_screen_067:image_viewers": ["jarvis", "droidlogic"]}
+    if not installed:
+        with pytest.raises(pytest.skip.Exception, match="None of the selected"):
+            feature.check_image(SimpleNamespace(source_id=67), dut, params, "dut")
+        assert not any(command.startswith("am start") for command in commands)
+    elif not launch_ok:
+        with pytest.raises(AssertionError, match="launch failed"):
+            feature.check_image(SimpleNamespace(source_id=67), dut, params, "dut")
+    else:
+        feature.check_image(SimpleNamespace(source_id=67), dut, params, "dut")
+        assert [item["viewer"] for item in evidence if item.get("exited")] == ["droidlogic"]
+    skipped = [item for item in evidence if item.get("status") == "skipped"]
+    assert [item["viewer"] for item in skipped] == (["jarvis"] if installed else ["jarvis", "droidlogic"])
+    assert all(item["reason"] == "package_not_installed" and item["package"] and item["component"] and item["source"] for item in skipped)

@@ -11,6 +11,7 @@ import pytest
 
 from core.testing.runtime.steps import step_evidence, step_log
 from core.config.value_conversion import to_float, to_int, to_string_list
+from core.testing.tool.dut_tool.features.system import package_exists
 
 
 TARGET_SOURCE_IDS = frozenset((4, 10, 18, 20, 21, 29, 31, 32, 33, 49, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 95, 96, 97, 98, 114))
@@ -134,6 +135,7 @@ def check_image(case, dut, params, serial):
         pytest.skip("configure workbook image paths")
     selected_viewers = to_string_list(_case_param(case, params, "image_viewers", []))
     assert selected_viewers, "Select at least one image viewer"
+    executed = False
     for source in sources:
         exists = _shell(dut, f"if test -f {shlex.quote(source)}; then echo exists; else echo missing; fi", case.source_id)
         assert exists == "exists", f"Image file does not exist on DUT: {source}"
@@ -145,11 +147,18 @@ def check_image(case, dut, params, serial):
         for viewer, component, arguments in viewers:
             if viewer not in selected_viewers:
                 continue
+            package, activity = component.split("/", 1)
+            if not package_exists(dut, package):
+                step_evidence("图片播放器跳过", {
+                    "source": source, "viewer": viewer, "component": component,
+                    "package": package, "status": "skipped", "reason": "package_not_installed",
+                }, evidence_type="checkpoint")
+                continue
+            executed = True
             output = _shell(dut, f"am start -W -n {component} {arguments}", case.source_id)
             assert re.search(r"^Status:\s*ok\s*$", output, re.M), (
                 f"Image viewer launch failed: {source}, {component}: {output}"
             )
-            package, activity = component.split("/", 1)
             expected = package + "/" + package + activity
             try:
                 actual = _resumed_activity_components(_shell(dut, "dumpsys activity activities", case.source_id))
@@ -168,6 +177,8 @@ def check_image(case, dut, params, serial):
                     "source": source, "viewer": viewer, "component": component,
                     "back_actions": back_actions, "exited": True,
                 }, evidence_type="checkpoint")
+    if not executed:
+        pytest.skip("None of the selected image viewer packages is installed on DUT")
 
 
 def check_legacy_media(case, dut, params, serial):
